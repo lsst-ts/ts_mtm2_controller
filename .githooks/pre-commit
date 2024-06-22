@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "Formatting Rust code with rustfmt."
+find src/ -name '*.rs' -exec rustfmt {} +
