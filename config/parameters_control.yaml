@@ -1,0 +1,191 @@
+---
+# Control parameters
+
+mirror_weight_kg: 1588.65
+
+# Limits of force in Newton
+limit_force_axial_closed_loop: 444.82  # 100 lbf
+
+# Smaller than limit_force_tangent_open_loop by ~200 N to give some buffer
+limit_force_tangent_closed_loop: 5800.0
+
+limit_force_axial_open_loop: 489.3  # 110 lbf
+
+limit_force_tangent_open_loop: 6005.1  # 1350 lbf
+
+max_limit_force_axial_open_loop: 622.75  # 140 lbf
+
+# Add the buffer of (200 lbf / 4) to each tangent link
+# compared with limit_force_tangent_open_loop.
+max_limit_force_tangent_open_loop: 6227.51  # 1400 lbf
+
+# Thresholds of the force errors of the tangent links in
+# TangentLoadCellFaultDetection.vi in ts_mtm2 LabVIEW project.
+# The unit is Newton.
+
+# The excess mass contains both the "dynamic load" and "actual weight error".
+# For the dynamic load, consider the TMA acceleration at 100% value is ~0.06 g.
+# Therefore the dynamic force = mirror_weight_kg * 9.8 * 0.06 ~ 934.13 N.
+# That leaves ~1000 N for the "actual weight error" component in the total
+# error budget of 2000 N.
+tangent_link_total_weight_error: 2000.0
+
+tangent_link_load_bearing_link: 2000.0
+tangent_link_theta_z_moment: 1000.0
+tangent_link_non_load_bearing_link: 2000.0
+
+# Default inclinometer offset with the telescope mount assembly.
+inclinometer_offset: 0.94
+
+# Reference ring temperature in degree Celsius.
+# The order is the same as the ring temperature.
+ref_temperature: [21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0, 21.0]
+
+# Enable the temperature LUT or not.
+enable_lut_temperature: false
+
+# Use the external elevation angle or not (e.g. TMA).
+use_external_elevation_angle: false
+
+# Enable the comparison between the internal and external elevation angles
+# or not.
+enable_angle_comparison: false
+
+# Maximum angle difference between the internal and external elevation angles in
+# degree.
+max_angle_difference: 2.0
+
+# Maximum temperature difference between the cells (intakes and exhausts) in
+# degree Celsius.
+max_cell_temperature_difference: 2.0
+
+# 0-based bypassed actuator inner-loop controllers (ILCs). The bypassed actuator
+# ILCs needs to be the hardpoints.
+bypassed_actuator_ilcs: []
+
+# 0-based hardpoints from low to high. The first 3 hardpoints are the axial
+# actuators, and the last 3 hardpoints are the tangent links.
+hardpoints: [5, 15, 25, 73, 75, 77]
+
+# Control frequency in Hz.
+control_frequency: 20.0
+
+# Enabled faults mask as a 64-bit unsigned integer.
+# This value should be a hexadecimal number (0x...).
+enabled_faults_mask: 0xff800003fffffff8
+
+# Maximum count that the control loop can be out of time (1/control_frequency).
+max_out_cycle_time: 3
+
+# Command pre-filter parameters in biquadratic filters
+
+# Compact biquadratic format:
+#                1 + b11 z^-1 + b21 z^-2   1 + b12 z^-1 + b22 z^-2
+# H(z) = gain * (-----------------------) (-----------------------) ...
+#                1 + a11 z^-1 + a21 z^-2   1 + a12 z^-1 + a22 z^-2
+#        1 + b1N z^-1 + b2N z^-2
+#        (-----------------------)
+#        1 + a1N z^-1 + a2N z^-2
+
+# Gain
+command_prefilter_params_gain: 1.0
+
+# Coefficients. The format is:
+# [[a11 a21 b11 b21], [a12 a22 b12 b22], ..., [a1N a2N b1N b2N]]
+# There are 32 coefficients in total (aka. 8 biquadratic filters).
+# Currently, pre-filter is a pass-through filter.
+command_prefilter_params_coefficients: [[0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0],
+                                        [0.0, 0.0, 0.0, 0.0]]
+
+# Force control filter parameters in biquadratic filters
+
+# Gain
+# basic_gain = 0.285
+# For mirror, gain = basic_gain * 1.0593 * 1.0902
+# For surrogate, gain = basic_gain * 1.1885
+force_control_filter_params_gain_mirror: 0.3291319251
+force_control_filter_params_gain_surrogate: 0.3387225
+
+# Coefficients. The format is:
+# [[a11 a21 b11 b21], [a12 a22 b12 b22], ..., [a1N a2N b1N b2N]]
+# There are 32 coefficients in total (aka. 8 biquadratic filters).
+# Currently, control filter is a pass-through filter.
+force_control_filter_params_coefficients: [[0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0],
+                                           [0.0, 0.0, 0.0, 0.0]]
+
+# The [lower, upper] thresholds of the axial hardpoint error in deadzone.
+# The unit is Newton.
+thresholds_deadzone_axial: [0.0, 0.0]
+
+# The [lower, upper] thresholds of the tangent hardpoint error in deadzone.
+# The unit is Newton.
+thresholds_deadzone_tangent: [0.0, 0.0]
+
+# Minimum gain for the axial actuators in the gain schedular.
+# The value should be in (0.0, 1.0).
+min_gain_schedular_axial: 0.28
+
+# Minimum gain for the tangent actuators in the gain schedular.
+# The value should be in (0.0, 1.0).
+min_gain_schedular_tangent: 0.1
+
+# Number of samples in the ramping up process in the gain schedular.
+# This value can not be 0.
+num_sample_ramp_up: 1
+
+# Number of samples in the ramping down process in the gain schedular.
+# This value can not be 0.
+num_sample_ramp_down: 10
+
+# Maximum number of samples in the settling process in the gain schedular.
+# This value can not be 0.
+max_sample_settle: 40
+
+# Step limit of the axial actuator in each control cycle in a passive way.
+step_limit_axial_passive: 75
+
+# Step limit of the tangent actuator in each control cycle in a passive way.
+step_limit_tangent_passive: 75
+
+# Step limit of the axial actuator in each control cycle in an active way.
+# This is the limit when the system is under the open-loop control.
+step_limit_axial_active: 40
+
+# Step limit of the tangent actuator in each control cycle in an active way.
+# This is the limit when the system is under the open-loop control.
+step_limit_tangent_active: 40
+
+# Window size in second to judge the mirror is in position or not.
+in_position_window_size: 1.0
+
+# Threshold of the force error of axial actuator in Newton to judge the mirror
+# is in position or not.
+in_position_threshold_axial: 1.5
+
+# Threshold of the force error of tangent actuator in Newton to judge the mirror
+# is in position or not.
+in_position_threshold_tangent: 10.0
+
+# Do the feedforward loop or not.
+is_feedforward: true
+
+# Do the feedback loop or not.
+is_feedback: true
+
+# Deadzone is enabled or not for the axial hardpoints.
+is_deadzone_enabled_axial: true
+
+# Deadzone is enabled or not for the tangent hardpoints.
+is_deadzone_enabled_tangent: true

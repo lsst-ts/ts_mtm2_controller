@@ -1,0 +1,26 @@
+---
+# Application parameters
+
+# Log the local telemetry file or not
+local_telemetry_file: false
+
+# Command and telemetry ports for the GUI (graphical user interface) and
+# CSC (commandable SAL component) clients
+port_command_gui: 50010
+port_telemetry_gui: 50011
+
+port_command_csc: 50000
+port_telemetry_csc: 50001
+
+# Timeout in milliseconds
+timeout: 100
+
+# Is the application running in the mirror mode? If not, it is running with the
+# surrogate. The main difference is the control parameters.
+is_mirror: true
+
+# Look-up table (LUT) directory under the "config/lut/" directory.
+lut: "optical"
+
+# Number of digits for the telemetry
+telemetry_digit: 2

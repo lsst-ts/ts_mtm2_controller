@@ -1,0 +1,72 @@
+---
+# Power parameters
+
+# Process loop time in millisecond. All the times in this file should be
+# divisible by this value.
+# 100 Hz = 10 ms
+loop_time: 10
+
+# Telemetry transmission period in millisecond.
+# 20 Hz = 50 ms
+period_telemetry: 50
+
+# Period to toggle the closed-loop control bit in millisecond.
+# 10 Hz = 100 ms
+period_toggle_closed_loop_control_bit: 100
+
+# Norminal voltage for the 24V power supply in volt.
+norminal_voltage: 24.0
+
+# Output voltage off level in volt.
+output_voltage_off_level: 12.0
+
+# 24V accuracy warning level in percent.
+warning_voltage_level: 5.0
+
+# 24V accuracy fault level in percent.
+fault_voltage_level: 10.0
+
+# Communication and motor excessive currents in amperes.
+excessive_current_communication: 10.0
+excessive_current_motor: 20.0
+
+# Calibration gain and offset for the motor current.
+current_gain_motor: 5.0
+current_offset_motor: 0.0
+
+# Breaker operating voltage rise time in millisecond for the communication and
+# motor.
+breaker_voltage_rise_time_communication: 30
+breaker_voltage_rise_time_motor: 90
+
+# Output voltage settling time in millisecond for the communication and motor.
+output_voltage_settling_time_communication: 10
+output_voltage_settling_time_motor: 20
+
+# Output voltage fall time in millisecond for the communication and motor.
+output_voltage_fall_time_communication: 50
+output_voltage_fall_time_motor: 300
+
+# The physical amounts of time in millisecond that they take for the power
+# relay to open and closed its contacts. These values are common to both motor 
+# and communication power buses since they use the same relay type.
+relay_open_delay: 30
+relay_close_delay: 50
+
+# The minimum amount of time in millisecond that it takes to reset a breaker
+# electronically.
+reset_breaker_pulse_width: 400
+
+# The amount of time in millisecond that it takes for the breaker to power up
+# and stabilize its operating status once its operating voltage is achieved.
+breaker_on_time: 500
+
+# Specifies the minimum voltage level, plus some hysteresis, required to operate
+# the electronic breakers.
+breaker_operating_voltage: 19.0
+
+# The maximum amount of time in millisecond from when the cRIO's motor power on
+# digital output is asserted on until the interlock device turns on/off the
+# motor power relay. This value is dependent on the interlock's device
+# programming.
+interlock_output_delay: 50
