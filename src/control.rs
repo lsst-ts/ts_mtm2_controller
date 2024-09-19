@@ -5,4 +5,5 @@ pub mod gain_schedular;
 pub mod in_position;
 pub mod lut;
 pub mod math_tool;
+pub mod open_loop;
 pub mod simple_delay_filter;
