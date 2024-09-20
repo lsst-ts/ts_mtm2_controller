@@ -7,6 +7,7 @@ pub mod config;
 pub mod constants;
 pub mod control;
 pub mod enums;
+pub mod error_handler;
 pub mod mock;
 pub mod telemetry;
 pub mod utility;
