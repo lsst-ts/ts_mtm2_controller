@@ -13,6 +13,7 @@ pub mod error_handler;
 pub mod event_queue;
 pub mod interface;
 pub mod mock;
+pub mod model;
 pub mod power;
 pub mod status;
 pub mod telemetry;
