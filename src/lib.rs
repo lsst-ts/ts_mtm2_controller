@@ -9,5 +9,6 @@ pub mod control;
 pub mod enums;
 pub mod error_handler;
 pub mod mock;
+pub mod power;
 pub mod telemetry;
 pub mod utility;
