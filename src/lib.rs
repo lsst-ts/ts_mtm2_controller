@@ -7,4 +7,5 @@ pub mod constants;
 pub mod control;
 pub mod enums;
 pub mod mock;
+pub mod telemetry;
 pub mod utility;
