@@ -3,6 +3,7 @@
 //! This library is a collection of control system algorithms for the M2
 //! mirror control system.
 pub mod application;
+pub mod command;
 pub mod config;
 pub mod constants;
 pub mod control;
