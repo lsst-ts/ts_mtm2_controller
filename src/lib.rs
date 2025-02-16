@@ -7,6 +7,7 @@ pub mod command;
 pub mod config;
 pub mod constants;
 pub mod control;
+pub mod controller;
 pub mod enums;
 pub mod error_handler;
 pub mod event_queue;
