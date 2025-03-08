@@ -12,5 +12,6 @@ pub mod error_handler;
 pub mod interface;
 pub mod mock;
 pub mod power;
+pub mod status;
 pub mod telemetry;
 pub mod utility;
