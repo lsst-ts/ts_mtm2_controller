@@ -702,12 +702,15 @@ mod tests {
     #[test]
     fn test_get_message_configuration_files() {
         let config = create_config();
-        assert_eq!(
-            Event::get_message_configuration_files(&config.filename),
-            json!({
-                "id": "configurationFiles",
-                "files": vec!["handling", "optical"],
-            })
-        );
+
+        let event = Event::get_message_configuration_files(&config.filename);
+
+        assert_eq!(event["id"], "configurationFiles");
+
+        let files = event["files"].as_array().unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&json!("handling")));
+        assert!(files.contains(&json!("optical")));
     }
 }
