@@ -54,19 +54,30 @@ To format the code, do:
 .githooks/pre-commit
 ```
 
+## Docker File
+
+The docker file is [here](dockerImage/Dockerfile) that contains the dependencies to generate the test and coverage reports to support the CI integration.
+
 ## Unit Test
 
 Each module and function have the related unit tests.
+Since the CI test is needed, you can use the [cargo-nextest](https://crates.io/crates/cargo-nextest) instead of the built-in test framework.
 Do the following to run all tests:
 
 ```bash
-cargo test
+cargo nextest run
 ```
 
 To test a single module, do:
 
 ```bash
-cargo test --lib $module_name
+cargo nextest run --lib $module_name
+```
+
+To generate the `junit.xml` (ouput path is `target/nextest/ci/junit.xml`), do:
+
+```bash
+cargo nextest run --profile ci
 ```
 
 ## Software Architecture
