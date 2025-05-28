@@ -1,0 +1,27 @@
+---
+# Actuator data
+
+# Actuator model
+model: "14902-1200"
+actuator_serial_number: "013"
+
+# Load cell
+cell_serial_number: "750141"
+# Sensitivity (mV/V)
+cell_sensitivity: 1.58741
+
+# Encoder limit
+encoder_limit_extend: 1800352
+encoder_limit_retract: -1798168
+
+# Displacement data (m)
+displacement_limit_extend: 0.0108756
+displacement_limit_retract: 0.0020995
+displacement_range: 0.0087761
+
+# Displacement gain
+
+# Step (mm/step)
+gain_step_to_mm: 1.997307138e-05
+# Encoder (count/step)
+gain_step_to_count: 8.188790108473
