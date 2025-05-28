@@ -37,6 +37,7 @@ CommandSchema "1" *-- "n" CommandController
 namespace control {
   class Lut
   class ControlLoopProcess
+  class Actuator
 }
 
 namespace power {
@@ -82,6 +83,7 @@ Config *-- Lut
 
 ErrorHandler *-- Config
 ErrorHandler *-- ConfigPower
+ErrorHandler "1" *-- "78" Actuator
 ErrorHandler ..> TelemetryControlLoop
 ```
 
@@ -186,6 +188,8 @@ ClosedLoop *-- GainSchedular
 ClosedLoop *-- InPosition
 
 BiquadraticFilter "1" *-- "n" SingleBiquadraticFilter
+
+OpenLoop "1" *-- "78" Actuator
 ```
 
 ## Interface
