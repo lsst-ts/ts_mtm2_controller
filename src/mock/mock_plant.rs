@@ -34,8 +34,8 @@ use crate::enums::{
     BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode,
 };
 use crate::mock::mock_constants::{
-    PLANT_CURRENT_COMMUNICATION, PLANT_CURRENT_MOTOR, PLANT_STEP_TO_MM, PLANT_TEMPERATURE_HIGH,
-    PLANT_TEMPERATURE_LOW, PLANT_VOLTAGE,
+    PLANT_CURRENT_COMMUNICATION, PLANT_CURRENT_MOTOR, PLANT_STEP_TO_ENCODER,
+    PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, PLANT_VOLTAGE,
 };
 use crate::mock::mock_inner_loop_controller::MockInnerLoopController;
 use crate::utility::{get_parameter, read_file_disp_ims};
@@ -276,11 +276,35 @@ impl MockPlant {
         );
     }
 
+    /// Get the inner-loop controller (ILC) data of 78 actuators.
+    ///
+    /// # Returns
+    /// A tuple containing the ILC status, actuator encoders, and actuator
+    /// forces.
+    pub fn get_actuator_ilc_data(&mut self) -> (Vec<u8>, Vec<i32>, Vec<f64>) {
+        (
+            self.get_actuator_ilc_status(),
+            self.get_actuator_encoders(),
+            self.get_actuator_forces(),
+        )
+    }
+
+    /// Get the actuator encoder values.
+    ///
+    /// # Returns
+    /// A vector of actuator encoder values in count.
+    fn get_actuator_encoders(&self) -> Vec<i32> {
+        self.actuator_steps
+            .iter()
+            .map(|x| ((*x as f64) * PLANT_STEP_TO_ENCODER) as i32)
+            .collect()
+    }
+
     /// Get the actuator forces.
     ///
     /// # Returns
     /// A vector of actuator forces in Newton.
-    pub fn get_actuator_forces(&self) -> Vec<f64> {
+    fn get_actuator_forces(&self) -> Vec<f64> {
         let forces = self
             ._actuator_force_weight
             .iter()
@@ -289,20 +313,6 @@ impl MockPlant {
             .collect();
 
         forces
-    }
-
-    /// Get the actuator positions in millimeter.
-    ///
-    /// # Returns
-    /// A vector of actuator positions in millimeter.
-    pub fn get_actuator_positions(&self) -> Vec<f64> {
-        let positions = self
-            .actuator_steps
-            .iter()
-            .map(|&x| (x as f64) * PLANT_STEP_TO_MM)
-            .collect();
-
-        positions
     }
 
     /// Reset the actuator steps to zero.
@@ -380,7 +390,7 @@ impl MockPlant {
     ///
     /// # Returns
     /// A vector of the status of 78 actuator inner-loop controllers.
-    pub fn get_ilc_status(&mut self) -> Vec<u8> {
+    fn get_actuator_ilc_status(&mut self) -> Vec<u8> {
         let mut ilc_status = vec![0; NUM_ACTUATOR];
         if self.is_power_on_communication {
             for (idx, ilc) in self._ilcs.iter_mut().enumerate() {
@@ -577,6 +587,29 @@ mod tests {
     }
 
     #[test]
+    fn test_get_actuator_ilc_data() {
+        let mut mock_plant = create_mock_plant();
+
+        let (ilc_status, encoders, forces) = mock_plant.get_actuator_ilc_data();
+
+        assert_eq!(ilc_status.len(), NUM_ACTUATOR);
+        assert_eq!(encoders.len(), NUM_ACTUATOR);
+        assert_eq!(forces.len(), NUM_ACTUATOR);
+    }
+
+    #[test]
+    fn test_get_actuator_encoders() {
+        let mut mock_plant = create_mock_plant();
+        mock_plant.actuator_steps[0] = 1;
+        mock_plant.actuator_steps[1] = -1;
+
+        let encoders = mock_plant.get_actuator_encoders();
+
+        assert_eq!(encoders[0], PLANT_STEP_TO_ENCODER as i32);
+        assert_eq!(encoders[1], -PLANT_STEP_TO_ENCODER as i32);
+    }
+
+    #[test]
     fn test_get_actuator_forces() {
         let mut mock_plant = create_mock_plant();
         mock_plant.set_inclinometer_angle(89.06);
@@ -586,16 +619,6 @@ mod tests {
 
         assert_relative_eq!(forces[0], 218.3329167, epsilon = EPSILON);
         assert_relative_eq!(forces[1], 216.2329167, epsilon = EPSILON);
-    }
-
-    #[test]
-    fn test_get_actuator_positions() {
-        let mut mock_plant = create_mock_plant();
-        mock_plant.actuator_steps[0] = 1;
-
-        let positions = mock_plant.get_actuator_positions();
-
-        assert_eq!(positions[0], PLANT_STEP_TO_MM);
     }
 
     #[test]
@@ -688,17 +711,17 @@ mod tests {
     }
 
     #[test]
-    fn test_get_ilc_status() {
+    fn test_get_actuator_ilc_status() {
         let mut mock_plant = create_mock_plant();
 
         // No communication power
-        assert_eq!(mock_plant.get_ilc_status(), vec![0; NUM_ACTUATOR]);
+        assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
 
         // With communication power
         mock_plant.is_power_on_communication = true;
 
-        assert_eq!(mock_plant.get_ilc_status(), vec![0; NUM_ACTUATOR]);
-        assert_eq!(mock_plant.get_ilc_status(), vec![16; NUM_ACTUATOR]);
+        assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
+        assert_eq!(mock_plant.get_actuator_ilc_status(), vec![16; NUM_ACTUATOR]);
     }
 
     #[test]

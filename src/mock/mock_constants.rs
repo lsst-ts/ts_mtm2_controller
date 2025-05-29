@@ -19,10 +19,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// 1 step equals 1.9967536601e-5 millimeter
 // In the simulation, we just use a single value. In the real system, each
 // actuator has its own calibrated value.
-pub const PLANT_STEP_TO_MM: f64 = 1.9967536601e-5;
+pub const PLANT_STEP_TO_ENCODER: f64 = 8.19;
 
 // Temperature in Celsius
 pub const PLANT_TEMPERATURE_HIGH: f64 = 26.53;
