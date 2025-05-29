@@ -21,10 +21,12 @@
 
 use log::{error, warn};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use strum::IntoEnumIterator;
 
 use crate::config::Config;
 use crate::constants::NUM_AXIAL_ACTUATOR;
+use crate::control::actuator::Actuator;
 use crate::enums::{BitEnum, ErrorCode};
 use crate::power::config_power::ConfigPower;
 use crate::telemetry::{
@@ -36,6 +38,8 @@ pub struct ErrorHandler {
     pub config_control_loop: Config,
     // Configuration of the power system.
     pub config_power: ConfigPower,
+    // Actuators
+    pub actuators: Vec<Actuator>,
     // Summary of the faults status.
     pub summary_faults_status: u64,
     _faults_mask: u64,
@@ -66,6 +70,9 @@ impl ErrorHandler {
         Self {
             config_control_loop: config_control_loop.clone(),
             config_power: ConfigPower::new(),
+            actuators: Actuator::from_cell_mapping_file(Path::new(
+                "config/cell/cell_actuator_mapping.yaml",
+            )),
             summary_faults_status: 0,
             _faults_mask: Self::get_faults_mask(),
             ilc: ilc,
@@ -184,7 +191,7 @@ impl ErrorHandler {
         telemetry: &TelemetryControlLoop,
         is_closed_loop: bool,
     ) {
-        self.check_ilc_data(&telemetry.ilc_data);
+        self.check_ilc_status(&telemetry.ilc_status);
         if self.ilc["fault"].len() > 0 {
             self.add_error(ErrorCode::FaultActuatorIlcRead);
         }
@@ -199,6 +206,13 @@ impl ErrorHandler {
             };
 
             self.add_error(error_code_limit_switch);
+        }
+
+        if self.is_encoder_out_limit(&telemetry.ilc_encoders, true) {
+            self.add_error(ErrorCode::FaultAxialActuatorEncoderRange);
+        }
+        if self.is_encoder_out_limit(&telemetry.ilc_encoders, false) {
+            self.add_error(ErrorCode::FaultTangentActuatorEncoderRange);
         }
 
         if self.is_actuator_force_out_limit(&telemetry.forces["measured"], is_closed_loop) {
@@ -226,13 +240,16 @@ impl ErrorHandler {
         self.check_cycle_time(telemetry.cycle_time);
     }
 
-    /// Check the inner loop controller (ILC) data.
-    fn check_ilc_data(&mut self, ilc_data: &Vec<u8>) {
+    /// Check the inner loop controller (ILC) status.
+    ///
+    /// # Arguments
+    /// * `ilc_status` - The ILC status.
+    fn check_ilc_status(&mut self, ilc_status: &Vec<u8>) {
         let mut fault: Vec<i32> = Vec::new();
         let mut limit_switch_retract: Vec<i32> = Vec::new();
         let mut limit_switch_extend: Vec<i32> = Vec::new();
         // The bit mask here is based on the LTS-346.
-        for (idx, data) in ilc_data.iter().enumerate() {
+        for (idx, data) in ilc_status.iter().enumerate() {
             // Bit 0
             if *data & 0b0000_0001 != 0 {
                 fault.push(idx as i32);
@@ -256,6 +273,33 @@ impl ErrorHandler {
         if let Some(set_limit_switch_extend) = self.ilc.get_mut("limit_switch_extend") {
             set_limit_switch_extend.extend(limit_switch_extend);
         }
+    }
+
+    /// The encoder value is out of limit or not.
+    ///
+    /// # Arguments
+    /// * `encoders`: The 78 encoder values to check.
+    /// * `is_axial`: Is the encoder for axial actuator or not. If not, it
+    /// is for tangent actuator.
+    ///
+    /// # Returns
+    /// True if any of the encoders is out of limit. Otherwise, False.
+    fn is_encoder_out_limit(&mut self, encoders: &Vec<i32>, is_axial: bool) -> bool {
+        if is_axial {
+            for (idx, encoder) in encoders[0..NUM_AXIAL_ACTUATOR].iter().enumerate() {
+                if self.actuators[idx].is_encoder_out_limit(*encoder) {
+                    return true;
+                }
+            }
+        } else {
+            for (idx, encoder) in encoders[NUM_AXIAL_ACTUATOR..].iter().enumerate() {
+                if self.actuators[NUM_AXIAL_ACTUATOR + idx].is_encoder_out_limit(*encoder) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// The actuator force is out of limit or not.
@@ -577,14 +621,15 @@ mod tests {
     #[test]
     fn test_check_condition_control_loop() {
         let mut error_handler = create_error_handler();
-        error_handler.update_enabled_faults_mask(0b1111000);
 
         let mut telemetry = TelemetryControlLoop::new();
         if let Some(value) = telemetry.forces.get_mut("measured") {
             value[1] = 1000.0;
         }
-        telemetry.ilc_data = vec![0b0000_0000; NUM_ACTUATOR];
-        telemetry.ilc_data[0..3].copy_from_slice(&[0b0000_0100, 0b0000_1001, 0b0000_1101]);
+        telemetry.ilc_status[0..3].copy_from_slice(&[0b0000_0100, 0b0000_1001, 0b0000_1101]);
+
+        telemetry.ilc_encoders[0] = 100000000;
+        telemetry.ilc_encoders[NUM_AXIAL_ACTUATOR] = 100000000;
 
         error_handler.check_condition_control_loop(&telemetry, true);
 
@@ -592,6 +637,8 @@ mod tests {
             ErrorCode::FaultActuatorIlcRead,
             ErrorCode::FaultActuatorLimitCL,
             ErrorCode::FaultExcessiveForce,
+            ErrorCode::FaultAxialActuatorEncoderRange,
+            ErrorCode::FaultTangentActuatorEncoderRange,
         ]
         .iter()
         .fold(0, |acc, error_code| acc + error_code.bit_value());
@@ -600,14 +647,14 @@ mod tests {
     }
 
     #[test]
-    fn test_check_ilc_data() {
+    fn test_check_ilc_status() {
         let mut error_handler = create_error_handler();
-        let ilc_data = vec![0b0000_0100, 0b0000_1001, 0b0000_1101];
+        let ilc_status = vec![0b0000_0100, 0b0000_1001, 0b0000_1101];
 
-        error_handler.check_ilc_data(&ilc_data);
+        error_handler.check_ilc_status(&ilc_status);
 
         // Make sure the elements in set should be unique.
-        error_handler.check_ilc_data(&ilc_data);
+        error_handler.check_ilc_status(&ilc_status);
 
         assert_eq!(error_handler.ilc["fault"], HashSet::from([1, 2]));
         assert_eq!(
@@ -618,6 +665,36 @@ mod tests {
             error_handler.ilc["limit_switch_extend"],
             HashSet::from([1, 2])
         );
+    }
+
+    #[test]
+    fn test_is_encoder_out_limit() {
+        let mut error_handler = create_error_handler();
+
+        // In limit
+        let mut encoders = vec![0; NUM_ACTUATOR];
+
+        assert!(!error_handler.is_encoder_out_limit(&encoders, true));
+        assert!(!error_handler.is_encoder_out_limit(&encoders, false));
+
+        // Out of limit
+        // Test the axial actuator only
+        encoders[0] = 100000000;
+
+        assert!(error_handler.is_encoder_out_limit(&encoders, true));
+        assert!(!error_handler.is_encoder_out_limit(&encoders, false));
+
+        // Test the axial and tangent actuators
+        encoders[NUM_AXIAL_ACTUATOR] = 100000000;
+
+        assert!(error_handler.is_encoder_out_limit(&encoders, true));
+        assert!(error_handler.is_encoder_out_limit(&encoders, false));
+
+        // Test the tangent actuator only
+        encoders[0] = 0;
+
+        assert!(!error_handler.is_encoder_out_limit(&encoders, true));
+        assert!(error_handler.is_encoder_out_limit(&encoders, false));
     }
 
     #[test]
