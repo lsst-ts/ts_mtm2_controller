@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+pub mod actuator;
 pub mod biquadratic_filter;
 pub mod closed_loop;
 pub mod control_loop;

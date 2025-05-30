@@ -19,14 +19,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::path::Path;
+
 use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR};
+use crate::control::actuator::Actuator;
 use crate::control::math_tool::clip;
 use crate::enums::ActuatorDisplacementUnit;
-use crate::mock::mock_constants::PLANT_STEP_TO_MM;
 
 pub struct OpenLoop {
     // The open-loop control is running or not.
     pub is_running: bool,
+    // Actuators
+    pub actuators: Vec<Actuator>,
     // Selected 0-based actuator IDs to do the movement.
     _selected_actuators: Vec<usize>,
     // Displacement of steps to do the movement.
@@ -46,6 +50,9 @@ impl OpenLoop {
     pub fn new(is_simulation_mode: bool) -> Self {
         Self {
             is_running: false,
+            actuators: Actuator::from_cell_mapping_file(Path::new(
+                "config/cell/cell_actuator_mapping.yaml",
+            )),
             _selected_actuators: Vec::new(),
             _displacement_steps: Vec::new(),
             _is_simulation_mode: is_simulation_mode,
@@ -86,7 +93,7 @@ impl OpenLoop {
 
         self.is_running = true;
         self._selected_actuators = actuators.to_vec();
-        self._displacement_steps = self.calculate_steps(displacement, unit);
+        self._displacement_steps = self.calculate_steps(actuators, displacement, unit);
 
         Ok(())
     }
@@ -94,6 +101,7 @@ impl OpenLoop {
     /// Calculate the steps of displacement.
     ///
     /// # Arguments
+    /// * `actuators` - 0-based actuator IDs to move.
     /// * `displacement` - Displacement in millimeter or step to move.
     /// * `unit` - Unit of the displacement.
     ///
@@ -102,17 +110,23 @@ impl OpenLoop {
     ///
     /// # Panics
     /// If the simulation mode is disabled.
-    fn calculate_steps(&self, displacement: f64, unit: ActuatorDisplacementUnit) -> Vec<i32> {
-        // TODO: Implement the consideration for the ratio between the
-        // displacement and step for each actuator in a latter time.
+    fn calculate_steps(
+        &self,
+        actuators: &[usize],
+        displacement: f64,
+        unit: ActuatorDisplacementUnit,
+    ) -> Vec<i32> {
         if !self._is_simulation_mode {
             panic!("Not implemented yet.");
         }
 
         if unit == ActuatorDisplacementUnit::Millimeter {
-            vec![(displacement / PLANT_STEP_TO_MM) as i32; self._selected_actuators.len()]
+            actuators
+                .iter()
+                .map(|actuator| self.actuators[*actuator].displacement_to_step(displacement))
+                .collect()
         } else {
-            vec![displacement as i32; self._selected_actuators.len()]
+            vec![displacement as i32; actuators.len()]
         }
     }
 
@@ -268,16 +282,20 @@ mod tests {
 
     #[test]
     fn test_calculate_steps() {
-        let mut open_loop = create_open_loop(true);
-        open_loop._selected_actuators = vec![1];
+        let open_loop = create_open_loop(true);
 
+        let idx = 1;
         assert_eq!(
-            open_loop.calculate_steps(PLANT_STEP_TO_MM, ActuatorDisplacementUnit::Millimeter),
+            open_loop.calculate_steps(
+                &[idx],
+                open_loop.actuators[idx].gain_step_to_mm,
+                ActuatorDisplacementUnit::Millimeter
+            ),
             vec![1]
         );
 
         assert_eq!(
-            open_loop.calculate_steps(10.0, ActuatorDisplacementUnit::Step),
+            open_loop.calculate_steps(&[idx], 10.0, ActuatorDisplacementUnit::Step),
             vec![10]
         );
     }

@@ -695,7 +695,7 @@ mod tests {
         let mut hardpoint_correction = vec![0.0; NUM_ACTUATOR];
         let mut is_in_position = false;
         for idx in 0..70 {
-            let force_measured = plant.get_actuator_forces();
+            let force_measured = plant.get_actuator_ilc_data().2;
             (steps, hardpoint_correction, is_in_position) = closed_loop.calc_actuator_steps(
                 &force_demanded,
                 &force_measured,

@@ -42,8 +42,10 @@ pub struct TelemetryControlLoop {
     pub actuator_positions: Vec<f64>,
     // Actuator forces in Newton.
     pub forces: HashMap<String, Vec<f64>>,
-    // Inner loop controller (ILC) data.
-    pub ilc_data: Vec<u8>,
+    // Inner loop controller (ILC) status.
+    pub ilc_status: Vec<u8>,
+    // ILC encoder values.
+    pub ilc_encoders: Vec<i32>,
     // Data of the displacement sensors in micron.
     pub displacement_sensors: HashMap<String, Vec<f64>>,
     // Mirror position based on the hardpoints in um and arcsrc.
@@ -117,7 +119,8 @@ impl TelemetryControlLoop {
                 0.0,
                 NUM_ACTUATOR,
             ),
-            ilc_data: vec![0; NUM_ACTUATOR],
+            ilc_status: vec![0; NUM_ACTUATOR],
+            ilc_encoders: vec![0; NUM_ACTUATOR],
             displacement_sensors: Self::initialize_dict_vector(&["thetaZ", "deltaZ"], 0.0, NUM_IMS),
             mirror_position: Self::initialize_dict_value(
                 &["x", "y", "z", "xRot", "yRot", "zRot"],
@@ -344,7 +347,7 @@ impl TelemetryControlLoop {
     fn get_message_ilc_data(&self) -> Value {
         json!({
             "id": "ilcData",
-            "status": self.ilc_data,
+            "status": self.ilc_status,
         })
     }
 
@@ -646,7 +649,7 @@ mod tests {
         assert_eq!(message["id"], "ilcData");
         assert_eq!(
             from_value::<Vec<u8>>(message["status"].clone()).unwrap(),
-            telemetry.ilc_data
+            telemetry.ilc_status
         );
     }
 

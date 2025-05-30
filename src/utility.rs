@@ -492,10 +492,10 @@ pub fn get_system_time_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::EPSILON;
-
     use super::*;
+
     use approx::assert_relative_eq;
+    use std::f64::EPSILON;
 
     use crate::constants::{NUM_ACTUATOR, NUM_HARDPOINTS};
 

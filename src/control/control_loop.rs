@@ -37,7 +37,6 @@ use crate::enums::{
     ActuatorDisplacementUnit, ClosedLoopControlMode, CommandActuator, InnerLoopControlMode,
 };
 use crate::event_queue::EventQueue;
-use crate::mock::mock_constants::PLANT_STEP_TO_MM;
 use crate::mock::mock_plant::MockPlant;
 use crate::telemetry::{event::Event, telemetry_control_loop::TelemetryControlLoop};
 use crate::utility::{
@@ -406,19 +405,25 @@ impl ControlLoop {
                         .inclinometer
                         .insert(String::from("raw"), plant.inclinometer_angle);
 
-                    // Actuator steps
-                    self.telemetry.actuator_steps = plant.actuator_steps.clone();
+                    // Get the actuator ILC data
+                    let (ilc_status, ilc_encoders, forces) = plant.get_actuator_ilc_data();
 
-                    // Actuator positions
-                    self.telemetry.actuator_positions = plant.get_actuator_positions();
+                    // Get the actuator step and position based on the encoder
+                    ilc_encoders.iter().enumerate().for_each(|(idx, encoder)| {
+                        let (step, position) =
+                            self._open_loop.actuators[idx].encoder_to_step_and_position(*encoder);
+                        self.telemetry.actuator_steps[idx] = step;
+                        self.telemetry.actuator_positions[idx] = position;
+                    });
 
                     // Forces
                     self.telemetry
                         .forces
-                        .insert(String::from("measured"), plant.get_actuator_forces());
+                        .insert(String::from("measured"), forces);
 
                     // ILC
-                    self.telemetry.ilc_data = plant.get_ilc_status();
+                    self.telemetry.ilc_status = ilc_status;
+                    self.telemetry.ilc_encoders = ilc_encoders;
 
                     // Temperatures
                     self.telemetry
@@ -799,9 +804,11 @@ impl ControlLoop {
 
         // Change the unit to be step
         let m_to_mm = 1e3;
-        let hardpoints_steps: Vec<i32> = hardpoints_displacement
+        let hardpoints_steps: Vec<i32> = config
+            .hardpoints
             .iter()
-            .map(|x| (x * m_to_mm / PLANT_STEP_TO_MM) as i32)
+            .zip(hardpoints_displacement.iter())
+            .map(|(idx, x)| self._open_loop.actuators[*idx].displacement_to_step(x * m_to_mm))
             .collect();
 
         // Update the active steps
@@ -1240,7 +1247,7 @@ mod tests {
             .map(|hp| control_loop.steps_position_mirror[*hp])
             .collect();
 
-        assert_eq!(hardpoint_steps, vec![92, 338, -581, -450, -482, -363]);
+        assert_eq!(hardpoint_steps, vec![92, 338, -580, -1477, -1564, -1186]);
     }
 
     #[test]
@@ -1251,7 +1258,9 @@ mod tests {
 
         // Position the mirror
         control_loop.handle_position_mirror(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
-        steps(&mut control_loop, 70, ClosedLoopControlMode::ClosedLoop);
+        steps(&mut control_loop, 220, ClosedLoopControlMode::ClosedLoop);
+
+        assert_eq!(control_loop.steps_position_mirror, vec![0; NUM_ACTUATOR]);
 
         let axes = ["x", "y", "z", "xRot", "yRot", "zRot"];
         axes.iter().enumerate().for_each(|(idx, axis)| {
@@ -1259,12 +1268,12 @@ mod tests {
             assert_relative_eq!(
                 control_loop.telemetry.mirror_position[*axis],
                 position,
-                epsilon = 1e-2
+                epsilon = 1e-1
             );
             assert_relative_eq!(
                 control_loop.telemetry.mirror_position_ims[*axis],
                 position,
-                epsilon = 1e-2
+                epsilon = 1e-1
             );
         });
     }

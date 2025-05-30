@@ -30,6 +30,7 @@ cargo run -- -h
 
 See the [config/](config) directory for the configuration files:
 
+- [cell/actuator](config/cell/actuator/) directory has the actuator configuration files.
 - [lut/](config/lut/) directory has the look-up tables of gravity and temperature.
   - [handling/](config/lut/handling/) directory is for the handling of mirror.
   - [optical/](config/lut/optical/) directory is for the optical imaging.
@@ -37,6 +38,7 @@ See the [config/](config) directory for the configuration files:
 - [parameters_control.yaml](config/parameters_control.yaml) is the configuration of control loop.
 - [parameters_power.yaml](config/parameters_power.yaml) is the configuration of power system.
 - [cell_geom.yaml](config/cell_geom.yaml) is the cell geometry.
+- [cell_actuator_mapping.yaml](config/cell/cell_actuator_mapping.yaml) is the mapping between the cell and actuators.
 - [disp_ims.yaml](config/disp_ims.yaml) has the information of displacement sensors used in the independent measurement system (IMS).
 - [stiff_matrix_m2.yaml](config/stiff_matrix_m2.yaml) is the stiffness matrix of M2 mirror.
 - [stiff_matrix_surrogate.yaml](config/stiff_matrix_surrogate.yaml) is the stiffness matrix of surrogate.
