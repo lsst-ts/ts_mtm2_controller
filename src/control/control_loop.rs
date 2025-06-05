@@ -1120,6 +1120,17 @@ mod tests {
             .is_power_on_communication = true;
         control_loop.update_telemetry_data();
 
+        // Let the hardpoints have the same positions as the home position.
+        control_loop
+            .config
+            .hardpoints
+            .iter()
+            .enumerate()
+            .for_each(|(idx, hardpoint)| {
+                control_loop.telemetry.actuator_positions[*hardpoint] =
+                    control_loop.config.disp_hardpoint_home[idx] * 1e3;
+            });
+
         control_loop.process_telemetry_data();
 
         assert_eq!(control_loop.telemetry.inclinometer["processed"], 89.06);

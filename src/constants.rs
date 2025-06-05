@@ -58,3 +58,5 @@ pub const ALL_HOST: &str = "0.0.0.0";
 pub const TERMINATOR: &[u8; 2] = b"\r\n";
 
 pub const BOUND_SYNC_CHANNEL: usize = 100;
+
+pub const DEFAULT_POSITION_FILENAME: &str = "position.yaml";

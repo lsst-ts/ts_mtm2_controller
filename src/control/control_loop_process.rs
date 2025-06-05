@@ -34,7 +34,7 @@ use crate::command::{
         CommandApplyForces, CommandGetInnerLoopControlMode, CommandMoveActuators,
         CommandPositionMirror, CommandResetActuatorSteps, CommandResetForceOffsets,
         CommandSetClosedLoopControlMode, CommandSetConfig, CommandSetExternalElevation,
-        CommandSetInnerLoopControlMode, CommandSetMirrorHome,
+        CommandSetInnerLoopControlMode,
     },
     command_schema::CommandSchema,
 };
@@ -111,7 +111,6 @@ impl ControlLoopProcess {
         command_schema.add_command(Box::new(CommandSetExternalElevation));
         command_schema.add_command(Box::new(CommandGetInnerLoopControlMode));
         command_schema.add_command(Box::new(CommandSetInnerLoopControlMode));
-        command_schema.add_command(Box::new(CommandSetMirrorHome));
 
         command_schema
     }
@@ -206,7 +205,7 @@ mod tests {
 
         assert_eq!(
             control_loop_process._command_schema.number_of_commands(),
-            11
+            10
         );
     }
 

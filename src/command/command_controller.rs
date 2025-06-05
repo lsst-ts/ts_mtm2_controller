@@ -20,9 +20,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use serde_json::Value;
+use std::path::Path;
 
 use crate::command::command_schema::Command;
-use crate::constants::{NUM_HARDPOINTS, NUM_TEMPERATURE_RING};
+use crate::constants::{DEFAULT_POSITION_FILENAME, NUM_HARDPOINTS, NUM_TEMPERATURE_RING};
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
 use crate::enums::{ClosedLoopControlMode, Commander, PowerType};
@@ -174,10 +175,34 @@ impl Command for CommandSaveMirrorPosition {
         _message: &Value,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
-        _controller: Option<&mut Controller>,
+        controller: Option<&mut Controller>,
     ) -> Option<()> {
-        // TODO: Implement this command.
-        Some(())
+        let system_controller = controller?;
+
+        let filepath = Path::new("log").join(DEFAULT_POSITION_FILENAME);
+        match system_controller.save_mirror_position(Some(&filepath), None) {
+            Ok(_) => Some(()),
+            Err(_) => None,
+        }
+    }
+}
+
+/// Command to set the mirror's home position.
+pub struct CommandSetMirrorHome;
+impl Command for CommandSetMirrorHome {
+    fn name(&self) -> &str {
+        "cmd_setMirrorHome"
+    }
+
+    fn execute(
+        &self,
+        _message: &Value,
+        _power_system: Option<&mut PowerSystem>,
+        _control_loop: Option<&mut ControlLoop>,
+        controller: Option<&mut Controller>,
+    ) -> Option<()> {
+        let system_controller = controller?;
+        system_controller.set_mirror_home()
     }
 }
 
@@ -324,11 +349,13 @@ mod tests {
     use super::*;
 
     use serde_json::json;
+    use std::fs::remove_file;
     use std::path::Path;
     use std::sync::mpsc::{sync_channel, Receiver};
 
     use crate::constants::BOUND_SYNC_CHANNEL;
     use crate::enums::{ErrorCode, PowerSystemState};
+    use crate::telemetry::telemetry_control_loop::TelemetryControlLoop;
 
     fn create_controller() -> (Controller, Receiver<Value>) {
         let (sender_to_control_loop, receiver_to_control_loop) = sync_channel(BOUND_SYNC_CHANNEL);
@@ -491,6 +518,53 @@ mod tests {
                 .config_control_loop
                 .enable_open_loop_max_limit
         );
+    }
+
+    #[test]
+    fn test_command_save_mirror_position() {
+        let (mut controller, _receiver_to_control_loop) = create_controller();
+
+        let command = CommandSaveMirrorPosition;
+
+        assert_eq!(command.name(), "cmd_saveMirrorPosition");
+
+        // Should fail because no telemetry is available.
+        assert!(command
+            .execute(&json!({}), None, None, Some(&mut controller))
+            .is_none());
+
+        // Set the last effective telemetry.
+        controller.last_effective_telemetry.control_loop = Some(TelemetryControlLoop::new());
+        assert!(command
+            .execute(&json!({}), None, None, Some(&mut controller))
+            .is_some());
+
+        // Check if the file is created.
+        let filepath = Path::new("log").join(DEFAULT_POSITION_FILENAME);
+        assert!(filepath.exists());
+
+        // Clean up the file after the test.
+        let _ = remove_file(&filepath);
+    }
+
+    #[test]
+    fn test_command_set_mirror_home() {
+        let (mut controller, _receiver_to_control_loop) = create_controller();
+
+        let command = CommandSetMirrorHome;
+
+        assert_eq!(command.name(), "cmd_setMirrorHome");
+
+        // Should fail because no telemetry is available.
+        assert!(command
+            .execute(&json!({}), None, None, Some(&mut controller))
+            .is_none());
+
+        // Set the last effective telemetry.
+        controller.last_effective_telemetry.control_loop = Some(TelemetryControlLoop::new());
+        assert!(command
+            .execute(&json!({}), None, None, Some(&mut controller))
+            .is_some());
     }
 
     #[test]

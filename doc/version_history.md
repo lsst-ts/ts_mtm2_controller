@@ -1,5 +1,9 @@
 # Version Histroy
 
+0.2.1
+
+- Support the mirror position file.
+
 0.2.0
 
 - Read the actuator and cell mapping files.

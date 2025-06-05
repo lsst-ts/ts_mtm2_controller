@@ -39,13 +39,18 @@ See the [config/](config) directory for the configuration files:
 - [parameters_power.yaml](config/parameters_power.yaml) is the configuration of power system.
 - [cell_geom.yaml](config/cell_geom.yaml) is the cell geometry.
 - [cell_actuator_mapping.yaml](config/cell/cell_actuator_mapping.yaml) is the mapping between the cell and actuators.
+- [home_position.yaml](config/home_position.yaml) is the home position of mirror.
 - [disp_ims.yaml](config/disp_ims.yaml) has the information of displacement sensors used in the independent measurement system (IMS).
 - [stiff_matrix_m2.yaml](config/stiff_matrix_m2.yaml) is the stiffness matrix of M2 mirror.
 - [stiff_matrix_surrogate.yaml](config/stiff_matrix_surrogate.yaml) is the stiffness matrix of surrogate.
 
+## Log Data
+
+The logging files contain the mirror position are in the `log/` directory.
+
 ## System Log
 
-While the application is running, you can see the system log in the `application.log`.
+While the application is running, you can see the system log in the `log/application.log`.
 The logging level can be changed by the `-l` option when starting the application.
 
 ## Code Format
