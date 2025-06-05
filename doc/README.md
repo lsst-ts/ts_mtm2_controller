@@ -35,6 +35,7 @@ List the commands in the followings:
 - CommandSwitchCommandSource
 - CommandEnableOpenLoopMaxLimit
 - CommandSaveMirrorPosition
+- CommandSetMirrorHome
 - CommandLoadConfiguration
 - CommandSetControlParameters
 - CommandSetEnabledFaultsMask
@@ -67,7 +68,6 @@ The followings are the commands:
 - CommandMoveActuators
 - CommandSetConfig
 - CommandSetExternalElevation
-- CommandSetMirrorHome
 - CommandGetInnerLoopControlMode
 - CommandSetInnerLoopControlMode
 
