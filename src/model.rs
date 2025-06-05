@@ -36,13 +36,14 @@ use crate::command::{
     command_control_loop::{
         CommandApplyForces, CommandGetInnerLoopControlMode, CommandMoveActuators,
         CommandPositionMirror, CommandResetActuatorSteps, CommandResetForceOffsets,
-        CommandSetClosedLoopControlMode, CommandSetInnerLoopControlMode, CommandSetMirrorHome,
+        CommandSetClosedLoopControlMode, CommandSetInnerLoopControlMode,
     },
     command_controller::{
         CommandClearErrors, CommandEnableOpenLoopMaxLimit, CommandLoadConfiguration,
         CommandRunScript, CommandSaveMirrorPosition, CommandSetConfigurationFile,
         CommandSetControlParameters, CommandSetEnabledFaultsMask, CommandSetHardpointList,
-        CommandSetTemperatureOffset, CommandSwitchCommandSource, CommandSwitchForceBalanceSystem,
+        CommandSetMirrorHome, CommandSetTemperatureOffset, CommandSwitchCommandSource,
+        CommandSwitchForceBalanceSystem,
     },
     command_power_system::{CommandPower, CommandResetBreakers, CommandSwitchDigitalOutput},
     command_schema::{Command, CommandSchema},
@@ -175,12 +176,16 @@ impl Model {
     /// # Returns
     /// Commands.
     fn create_commands() -> HashMap<String, Vec<String>> {
+        // The commands here need to be in the
+        // PowerSystemProcess.create_command_schema()
         let commands_power = vec![
             CommandPower.name().to_string(),
             CommandResetBreakers.name().to_string(),
             CommandSwitchDigitalOutput.name().to_string(),
         ];
 
+        // The commands here need to be in the
+        // ControlLoopProcess.create_command_schema()
         let commands_control_loop = vec![
             CommandSetClosedLoopControlMode.name().to_string(),
             CommandApplyForces.name().to_string(),
@@ -188,7 +193,6 @@ impl Model {
             CommandPositionMirror.name().to_string(),
             CommandResetActuatorSteps.name().to_string(),
             CommandMoveActuators.name().to_string(),
-            CommandSetMirrorHome.name().to_string(),
             CommandGetInnerLoopControlMode.name().to_string(),
             CommandSetInnerLoopControlMode.name().to_string(),
         ];
@@ -220,6 +224,7 @@ impl Model {
         command_schema.add_command(Box::new(CommandSwitchCommandSource));
         command_schema.add_command(Box::new(CommandEnableOpenLoopMaxLimit));
         command_schema.add_command(Box::new(CommandSaveMirrorPosition));
+        command_schema.add_command(Box::new(CommandSetMirrorHome));
         command_schema.add_command(Box::new(CommandLoadConfiguration));
         command_schema.add_command(Box::new(CommandSetControlParameters));
         command_schema.add_command(Box::new(CommandSetEnabledFaultsMask));
@@ -1042,7 +1047,7 @@ mod tests {
     fn test_new() {
         let model = create_model();
 
-        assert_eq!(model._controller_command_schema.number_of_commands(), 12);
+        assert_eq!(model._controller_command_schema.number_of_commands(), 13);
     }
 
     #[test]
