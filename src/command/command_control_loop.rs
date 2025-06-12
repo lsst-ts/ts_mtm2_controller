@@ -334,25 +334,6 @@ impl Command for CommandSetExternalElevation {
     }
 }
 
-/// Command to set the mirror's home position.
-pub struct CommandSetMirrorHome;
-impl Command for CommandSetMirrorHome {
-    fn name(&self) -> &str {
-        "cmd_setMirrorHome"
-    }
-
-    fn execute(
-        &self,
-        _message: &Value,
-        _power_system: Option<&mut PowerSystem>,
-        _control_loop: Option<&mut ControlLoop>,
-        _controller: Option<&mut Controller>,
-    ) -> Option<()> {
-        // TODO: Implement this command.
-        Some(())
-    }
-}
-
 /// Command to set the mode of inner-loop controller.
 pub struct CommandSetInnerLoopControlMode;
 impl Command for CommandSetInnerLoopControlMode {

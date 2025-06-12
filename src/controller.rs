@@ -22,6 +22,8 @@
 use log::error;
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::SyncSender;
 
@@ -33,7 +35,7 @@ use crate::command::{
     command_schema::Command,
 };
 use crate::config::Config;
-use crate::constants::{NUM_AXIAL_ACTUATOR, NUM_HARDPOINTS, NUM_HARDPOINTS_AXIAL};
+use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_HARDPOINTS, NUM_HARDPOINTS_AXIAL};
 use crate::control::{lut::Lut, math_tool::check_hardpoints};
 use crate::enums::{
     BitEnum, ClosedLoopControlMode, Commander, DigitalOutput, DigitalOutputStatus, ErrorCode,
@@ -244,6 +246,13 @@ impl Controller {
         self.send_config_to_control_loop_and_update(config)
     }
 
+    /// Set the enabled faults mask.
+    ///
+    /// # Arguments
+    /// * `mask` - The mask to set the enabled faults.
+    ///
+    /// # Returns
+    /// Some if the mask is set. Otherwise, None.
     pub fn set_enabled_faults_mask(&mut self, mask: u64) -> Option<()> {
         self.error_handler.update_enabled_faults_mask(mask);
 
@@ -567,6 +576,104 @@ impl Controller {
 
         Some(())
     }
+
+    /// Save the mirror position to a file.
+    ///
+    /// # Arguments
+    /// * `filepath` - An optional path to the file where the mirror position
+    /// will be saved.
+    /// * `file` - An optional file handle to write the mirror position. This is
+    /// useful for the testing purpose.
+    ///
+    /// # Returns
+    /// A result containing the content written to the file or an error if
+    /// the operation fails.
+    pub fn save_mirror_position(
+        &self,
+        filepath: Option<&Path>,
+        file: Option<File>,
+    ) -> std::io::Result<String> {
+        match &self.last_effective_telemetry.control_loop {
+            Some(telemetry) => {
+                // Create the file
+                let mut position_file;
+                if filepath.is_some() {
+                    position_file = File::create(filepath.unwrap())?;
+                } else {
+                    position_file = file.unwrap();
+                }
+
+                // Write the header and hardpoints
+                let mut content = String::new();
+                let header = r#"---
+# Mirror position
+
+# 0-based hardpoints from low to high. The first 3 hardpoints are the axial
+# actuators, and the last 3 hardpoints are the tangent links.
+"#;
+                content.push_str(header);
+                content.push_str(&format!(
+                    "hardpoints: {:?}\n",
+                    self.error_handler.config_control_loop.hardpoints
+                ));
+
+                let positions = &telemetry.actuator_positions;
+                content.push_str("\n# 78 actuator positions in meter.\n");
+                for idx in 0..NUM_ACTUATOR {
+                    if idx == 0 {
+                        content.push_str(&format!("positions: [{},\n", positions[idx]));
+                    } else if idx == (NUM_ACTUATOR - 1) {
+                        content.push_str(&format!("            {}]\n", positions[idx]));
+                    } else {
+                        content.push_str(&format!("            {},\n", positions[idx]));
+                    }
+                }
+
+                position_file.write_all(content.as_bytes())?;
+                position_file.flush()?;
+
+                Ok(content)
+            }
+
+            None => {
+                // Fail if there is no available telemetry
+                Err(std::io::Error::other(
+                    "No effective telemetry available to save the mirror position.",
+                ))
+            }
+        }
+    }
+
+    /// Set the mirror home position.
+    ///
+    /// # Returns
+    /// Some if the home position is set. Otherwise, None.
+    pub fn set_mirror_home(&mut self) -> Option<()> {
+        match &self.last_effective_telemetry.control_loop {
+            Some(telemetry) => {
+                // Update the home position
+                let mm_to_m = 1e-3;
+                self.error_handler
+                    .config_control_loop
+                    .hardpoints
+                    .iter()
+                    .enumerate()
+                    .for_each(|(idx, hardpoint)| {
+                        self.error_handler.config_control_loop.disp_hardpoint_home[idx] =
+                            telemetry.actuator_positions[*hardpoint] * mm_to_m;
+                    });
+
+                // Update the configuration
+                let config = self.error_handler.config_control_loop.clone();
+                self.send_config_to_control_loop_and_update(config)
+            }
+
+            None => {
+                error!("No effective telemetry available to set the mirror home.");
+                None
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -575,8 +682,10 @@ mod tests {
 
     use serde_json::json;
     use std::sync::mpsc::{sync_channel, Receiver};
+    use tempfile::tempfile;
 
     use crate::constants::BOUND_SYNC_CHANNEL;
+    use crate::telemetry::telemetry_control_loop::TelemetryControlLoop;
 
     fn create_controller() -> (Controller, Receiver<Value>, Receiver<Value>) {
         let (sender_to_power_system, receiver_to_power_system) = sync_channel(BOUND_SYNC_CHANNEL);
@@ -974,6 +1083,67 @@ mod tests {
         assert_eq!(
             controller.status.ilc_modes[2],
             InnerLoopControlMode::Disabled,
+        );
+    }
+
+    #[test]
+    fn test_save_mirror_position() {
+        let mut controller = create_controller().0;
+
+        // Should fail if there is no effective telemetry
+        assert!(controller
+            .save_mirror_position(None, Some(tempfile().unwrap()))
+            .is_err());
+
+        // Set the last effective telemetry and save the position
+        let mut telemetry = TelemetryControlLoop::new();
+        telemetry.actuator_positions = vec![0.15; NUM_ACTUATOR];
+
+        controller.last_effective_telemetry.control_loop = Some(telemetry);
+
+        let file = tempfile().unwrap();
+        let result: Result<String, std::io::Error> =
+            controller.save_mirror_position(None, Some(file));
+
+        assert!(result.is_ok());
+
+        let content = result.unwrap();
+
+        assert_eq!(content.lines().count(), 86);
+        assert!(content.contains("\nhardpoints: [5, 15, 25, 73, 75, 77]\n"));
+        assert!(content.contains("\npositions: [0.15,\n"));
+        assert!(content.contains("0.15,\n            0.15]\n"));
+    }
+
+    #[test]
+    fn test_set_mirror_home() {
+        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+
+        // Should fail if there is no effective telemetry
+        assert!(controller.set_mirror_home().is_none());
+
+        // Set the last effective telemetry and update the positions
+        let mut telemetry = TelemetryControlLoop::new();
+
+        let new_home_positions = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        controller
+            .error_handler
+            .config_control_loop
+            .hardpoints
+            .iter()
+            .enumerate()
+            .for_each(|(idx, hardpoint)| {
+                telemetry.actuator_positions[*hardpoint] = new_home_positions[idx];
+            });
+        controller.last_effective_telemetry.control_loop = Some(telemetry);
+
+        assert!(controller.set_mirror_home().is_some());
+        assert_eq!(
+            controller
+                .error_handler
+                .config_control_loop
+                .disp_hardpoint_home,
+            vec![0.001, 0.002, 0.003, 0.004, 0.005, 0.006]
         );
     }
 }

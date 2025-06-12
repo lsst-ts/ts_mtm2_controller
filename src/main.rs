@@ -26,6 +26,7 @@ use simplelog::{
     TerminalMode, WriteLogger,
 };
 use std::fs::File;
+use std::path::Path;
 
 use run_m2_controller::application;
 
@@ -74,7 +75,12 @@ fn main() {
     let log_filter = get_log_filter(matches.get_one::<u32>("level"));
 
     // Initiate the logger
-    initiate_logger(log_filter, "application.log");
+    initiate_logger(
+        log_filter,
+        Path::new("log/application.log")
+            .to_str()
+            .expect("Should be a valid path of the log file."),
+    );
     info!("Log level: {log_filter}.");
 
     // Run the application

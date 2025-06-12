@@ -25,7 +25,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::constants::{
-    NUM_HARDPOINTS, NUM_IMS_READING, NUM_SPACE_DEGREE_OF_FREEDOM, NUM_TEMPERATURE_RING,
+    NUM_ACTUATOR, NUM_HARDPOINTS, NUM_IMS_READING, NUM_SPACE_DEGREE_OF_FREEDOM,
+    NUM_TEMPERATURE_RING,
 };
 use crate::control::lut::Lut;
 use crate::utility::{get_parameter, get_parameter_array, read_file_cell_geom, read_file_disp_ims};
@@ -174,7 +175,7 @@ impl Config {
                 "bypassed_actuator_ilcs",
             ),
             hardpoints: Self::read_hardpoints(filepath_parameters_control),
-            disp_hardpoint_home: vec![0.0; NUM_HARDPOINTS],
+            disp_hardpoint_home: Self::read_home_position(Path::new("config/home_position.yaml")),
             cell_geometry: CellGeometry {
                 loc_act_axial: loc_act_axial,
                 loc_act_tangent: loc_act_tangent,
@@ -232,5 +233,40 @@ impl Config {
         hardpoints.sort();
         assert_eq!(hardpoints.len(), NUM_HARDPOINTS);
         hardpoints
+    }
+
+    /// Read the home position based on the hardpoints from the configuration
+    /// file.
+    ///
+    /// # Arguments
+    /// * `filepath_home_position` - The path to the home position file.
+    ///
+    /// # Returns
+    /// A vector of the home position in meter.
+    fn read_home_position(filepath_home_position: &Path) -> Vec<f64> {
+        let hardpoints: Vec<usize> = get_parameter_array(filepath_home_position, "hardpoints");
+        assert_eq!(hardpoints.len(), NUM_HARDPOINTS);
+
+        let positions = get_parameter_array(filepath_home_position, "positions");
+        assert_eq!(positions.len(), NUM_ACTUATOR);
+
+        hardpoints
+            .iter()
+            .map(|hardpoint| positions[*hardpoint])
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_home_position() {
+        let home_position = Config::read_home_position(Path::new("config/home_position.yaml"));
+
+        assert_eq!(home_position.len(), NUM_HARDPOINTS);
+        assert_eq!(home_position[0], -4.87667887667888e-12);
+        assert_eq!(home_position[NUM_HARDPOINTS - 1], 1.19515506715507e-11);
     }
 }
