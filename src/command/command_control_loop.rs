@@ -109,11 +109,11 @@ impl Command for CommandApplyForces {
 
         let control = control_loop?;
         match control.apply_force(&force) {
-            Ok(_) => return Some(()),
+            Ok(_) => Some(()),
             Err(err) => {
                 error!("Failed to apply force: {err}");
 
-                return None;
+                None
             }
         }
     }
@@ -177,16 +177,21 @@ impl Command for CommandPositionMirror {
         let positions = CommandPositionMirror::get_position(message)?;
 
         let control = control_loop?;
-        control.handle_position_mirror(
+        match control.handle_position_mirror(
             positions[0],
             positions[1],
             positions[2],
             positions[3],
             positions[4],
             positions[5],
-        );
+        ) {
+            Ok(_) => Some(()),
+            Err(err) => {
+                error!("Failed to position the mirror: {err}");
 
-        Some(())
+                None
+            }
+        }
     }
 }
 
@@ -268,11 +273,11 @@ impl Command for CommandMoveActuators {
 
         let control = control_loop?;
         match control.move_actuators(command_actuator, &actuators, displacement, unit) {
-            Ok(_) => return Some(()),
+            Ok(_) => Some(()),
             Err(err) => {
                 error!("Failed to move actuators: {err}");
 
-                return None;
+                None
             }
         }
     }
@@ -295,14 +300,14 @@ impl Command for CommandSetConfig {
         let new_config: Config = serde_json::from_str(message["config"].as_str()?).ok()?;
 
         let control = control_loop?;
-        let hardpoints_are_changed = control.config.hardpoints != new_config.hardpoints;
+        match control.update_config(new_config) {
+            Ok(_) => Some(()),
+            Err(err) => {
+                error!("Failed to set config: {err}");
 
-        control.config = new_config;
-        if hardpoints_are_changed {
-            control.update_matrices_hardpoints();
+                None
+            }
         }
-
-        Some(())
     }
 }
 
@@ -321,6 +326,8 @@ impl Command for CommandSetExternalElevation {
         _controller: Option<&mut Controller>,
     ) -> Option<()> {
         if message["compName"].as_str()? != "mtmount" {
+            error!("The compName is not mtmount.");
+
             return None;
         }
 
@@ -354,7 +361,11 @@ impl Command for CommandSetInnerLoopControlMode {
         for address in addresses {
             let address = address.as_u64()? as usize;
             let mode = InnerLoopControlMode::from_repr(message["mode"].as_u64()? as u8)?;
-            control.set_ilc_mode(address, mode);
+            if let Err(err) = control.set_ilc_mode(address, mode) {
+                error!("Failed to set the inner-loop control mode: {err}");
+
+                return None;
+            }
         }
 
         Some(())
@@ -380,7 +391,11 @@ impl Command for CommandGetInnerLoopControlMode {
         let addresses = message["addresses"].as_array()?;
         for address in addresses {
             let address = address.as_u64()? as usize;
-            control.get_ilc_mode(address);
+            if let Err(err) = control.get_ilc_mode(address) {
+                error!("Failed to get the inner-loop control mode: {err}");
+
+                return None;
+            }
         }
 
         Some(())
@@ -396,10 +411,6 @@ mod tests {
     use std::path::Path;
 
     use crate::config::Config;
-    use crate::constants::NUM_TEMPERATURE_RING;
-    use crate::utility::assert_relative_eq_vector;
-
-    const EPSILON: f64 = 1e-7;
 
     fn create_control_loop() -> ControlLoop {
         let config = Config::new(
@@ -557,12 +568,10 @@ mod tests {
 
         assert_eq!(command.name(), "cmd_setConfig");
 
-        let mut config = Config::new(
+        let config = Config::new(
             Path::new("config/parameters_control.yaml"),
             Path::new("config/lut/optical"),
         );
-        config.hardpoints = vec![4, 14, 24, 72, 74, 76];
-
         assert!(command
             .execute(
                 &json!({"config": serde_json::to_string(&config).unwrap()}),
@@ -571,37 +580,6 @@ mod tests {
                 None
             )
             .is_some());
-
-        assert_eq!(control_loop.config.hardpoints, config.hardpoints);
-        assert_eq!(control_loop.config.lut.dir_name, config.lut.dir_name);
-
-        let lut_angle = 12.0;
-        let ring_temperature = vec![1.0; NUM_TEMPERATURE_RING];
-        let ref_temperature = vec![21.0; NUM_TEMPERATURE_RING];
-        let enable_lut_temperature = true;
-
-        assert_relative_eq_vector(
-            &control_loop
-                .config
-                .lut
-                .get_lut_forces(
-                    lut_angle,
-                    &ring_temperature,
-                    &ref_temperature,
-                    enable_lut_temperature,
-                )
-                .0,
-            &config
-                .lut
-                .get_lut_forces(
-                    lut_angle,
-                    &ring_temperature,
-                    &ref_temperature,
-                    enable_lut_temperature,
-                )
-                .0,
-            EPSILON,
-        );
     }
 
     #[test]
@@ -644,8 +622,14 @@ mod tests {
             )
             .is_some());
 
-        assert_eq!(control_loop.get_ilc_mode(0), InnerLoopControlMode::Disabled);
-        assert_eq!(control_loop.get_ilc_mode(1), InnerLoopControlMode::Disabled);
+        assert_eq!(
+            control_loop.get_ilc_mode(0).unwrap(),
+            InnerLoopControlMode::Disabled
+        );
+        assert_eq!(
+            control_loop.get_ilc_mode(1).unwrap(),
+            InnerLoopControlMode::Disabled
+        );
     }
 
     #[test]
@@ -656,8 +640,8 @@ mod tests {
 
         assert_eq!(command.name(), "cmd_getInnerLoopControlMode");
 
-        control_loop.set_ilc_mode(0, InnerLoopControlMode::Enabled);
-        control_loop.set_ilc_mode(1, InnerLoopControlMode::Enabled);
+        let _ = control_loop.set_ilc_mode(0, InnerLoopControlMode::Enabled);
+        let _ = control_loop.set_ilc_mode(1, InnerLoopControlMode::Enabled);
 
         assert!(command
             .execute(

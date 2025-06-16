@@ -276,6 +276,30 @@ impl ControlLoop {
         (kdc, hd_comp)
     }
 
+    /// Update the configuration of the control loop.
+    ///
+    /// # Arguments
+    /// * `config` - The new configuration.
+    ///
+    /// # Returns
+    /// Ok if the configuration is updated successfully. Otherwise, an error
+    /// message.
+    pub fn update_config(&mut self, config: Config) -> Result<(), &'static str> {
+        if self._mode == ClosedLoopControlMode::ClosedLoop {
+            return Err("The control loop can not be in closed-loop mode.");
+        }
+
+        let hardpoints_are_changed = self.config.hardpoints != config.hardpoints;
+
+        self.config = config;
+
+        if hardpoints_are_changed {
+            self.update_matrices_hardpoints();
+        }
+
+        Ok(())
+    }
+
     /// Update the matrices related to the hardpoints.
     pub fn update_matrices_hardpoints(&mut self) {
         let (kdc, hd_comp) = Self::calculate_matrices_hardpoints(
@@ -757,20 +781,36 @@ impl ControlLoop {
     /// Handle positioning the mirror.
     ///
     /// # Arguments
-    /// `x` - The x position in micrometer.
-    /// `y` - The y position in micrometer.
-    /// `z` - The z position in micrometer.
-    /// `rx` - The x rotation in arcsec.
-    /// `ry` - The y rotation in arcsec.
-    /// `rz` - The z rotation in arcsec.
+    /// * `x` - The x position in micrometer.
+    /// * `y` - The y position in micrometer.
+    /// * `z` - The z position in micrometer.
+    /// * `rx` - The x rotation in arcsec.
+    /// * `ry` - The y rotation in arcsec.
+    /// * `rz` - The z rotation in arcsec.
     ///
     /// # Panics
     /// If not in simulation mode.
-    pub fn handle_position_mirror(&mut self, x: f64, y: f64, z: f64, rx: f64, ry: f64, rz: f64) {
+    ///
+    /// # Returns
+    /// Ok if the positions are applied successfully. Otherwise, an error
+    /// message.
+    pub fn handle_position_mirror(
+        &mut self,
+        x: f64,
+        y: f64,
+        z: f64,
+        rx: f64,
+        ry: f64,
+        rz: f64,
+    ) -> Result<(), &'static str> {
         // TODO: Need to implement the calculation of meter-to-step for 78
         // actuators.
         if !self.is_simulation_mode() {
             panic!("Not implemented yet.");
+        }
+
+        if self._mode != ClosedLoopControlMode::ClosedLoop {
+            return Err("The control loop needs to be in closed-loop mode.");
         }
 
         let config = &self.config;
@@ -815,6 +855,8 @@ impl ControlLoop {
         config.hardpoints.iter().enumerate().for_each(|(idx, hp)| {
             self.steps_position_mirror[*hp] = hardpoints_steps[idx];
         });
+
+        Ok(())
     }
 
     /// Apply the actuator forces.
@@ -827,6 +869,10 @@ impl ControlLoop {
     pub fn apply_force(&mut self, force: &[f64]) -> Result<(), &'static str> {
         if force.len() != NUM_ACTUATOR {
             return Err("The length of the force vector should be 78.");
+        }
+
+        if self._mode != ClosedLoopControlMode::ClosedLoop {
+            return Err("The control loop needs to be in closed-loop mode.");
         }
 
         self.telemetry
@@ -852,7 +898,7 @@ impl ControlLoop {
     /// * `displacement` - The displacement in the unit. Put 0.0 if the command
     /// is not start.
     /// * `unit` - The unit of the displacement. Put
-    /// ActuatorDisplacementUnit::None if the command is not start.
+    /// `ActuatorDisplacementUnit::None` if the command is not start.
     ///
     /// # Returns
     /// Ok if the actuator movement is successful. Otherwise, an error message.
@@ -863,6 +909,10 @@ impl ControlLoop {
         displacement: f64,
         unit: ActuatorDisplacementUnit,
     ) -> Result<(), &'static str> {
+        if self._mode != ClosedLoopControlMode::OpenLoop {
+            return Err("The control loop needs to be in open-loop mode.");
+        }
+
         match command {
             CommandActuator::Start => return self._open_loop.start(actuators, displacement, unit),
             CommandActuator::Stop => {
@@ -884,12 +934,16 @@ impl ControlLoop {
     /// * `mode` - The mode to be set.
     ///
     /// # Returns
-    /// Current ILC mode.
+    /// Ok if the mode is set successfully. Otherwise, an error message.
     pub fn set_ilc_mode(
         &mut self,
         address: usize,
         mode: InnerLoopControlMode,
-    ) -> InnerLoopControlMode {
+    ) -> Result<InnerLoopControlMode, &'static str> {
+        if self._mode != ClosedLoopControlMode::Idle {
+            return Err("The control loop needs to be in idle mode.");
+        }
+
         if self.is_simulation_mode() {
             if let Some(plant) = &mut self.plant {
                 let new_mode = plant.set_ilc_mode(address, mode);
@@ -898,14 +952,14 @@ impl ControlLoop {
                         address, new_mode,
                     ));
 
-                return new_mode;
+                return Ok(new_mode);
             }
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
         }
 
-        InnerLoopControlMode::Unknown
+        Ok(InnerLoopControlMode::Unknown)
     }
 
     /// Get the mode of the inner-loop controller (ILC).
@@ -914,22 +968,26 @@ impl ControlLoop {
     /// * `address` - The address of ILC.
     ///
     /// # Returns
-    /// ILC mode.
-    pub fn get_ilc_mode(&mut self, address: usize) -> InnerLoopControlMode {
+    /// OK if the mode is retrieved successfully. Otherwise, an error message.
+    pub fn get_ilc_mode(&mut self, address: usize) -> Result<InnerLoopControlMode, &'static str> {
+        if self._mode != ClosedLoopControlMode::Idle {
+            return Err("The control loop needs to be in idle mode.");
+        }
+
         if self.is_simulation_mode() {
             if let Some(plant) = &self.plant {
                 let mode = plant.get_ilc_mode(address);
                 self.event_queue
                     .add_event(Event::get_message_inner_loop_control_mode(address, mode));
 
-                return mode;
+                return Ok(mode);
             }
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
         }
 
-        InnerLoopControlMode::Unknown
+        Ok(InnerLoopControlMode::Unknown)
     }
 }
 
@@ -939,6 +997,7 @@ mod tests {
     use approx::assert_relative_eq;
     use serde_json::json;
 
+    use crate::constants::NUM_TEMPERATURE_RING;
     use crate::mock::mock_constants::{PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW};
     use crate::utility::assert_relative_eq_vector;
 
@@ -1008,6 +1067,59 @@ mod tests {
                     "status": true,
                 })
             ]
+        );
+    }
+
+    #[test]
+    fn test_update_config() {
+        let mut control_loop = create_control_loop(true);
+
+        // Should succeed to update the config.
+        let mut config = Config::new(
+            Path::new("config/parameters_control.yaml"),
+            Path::new("config/lut/optical"),
+        );
+        config.hardpoints = vec![4, 14, 24, 72, 74, 76];
+
+        assert!(control_loop.update_config(config.clone()).is_ok());
+
+        assert_eq!(control_loop.config.hardpoints, config.hardpoints);
+        assert_eq!(control_loop.config.lut.dir_name, config.lut.dir_name);
+
+        let lut_angle = 12.0;
+        let ring_temperature = vec![1.0; NUM_TEMPERATURE_RING];
+        let ref_temperature = vec![21.0; NUM_TEMPERATURE_RING];
+        let enable_lut_temperature = true;
+
+        assert_relative_eq_vector(
+            &control_loop
+                .config
+                .lut
+                .get_lut_forces(
+                    lut_angle,
+                    &ring_temperature,
+                    &ref_temperature,
+                    enable_lut_temperature,
+                )
+                .0,
+            &config
+                .lut
+                .get_lut_forces(
+                    lut_angle,
+                    &ring_temperature,
+                    &ref_temperature,
+                    enable_lut_temperature,
+                )
+                .0,
+            EPSILON,
+        );
+
+        // Should fail to update the config when the control loop is in
+        // closed-loop mode.
+        control_loop._mode = ClosedLoopControlMode::ClosedLoop;
+        assert_eq!(
+            control_loop.update_config(config),
+            Err("The control loop can not be in closed-loop mode.")
         );
     }
 
@@ -1249,7 +1361,18 @@ mod tests {
     fn test_handle_position_mirror() {
         let mut control_loop = create_control_loop(true);
 
-        control_loop.handle_position_mirror(1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+        // Should fail if not in closed-loop mode
+        assert_eq!(
+            control_loop.handle_position_mirror(1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
+            Err("The control loop needs to be in closed-loop mode.")
+        );
+
+        // Should succeed if in closed-loop mode
+        control_loop._mode = ClosedLoopControlMode::ClosedLoop;
+
+        assert!(control_loop
+            .handle_position_mirror(1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+            .is_ok());
 
         let hardpoint_steps: Vec<i32> = control_loop
             .config
@@ -1266,9 +1389,10 @@ mod tests {
         // Stabilize the mirror first
         let mut control_loop = create_control_loop(true);
         stabilize_control_loop(&mut control_loop);
+        control_loop._mode = ClosedLoopControlMode::ClosedLoop;
 
         // Position the mirror
-        control_loop.handle_position_mirror(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+        let _ = control_loop.handle_position_mirror(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
         steps(&mut control_loop, 220, ClosedLoopControlMode::ClosedLoop);
 
         assert_eq!(control_loop.steps_position_mirror, vec![0; NUM_ACTUATOR]);
@@ -1303,6 +1427,7 @@ mod tests {
     #[test]
     fn test_apply_force_success() {
         let mut control_loop = create_control_loop(true);
+        control_loop._mode = ClosedLoopControlMode::ClosedLoop;
 
         let force = vec![10.0; NUM_ACTUATOR];
         assert_eq!(control_loop.apply_force(&force), Ok(()));
@@ -1352,6 +1477,20 @@ mod tests {
         let mut control_loop = create_control_loop(true);
         stabilize_control_loop(&mut control_loop);
 
+        // Should fail if not in open-loop mode
+        assert_eq!(
+            control_loop.move_actuators(
+                CommandActuator::Start,
+                &vec![1],
+                60.0,
+                ActuatorDisplacementUnit::Step
+            ),
+            Err("The control loop needs to be in open-loop mode.")
+        );
+
+        // Should succeed if in open-loop mode
+        control_loop._mode = ClosedLoopControlMode::OpenLoop;
+
         // Get the initial actuator step
         let step_init = control_loop.telemetry.actuator_steps[1];
 
@@ -1380,6 +1519,7 @@ mod tests {
         );
 
         // Pause the movement
+        control_loop._mode = ClosedLoopControlMode::OpenLoop;
         assert_eq!(
             control_loop.move_actuators(
                 CommandActuator::Pause,
@@ -1400,6 +1540,7 @@ mod tests {
         assert_eq!(step_pause, step_move);
 
         // Resume the movement
+        control_loop._mode = ClosedLoopControlMode::OpenLoop;
         assert_eq!(
             control_loop.move_actuators(
                 CommandActuator::Resume,
@@ -1421,6 +1562,7 @@ mod tests {
         assert!(!control_loop._open_loop.is_running);
 
         // Stop the movement
+        control_loop._mode = ClosedLoopControlMode::OpenLoop;
         assert_eq!(
             control_loop.move_actuators(
                 CommandActuator::Stop,
@@ -1445,9 +1587,13 @@ mod tests {
     fn test_set_ilc_mode() {
         let mut control_loop = create_control_loop(true);
 
-        let mode = control_loop.set_ilc_mode(10, InnerLoopControlMode::Disabled);
-
-        assert_eq!(mode, InnerLoopControlMode::Disabled);
+        // Should succeed to set the mode when in idle mode
+        assert_eq!(
+            control_loop
+                .set_ilc_mode(10, InnerLoopControlMode::Disabled)
+                .unwrap(),
+            InnerLoopControlMode::Disabled
+        );
         assert_eq!(
             control_loop.event_queue.get_events_and_clear(),
             vec![json!({
@@ -1456,15 +1602,24 @@ mod tests {
                 "mode": 2,
             })]
         );
+
+        // Should fail to set the mode when not in idle mode
+        control_loop._mode = ClosedLoopControlMode::ClosedLoop;
+        assert_eq!(
+            control_loop.set_ilc_mode(10, InnerLoopControlMode::Standby),
+            Err("The control loop needs to be in idle mode.")
+        );
     }
 
     #[test]
     fn test_get_ilc_mode() {
         let mut control_loop = create_control_loop(true);
 
-        let mode = control_loop.get_ilc_mode(10);
-
-        assert_eq!(mode, InnerLoopControlMode::Standby);
+        // Should succeed to set the mode when in idle mode
+        assert_eq!(
+            control_loop.get_ilc_mode(10).unwrap(),
+            InnerLoopControlMode::Standby
+        );
         assert_eq!(
             control_loop.event_queue.get_events_and_clear(),
             vec![json!({
@@ -1472,6 +1627,13 @@ mod tests {
                 "address": 10,
                 "mode": 1,
             })]
+        );
+
+        // Should fail to set the mode when not in idle mode
+        control_loop._mode = ClosedLoopControlMode::ClosedLoop;
+        assert_eq!(
+            control_loop.get_ilc_mode(10),
+            Err("The control loop needs to be in idle mode.")
         );
     }
 }
