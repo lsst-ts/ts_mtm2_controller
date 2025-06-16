@@ -155,12 +155,23 @@ impl Controller {
 
     /// Send the configuration to the control loop and update the error handler.
     ///
+    /// # Notes
+    /// This function can only be called when the control loop is not in
+    /// closed-loop mode. If the control loop is in closed-loop mode, it will
+    /// return None and log an error message.
+    ///
     /// # Arguments
     /// * `config` - The configuration to send.
     ///
     /// # Returns
     /// Some if the configuration is sent. Otherwise, None.
     pub fn send_config_to_control_loop_and_update(&mut self, config: Config) -> Option<()> {
+        if self.status.mode == ClosedLoopControlMode::ClosedLoop {
+            error!("Cannot send configuration to control loop when the mode is closed-loop mode.");
+
+            return None;
+        }
+
         if let Some(sender) = self.sender_to_control_loop.as_ref() {
             match sender.try_send(json!(
                 {
@@ -212,6 +223,11 @@ impl Controller {
         let parent = lut_dir_current.parent()?;
         let lut_dir_new = parent.join(file);
         if !lut_dir_new.exists() {
+            error!(
+                "Configuration directory does not exist: {}",
+                lut_dir_new.display()
+            );
+
             return None;
         }
 
@@ -274,6 +290,36 @@ impl Controller {
                 let _ = sender.try_send(message_command);
             }
         }
+    }
+
+    /// Switch the force balance system on or off.
+    ///
+    /// # Arguments
+    /// * `balance_on` - True to switch on the force balance system, false to
+    /// switch it off.
+    ///
+    /// # Returns
+    /// Some if the force balance system is switched on or off. Otherwise, None.
+    pub fn switch_force_balance_system(&mut self, balance_on: bool) -> Option<()> {
+        let power_system = &self.status.power_system;
+        if (!power_system[&PowerType::Communication].is_power_on())
+            || (!power_system[&PowerType::Motor].is_power_on())
+        {
+            error!(
+                "Cannot switch the force balance system when the power systems are not powered on."
+            );
+
+            return None;
+        }
+
+        // Switch on/off the force balance system.
+        let mode = if balance_on {
+            ClosedLoopControlMode::ClosedLoop
+        } else {
+            ClosedLoopControlMode::OpenLoop
+        };
+
+        self.update_closed_loop_control_mode(mode)
     }
 
     /// Update the closed-loop control mode.
@@ -735,12 +781,13 @@ mod tests {
     fn test_send_config_to_control_loop_and_update() {
         let (mut controller, _, _receiver_to_control_loop) = create_controller();
 
+        // Should succeed when the mode is not closed-loop
         let mut config = controller.error_handler.config_control_loop.clone();
         let hardpoints = vec![4, 14, 24, 72, 74, 76];
         config.hardpoints = hardpoints.clone();
 
         assert!(controller
-            .send_config_to_control_loop_and_update(config)
+            .send_config_to_control_loop_and_update(config.clone())
             .is_some());
         assert_eq!(
             controller.event_queue.get_events_and_clear(),
@@ -769,6 +816,12 @@ mod tests {
                 ),
             ],
         );
+
+        // Should fail when the mode is closed-loop
+        controller.status.mode = ClosedLoopControlMode::ClosedLoop;
+        assert!(controller
+            .send_config_to_control_loop_and_update(config)
+            .is_none());
     }
 
     #[test]
@@ -862,6 +915,44 @@ mod tests {
         assert_eq!(
             message,
             json!({"id": "cmd_setExternalElevation", "compName": "mtmount", "actualPosition": 10.0})
+        );
+    }
+
+    #[test]
+    fn test_switch_force_balance_system() {
+        let (mut controller, _, receiver_to_control_loop) = create_controller();
+
+        // Should fail if the power systems are not powered on
+        assert!(controller.switch_force_balance_system(true).is_none());
+
+        // Set the power system states to powered on.
+        controller.status.update_power_system(
+            PowerType::Communication,
+            true,
+            PowerSystemState::PoweredOn,
+        );
+        controller
+            .status
+            .update_power_system(PowerType::Motor, true, PowerSystemState::PoweredOn);
+
+        // Switch on the force balance system.
+        assert!(controller.switch_force_balance_system(true).is_some());
+        assert_eq!(
+            receiver_to_control_loop.try_recv().ok(),
+            Some(json!({
+                "id": "cmd_setClosedLoopControlMode",
+                "mode": 4,
+            }))
+        );
+
+        // Switch off the force balance system.
+        assert!(controller.switch_force_balance_system(false).is_some());
+        assert_eq!(
+            receiver_to_control_loop.try_recv().ok(),
+            Some(json!({
+                "id": "cmd_setClosedLoopControlMode",
+                "mode": 3,
+            }))
         );
     }
 
