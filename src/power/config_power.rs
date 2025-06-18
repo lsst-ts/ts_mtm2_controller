@@ -46,6 +46,37 @@ pub struct ConfigPower {
     // Gain and offset for the motor current.
     pub current_gain_motor: f64,
     pub current_offset_motor: f64,
+    // Breaker operating voltage rise time in millisecond for the communication
+    // and motor.
+    pub breaker_voltage_rise_time_communication: i32,
+    pub breaker_voltage_rise_time_motor: i32,
+    // Output voltage settling time in millisecond for the communication and
+    // motor.
+    pub output_voltage_settling_time_communication: i32,
+    pub output_voltage_settling_time_motor: i32,
+    // Output voltage fall time in millisecond for the communication and motor.
+    pub output_voltage_fall_time_communication: i32,
+    pub output_voltage_fall_time_motor: i32,
+    // The physical amounts of time in millisecond that they take for the power
+    // relay to open and closed its contacts. These values are common to both
+    // motor and communication power buses since they use the same relay type.
+    pub relay_open_delay: i32,
+    pub relay_close_delay: i32,
+    // The minimum amount of time in millisecond that it takes to reset a
+    // breaker.
+    pub reset_breaker_pulse_width: i32,
+    // The amount of time in millisecond that it takes for the breaker to power
+    // up and stabilize its operating status once its operating voltage is
+    // achieved.
+    pub breaker_on_time: i32,
+    // Specifies the minimum voltage level, plus some hysteresis, required to
+    // operate the electronic breakers.
+    pub breaker_operating_voltage: f64,
+    // The maximum amount of time in millisecond from when the cRIO's motor
+    // power on digital output is asserted on until the interlock device turns
+    // on/off the motor power relay. This value is dependent on the interlock's
+    // device programming.
+    pub interlock_output_delay: i32,
 }
 
 impl ConfigPower {
@@ -90,6 +121,44 @@ impl ConfigPower {
 
             current_gain_motor: get_parameter(filepath, "current_gain_motor"),
             current_offset_motor: get_parameter(filepath, "current_offset_motor"),
+
+            breaker_voltage_rise_time_communication: get_parameter(
+                filepath,
+                "breaker_voltage_rise_time_communication",
+            ),
+            breaker_voltage_rise_time_motor: get_parameter(
+                filepath,
+                "breaker_voltage_rise_time_motor",
+            ),
+
+            output_voltage_settling_time_communication: get_parameter(
+                filepath,
+                "output_voltage_settling_time_communication",
+            ),
+            output_voltage_settling_time_motor: get_parameter(
+                filepath,
+                "output_voltage_settling_time_motor",
+            ),
+
+            output_voltage_fall_time_communication: get_parameter(
+                filepath,
+                "output_voltage_fall_time_communication",
+            ),
+            output_voltage_fall_time_motor: get_parameter(
+                filepath,
+                "output_voltage_fall_time_motor",
+            ),
+
+            relay_open_delay: get_parameter(filepath, "relay_open_delay"),
+            relay_close_delay: get_parameter(filepath, "relay_close_delay"),
+
+            reset_breaker_pulse_width: get_parameter(filepath, "reset_breaker_pulse_width"),
+
+            breaker_on_time: get_parameter(filepath, "breaker_on_time"),
+
+            breaker_operating_voltage: get_parameter(filepath, "breaker_operating_voltage"),
+
+            interlock_output_delay: get_parameter(filepath, "interlock_output_delay"),
         }
     }
 
