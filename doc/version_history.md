@@ -1,5 +1,9 @@
 # Version Histroy
 
+0.2.2
+
+- Improve the commands to log the error messages.
+
 0.2.1
 
 - Support the mirror position file.

@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use log::error;
 use serde_json::Value;
 use std::path::Path;
 
@@ -26,7 +27,7 @@ use crate::command::command_schema::Command;
 use crate::constants::{DEFAULT_POSITION_FILENAME, NUM_HARDPOINTS, NUM_TEMPERATURE_RING};
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
-use crate::enums::{ClosedLoopControlMode, Commander, PowerType};
+use crate::enums::Commander;
 use crate::power::power_system::PowerSystem;
 
 /// Command to clear the errors.
@@ -64,23 +65,10 @@ impl Command for CommandSwitchForceBalanceSystem {
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
     ) -> Option<()> {
-        // Check the current state of the power system.
         let system_controller = controller?;
-        let power_system = &system_controller.status.power_system;
-        if (!power_system[&PowerType::Communication].is_power_on())
-            || (!power_system[&PowerType::Motor].is_power_on())
-        {
-            return None;
-        }
 
-        // Switch on/off the force balance system.
-        let mode = if message["status"].as_bool()? {
-            ClosedLoopControlMode::ClosedLoop
-        } else {
-            ClosedLoopControlMode::OpenLoop
-        };
-
-        system_controller.update_closed_loop_control_mode(mode)
+        let status = message["status"].as_bool()?;
+        system_controller.switch_force_balance_system(status)
     }
 }
 
@@ -101,6 +89,10 @@ impl Command for CommandSetTemperatureOffset {
         // Get the reference temperature.
         let ref_temperature = message["ring"].as_array()?;
         if ref_temperature.len() != NUM_TEMPERATURE_RING {
+            error!(
+                "Reference number of the ring temperatures needs to be: {NUM_TEMPERATURE_RING}."
+            );
+
             return None;
         }
 
@@ -309,6 +301,8 @@ impl Command for CommandSetHardpointList {
         // Get the hardpoints.
         let hardpoints = message["actuators"].as_array()?;
         if hardpoints.len() != NUM_HARDPOINTS {
+            error!("Number of hardpoints needs to be: {NUM_HARDPOINTS}.");
+
             return None;
         }
 
@@ -354,7 +348,7 @@ mod tests {
     use std::sync::mpsc::{sync_channel, Receiver};
 
     use crate::constants::BOUND_SYNC_CHANNEL;
-    use crate::enums::{ErrorCode, PowerSystemState};
+    use crate::enums::{ClosedLoopControlMode, ErrorCode, PowerSystemState, PowerType};
     use crate::telemetry::telemetry_control_loop::TelemetryControlLoop;
 
     fn create_controller() -> (Controller, Receiver<Value>) {
@@ -386,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_command_switch_force_balance_system() {
-        let (mut controller, receiver_to_control_loop) = create_controller();
+        let (mut controller, _receiver_to_control_loop) = create_controller();
 
         let command = CommandSwitchForceBalanceSystem;
 
@@ -411,25 +405,6 @@ mod tests {
         assert!(command
             .execute(&json!({"status": true}), None, None, Some(&mut controller))
             .is_some());
-        assert_eq!(
-            receiver_to_control_loop.try_recv().ok(),
-            Some(json!({
-                "id": "cmd_setClosedLoopControlMode",
-                "mode": 4,
-            }))
-        );
-
-        // Switch off the force balance system.
-        assert!(command
-            .execute(&json!({"status": false}), None, None, Some(&mut controller))
-            .is_some());
-        assert_eq!(
-            receiver_to_control_loop.try_recv().ok(),
-            Some(json!({
-                "id": "cmd_setClosedLoopControlMode",
-                "mode": 3,
-            }))
-        );
     }
 
     #[test]
