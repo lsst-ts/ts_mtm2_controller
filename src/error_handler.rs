@@ -27,7 +27,7 @@ use strum::IntoEnumIterator;
 use crate::config::Config;
 use crate::constants::NUM_AXIAL_ACTUATOR;
 use crate::control::actuator::Actuator;
-use crate::enums::{BitEnum, ErrorCode};
+use crate::enums::{BitEnum, ErrorCode, PowerType};
 use crate::power::config_power::ConfigPower;
 use crate::telemetry::{
     telemetry_control_loop::TelemetryControlLoop, telemetry_power::TelemetryPower,
@@ -49,6 +49,11 @@ pub struct ErrorHandler {
     pub ilc: HashMap<String, HashSet<i32>>,
     // Count of the cycle time that is out of the maximum continuously.
     _count_out_max_cycle_time: i32,
+    // Counts to check the power voltages.
+    _count_voltage_communication: i32,
+    _count_voltage_motor: i32,
+    _max_count_voltage_communication: i32,
+    _max_count_voltage_motor: i32,
 }
 
 impl ErrorHandler {
@@ -67,9 +72,17 @@ impl ErrorHandler {
                 ilc.insert(String::from(*key), HashSet::new());
             });
 
+        // Calculate the maximum counts to check the voltages.
+        let config_power = ConfigPower::new();
+        let max_count_voltage_communication = config_power
+            .get_time_power_on(PowerType::Communication)
+            / (config_power.loop_time as i32);
+        let max_count_voltage_motor =
+            config_power.get_time_power_on(PowerType::Motor) / (config_power.loop_time as i32);
+
         Self {
             config_control_loop: config_control_loop.clone(),
-            config_power: ConfigPower::new(),
+            config_power: config_power,
             actuators: Actuator::from_cell_mapping_file(Path::new(
                 "config/cell/cell_actuator_mapping.yaml",
             )),
@@ -77,6 +90,13 @@ impl ErrorHandler {
             _faults_mask: Self::get_faults_mask(),
             ilc: ilc,
             _count_out_max_cycle_time: 0,
+
+            _count_voltage_communication: 0,
+            _count_voltage_motor: 0,
+
+            _max_count_voltage_communication: max_count_voltage_communication,
+
+            _max_count_voltage_motor: max_count_voltage_motor,
         }
     }
 
@@ -436,31 +456,46 @@ impl ErrorHandler {
         is_power_on_communication: bool,
         is_power_on_motor: bool,
     ) {
+        // Check the communication voltage.
         if is_power_on_communication {
-            self.check_voltage(
-                telemetry.power_processed["commVoltage"],
-                ErrorCode::FaultCommVoltage,
-                ErrorCode::WarnCommVoltage,
-            );
+            if self._count_voltage_communication >= self._max_count_voltage_communication {
+                self.check_voltage(
+                    telemetry.power_processed["commVoltage"],
+                    ErrorCode::FaultCommVoltage,
+                    ErrorCode::WarnCommVoltage,
+                );
 
-            if telemetry.power_processed["commCurrent"]
-                > self.config_power.excessive_current_communication
-            {
-                self.add_error(ErrorCode::FaultCommOverCurrent);
+                if telemetry.power_processed["commCurrent"]
+                    > self.config_power.excessive_current_communication
+                {
+                    self.add_error(ErrorCode::FaultCommOverCurrent);
+                }
+            } else {
+                self._count_voltage_communication += 1;
             }
+        } else {
+            self._count_voltage_communication = 0;
         }
 
+        // Check the motor voltage.
         if is_power_on_motor {
-            self.check_voltage(
-                telemetry.power_processed["motorVoltage"],
-                ErrorCode::FaultMotorVoltage,
-                ErrorCode::WarnMotorVoltage,
-            );
+            if self._count_voltage_motor >= self._max_count_voltage_motor {
+                self.check_voltage(
+                    telemetry.power_processed["motorVoltage"],
+                    ErrorCode::FaultMotorVoltage,
+                    ErrorCode::WarnMotorVoltage,
+                );
 
-            if telemetry.power_processed["motorCurrent"] > self.config_power.excessive_current_motor
-            {
-                self.add_error(ErrorCode::FaultMotorOverCurrent);
+                if telemetry.power_processed["motorCurrent"]
+                    > self.config_power.excessive_current_motor
+                {
+                    self.add_error(ErrorCode::FaultMotorOverCurrent);
+                }
+            } else {
+                self._count_voltage_motor += 1;
             }
+        } else {
+            self._count_voltage_motor = 0;
         }
     }
 
@@ -850,7 +885,12 @@ mod tests {
             .power_processed
             .insert(String::from("motorCurrent"), 10.0);
 
-        error_handler.check_condition_power_system(&telemetry, true, true);
+        // Need to run some cycles to pass the maximum counts
+        for _ in 0..(error_handler._max_count_voltage_communication
+            + error_handler._max_count_voltage_motor)
+        {
+            error_handler.check_condition_power_system(&telemetry, true, true);
+        }
 
         assert!(!error_handler.has_fault());
 
