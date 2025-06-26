@@ -1,5 +1,9 @@
 # Version Histroy
 
+0.2.3
+
+- Add the `mock_power_system.rs`.
+
 0.2.2
 
 - Improve the commands to log the error messages.
