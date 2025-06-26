@@ -116,6 +116,8 @@ impl PowerSystemProcess {
     pub fn run(&mut self) {
         info!("Power system is running.");
 
+        self._power_system.init_default_digital_output();
+
         let loop_time = self._power_system.config.loop_time;
 
         let maximum_counter_telemetry = self._power_system.config.maximum_counter_telemetry;
