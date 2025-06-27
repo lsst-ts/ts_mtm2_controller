@@ -270,5 +270,11 @@ The [mock](../src/mock/) module supports the simulation mode:
 ```mermaid
 classDiagram
 
+namespace power {
+  class ConfigPower
+}
+
+MockPlant ..> ConfigPower
+MockPlant "1" *-- "2" MockPowerSystem
 MockPlant "1" *-- "84" MockInnerLoopController
 ```

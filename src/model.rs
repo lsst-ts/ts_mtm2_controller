@@ -449,8 +449,11 @@ impl Model {
     fn run_power_system(&mut self, mut plant: Option<MockPlant>) {
         // Make sure the mock plant (if any) has no power
         if let Some(mock_plant) = plant.as_mut() {
-            mock_plant.is_power_on_communication = false;
-            mock_plant.is_power_on_motor = false;
+            mock_plant.power_system_communication.is_power_on = false;
+            mock_plant.power_system_communication.is_breaker_on = false;
+
+            mock_plant.power_system_motor.is_power_on = false;
+            mock_plant.power_system_motor.is_breaker_on = false;
         }
 
         let mut power_system_process = PowerSystemProcess::new(
@@ -1043,6 +1046,22 @@ mod tests {
         }
     }
 
+    fn run_until_expected_digital_input_output(
+        model: &mut Model,
+        expected_digital_input: u32,
+        expected_digital_output: u8,
+    ) {
+        loop {
+            if (model._controller.status.digital_input == expected_digital_input)
+                && (model._controller.status.digital_output == expected_digital_output)
+            {
+                break;
+            }
+
+            model.step();
+        }
+    }
+
     #[test]
     fn test_new() {
         let model = create_model();
@@ -1207,6 +1226,12 @@ mod tests {
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":5,\"status\":true}\r\n",
         );
 
+        run_until_expected_digital_input_output(
+            &mut model,
+            TEST_DIGITAL_INPUT_POWER_COMM,
+            TEST_DIGITAL_OUTPUT_POWER_COMM,
+        );
+
         client_read_and_assert(
             &mut client_command_gui,
             &format!("{{\"id\":\"digitalOutput\",\"value\":{TEST_DIGITAL_OUTPUT_POWER_COMM}}}\r\n"),
@@ -1318,6 +1343,12 @@ mod tests {
 
         // Check the motor power system status
         assert!(model._controller.status.power_system[&PowerType::Motor].is_power_on());
+
+        run_until_expected_digital_input_output(
+            &mut model,
+            TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
+            TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+        );
 
         // Check the system staus
         let status = &model._controller.status;

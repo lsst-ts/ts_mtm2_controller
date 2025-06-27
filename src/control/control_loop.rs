@@ -87,8 +87,8 @@ impl ControlLoop {
                 // Zenith angle by default
                 90.0,
             );
-            mock_plant.is_power_on_communication = true;
-            mock_plant.is_power_on_motor = true;
+            mock_plant.power_system_communication.is_power_on = true;
+            mock_plant.power_system_motor.is_power_on = true;
 
             Option::Some(mock_plant)
         } else {
@@ -423,7 +423,7 @@ impl ControlLoop {
         if self.is_simulation_mode() {
             // Get the telemetry from the plant.
             if let Some(plant) = &mut self.plant {
-                if plant.is_power_on_communication {
+                if plant.power_system_communication.is_power_on {
                     // Inclinometer
                     self.telemetry
                         .inclinometer
@@ -1013,13 +1013,6 @@ mod tests {
     }
 
     fn stabilize_control_loop(control_loop: &mut ControlLoop) {
-        control_loop
-            .plant
-            .as_mut()
-            .unwrap()
-            .is_power_on_communication = true;
-        control_loop.plant.as_mut().unwrap().is_power_on_motor = true;
-
         steps(control_loop, 10, ClosedLoopControlMode::TelemetryOnly);
         steps(control_loop, 30, ClosedLoopControlMode::ClosedLoop);
     }
@@ -1151,12 +1144,6 @@ mod tests {
     fn test_step_closed_loop() {
         let mut control_loop = create_control_loop(true);
         control_loop.config.enable_lut_temperature = true;
-        control_loop
-            .plant
-            .as_mut()
-            .unwrap()
-            .is_power_on_communication = true;
-        control_loop.plant.as_mut().unwrap().is_power_on_motor = true;
 
         steps(&mut control_loop, 10, ClosedLoopControlMode::TelemetryOnly);
 
@@ -1191,11 +1178,6 @@ mod tests {
     fn test_update_telemetry_data() {
         let mut control_loop = create_control_loop(true);
         control_loop.is_in_position = true;
-        control_loop
-            .plant
-            .as_mut()
-            .unwrap()
-            .is_power_on_communication = true;
 
         control_loop.update_telemetry_data();
 
@@ -1225,11 +1207,6 @@ mod tests {
     #[test]
     fn test_process_telemetry_data() {
         let mut control_loop = create_control_loop(true);
-        control_loop
-            .plant
-            .as_mut()
-            .unwrap()
-            .is_power_on_communication = true;
         control_loop.update_telemetry_data();
 
         // Let the hardpoints have the same positions as the home position.

@@ -94,15 +94,27 @@ impl PowerSystem {
         // Update the plant model
         if let Some(plant) = &mut self._plant {
             if power_type == PowerType::Motor {
-                plant.is_power_on_motor = true;
+                plant.power_system_motor.is_power_on = true;
                 plant.switch_digital_output(
                     DigitalOutput::MotorPower,
                     DigitalOutputStatus::BinaryHighLevel,
                 );
+
+                plant.power_system_motor.is_breaker_on = true;
+                plant.switch_digital_output(
+                    DigitalOutput::ResetMotorBreakers,
+                    DigitalOutputStatus::BinaryHighLevel,
+                );
             } else {
-                plant.is_power_on_communication = true;
+                plant.power_system_communication.is_power_on = true;
                 plant.switch_digital_output(
                     DigitalOutput::CommunicationPower,
+                    DigitalOutputStatus::BinaryHighLevel,
+                );
+
+                plant.power_system_communication.is_breaker_on = true;
+                plant.switch_digital_output(
+                    DigitalOutput::ResetCommunicationBreakers,
                     DigitalOutputStatus::BinaryHighLevel,
                 );
             }
@@ -156,17 +168,21 @@ impl PowerSystem {
         // Update the plant model
         if let Some(plant) = &mut self._plant {
             if power_type == PowerType::Motor {
-                plant.is_power_on_motor = false;
+                plant.power_system_motor.is_power_on = false;
                 plant.switch_digital_output(
                     DigitalOutput::MotorPower,
                     DigitalOutputStatus::BinaryLowLevel,
                 );
+
+                plant.power_system_motor.is_breaker_on = false;
             } else {
-                plant.is_power_on_communication = false;
+                plant.power_system_communication.is_power_on = false;
                 plant.switch_digital_output(
                     DigitalOutput::CommunicationPower,
                     DigitalOutputStatus::BinaryLowLevel,
                 );
+
+                plant.power_system_communication.is_breaker_on = false;
             }
         }
 
@@ -201,13 +217,13 @@ impl PowerSystem {
         // Update the plant model
         if let Some(plant) = &mut self._plant {
             if power_type == PowerType::Motor {
-                plant.is_power_on_motor = false;
+                plant.power_system_motor.is_breaker_on = false;
                 plant.switch_digital_output(
                     DigitalOutput::ResetMotorBreakers,
                     DigitalOutputStatus::BinaryLowLevel,
                 );
             } else {
-                plant.is_power_on_communication = false;
+                plant.power_system_communication.is_breaker_on = false;
                 plant.switch_digital_output(
                     DigitalOutput::ResetCommunicationBreakers,
                     DigitalOutputStatus::BinaryLowLevel,
@@ -263,13 +279,13 @@ impl PowerSystem {
         if is_resetting_breakers {
             if let Some(plant) = &mut self._plant {
                 if power_type == PowerType::Motor {
-                    plant.is_power_on_motor = true;
+                    plant.power_system_motor.is_breaker_on = true;
                     plant.switch_digital_output(
                         DigitalOutput::ResetMotorBreakers,
                         DigitalOutputStatus::BinaryHighLevel,
                     );
                 } else {
-                    plant.is_power_on_communication = true;
+                    plant.power_system_communication.is_breaker_on = true;
                     plant.switch_digital_output(
                         DigitalOutput::ResetCommunicationBreakers,
                         DigitalOutputStatus::BinaryHighLevel,
@@ -285,7 +301,7 @@ impl PowerSystem {
     ///
     /// # Returns
     /// Telemetry data.
-    pub fn get_telemetry_data(&self) -> TelemetryPower {
+    pub fn get_telemetry_data(&mut self) -> TelemetryPower {
         let mut telemetry = TelemetryPower::new();
 
         // Raw power data
@@ -326,12 +342,12 @@ impl PowerSystem {
     ///
     /// # Panics
     /// If not in simulation mode.
-    fn get_power(&self, power_type: PowerType) -> (f64, f64) {
-        if let Some(plant) = &self._plant {
+    fn get_power(&mut self, power_type: PowerType) -> (f64, f64) {
+        if let Some(plant) = &mut self._plant {
             if power_type == PowerType::Motor {
-                return plant.get_power_motor();
+                return plant.power_system_motor.get_voltage_and_current();
             } else {
-                return plant.get_power_communication();
+                return plant.power_system_communication.get_voltage_and_current();
             }
         } else {
             // Update the hardware.
@@ -406,6 +422,19 @@ impl PowerSystem {
         }
     }
 
+    /// Initialize the default digital output.
+    pub fn init_default_digital_output(&mut self) {
+        [
+            DigitalOutput::InterlockEnable,
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutput::ResetCommunicationBreakers,
+        ]
+        .iter()
+        .for_each(|digital_output| {
+            self.switch_digital_output(*digital_output, DigitalOutputStatus::BinaryHighLevel);
+        });
+    }
+
     /// Switch the digital output.
     ///
     /// # Arguments
@@ -444,8 +473,10 @@ mod tests {
 
     use crate::enums::BitEnum;
     use crate::mock::mock_constants::{
-        TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_POWER_COMM,
+        TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_NO_POWER,
+        TEST_DIGITAL_OUTPUT_POWER_COMM,
     };
+    use crate::mock::mock_power_system::MockPowerSystem;
     use crate::utility::read_file_stiffness;
 
     fn create_power_system() -> PowerSystem {
@@ -455,6 +486,16 @@ mod tests {
         let plant = MockPlant::new(&stiffness, 0.0);
 
         PowerSystem::new(Some(plant))
+    }
+
+    fn run_until_breaker_enabled(power_system: &mut MockPowerSystem) {
+        loop {
+            if power_system.is_breaker_enabled() {
+                break;
+            }
+
+            power_system.get_voltage_and_current();
+        }
     }
 
     #[test]
@@ -489,7 +530,9 @@ mod tests {
             ]
         );
 
-        assert!(power_system._plant.as_ref().unwrap().is_power_on_motor);
+        let power_system_motor = &power_system._plant.as_ref().unwrap().power_system_motor;
+        assert!(power_system_motor.is_power_on);
+        assert!(power_system_motor.is_breaker_on);
     }
 
     #[test]
@@ -530,12 +573,15 @@ mod tests {
             ]
         );
 
-        assert!(!power_system._plant.as_ref().unwrap().is_power_on_motor);
+        let power_system_motor = &power_system._plant.as_ref().unwrap().power_system_motor;
+        assert!(!power_system_motor.is_power_on);
+        assert!(!power_system_motor.is_breaker_on);
     }
 
     #[test]
     fn test_reset_breakers() {
         let mut power_system = create_power_system();
+        power_system.init_default_digital_output();
 
         power_system.power_on(PowerType::Communication);
 
@@ -561,7 +607,8 @@ mod tests {
                 ._plant
                 .as_ref()
                 .unwrap()
-                .is_power_on_communication
+                .power_system_communication
+                .is_breaker_on
         );
         assert_eq!(
             power_system.get_digital_input(),
@@ -582,8 +629,18 @@ mod tests {
                 ._plant
                 .as_ref()
                 .unwrap()
-                .is_power_on_communication
+                .power_system_communication
+                .is_breaker_on
         );
+
+        // Enable the breaker
+        let mock_power_system = &mut power_system
+            ._plant
+            .as_mut()
+            .unwrap()
+            .power_system_communication;
+        run_until_breaker_enabled(mock_power_system);
+
         assert_eq!(
             power_system.get_digital_input(),
             TEST_DIGITAL_INPUT_POWER_COMM
@@ -616,14 +673,20 @@ mod tests {
         let mut power_system = create_power_system();
 
         // Power is off
-        let (voltage, current) = power_system.get_power(PowerType::Motor);
+        let (mut voltage, mut current) = power_system.get_power(PowerType::Motor);
 
         assert_eq!(voltage, 0.0);
         assert_eq!(current, 0.0);
 
         // Power is on
         power_system.power_on(PowerType::Motor);
-        let (voltage, current) = power_system.get_power(PowerType::Motor);
+        loop {
+            (voltage, current) = power_system.get_power(PowerType::Motor);
+
+            if (voltage > 0.0) && (current > 0.0) {
+                break;
+            }
+        }
 
         assert_ne!(voltage, 0.0);
         assert_ne!(current, 0.0);
@@ -632,11 +695,20 @@ mod tests {
     #[test]
     fn test_get_telemetry_data() {
         let mut power_system = create_power_system();
+        power_system.init_default_digital_output();
 
-        // Power on the communication
+        // Power on the communication and enable the breaker
         power_system.power_on(PowerType::Communication);
 
-        let telemetry = power_system.get_telemetry_data();
+        let mock_power_system = &mut power_system
+            ._plant
+            .as_mut()
+            .unwrap()
+            .power_system_communication;
+        run_until_breaker_enabled(mock_power_system);
+
+        // Get the telemetry data
+        let mut telemetry = power_system.get_telemetry_data();
 
         assert_eq!(telemetry.digital_output, TEST_DIGITAL_OUTPUT_POWER_COMM);
         assert_eq!(telemetry.digital_input, TEST_DIGITAL_INPUT_POWER_COMM);
@@ -649,7 +721,13 @@ mod tests {
         // Power on the motor
         power_system.power_on(PowerType::Motor);
 
-        let telemetry = power_system.get_telemetry_data();
+        loop {
+            telemetry = power_system.get_telemetry_data();
+
+            if power_system.get_power(PowerType::Motor).1 > 0.0 {
+                break;
+            }
+        }
 
         assert_ne!(
             telemetry.power_processed["motorCurrent"],
@@ -689,6 +767,19 @@ mod tests {
     }
 
     #[test]
+    fn test_init_default_digital_output() {
+        let mut power_system = create_power_system();
+        assert_eq!(power_system.get_digital_output(), 0);
+
+        power_system.init_default_digital_output();
+
+        assert_eq!(
+            power_system.get_digital_output(),
+            TEST_DIGITAL_OUTPUT_NO_POWER
+        );
+    }
+
+    #[test]
     fn test_switch_digital_output() {
         let mut power_system = create_power_system();
 
@@ -716,7 +807,8 @@ mod tests {
                 ._plant
                 .as_ref()
                 .unwrap()
-                .is_power_on_communication
+                .power_system_communication
+                .is_power_on
         );
     }
 }

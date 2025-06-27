@@ -31,13 +31,15 @@ use crate::constants::{
 };
 use crate::control::math_tool::correct_inclinometer_angle;
 use crate::enums::{
-    BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode,
+    BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode, PowerType,
 };
 use crate::mock::mock_constants::{
     PLANT_CURRENT_COMMUNICATION, PLANT_CURRENT_MOTOR, PLANT_STEP_TO_ENCODER,
     PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, PLANT_VOLTAGE,
 };
 use crate::mock::mock_inner_loop_controller::MockInnerLoopController;
+use crate::mock::mock_power_system::MockPowerSystem;
+use crate::power::config_power::ConfigPower;
 use crate::utility::{get_parameter, read_file_disp_ims};
 
 #[derive(Clone)]
@@ -62,8 +64,9 @@ pub struct MockPlant {
     pub temperature_intake: Vec<f64>,
     // Exhaust temperature in degree Celsius.
     pub temperature_exhaust: Vec<f64>,
-    pub is_power_on_communication: bool,
-    pub is_power_on_motor: bool,
+    // Power systems.
+    pub power_system_communication: MockPowerSystem,
+    pub power_system_motor: MockPowerSystem,
     _ilcs: Vec<MockInnerLoopController>,
     // Digital output.
     pub digital_output: u8,
@@ -105,6 +108,29 @@ impl MockPlant {
             temperature_ring[idx] = PLANT_TEMPERATURE_HIGH;
         });
 
+        // Setup the power systems.
+        let config_power = ConfigPower::new();
+        let power_system_communication = MockPowerSystem::new(
+            PLANT_VOLTAGE,
+            PLANT_CURRENT_COMMUNICATION,
+            config_power.breaker_operating_voltage,
+            config_power.loop_time as i32,
+            config_power.get_time_power_on(PowerType::Communication),
+            config_power.get_time_power_off(PowerType::Communication),
+            config_power.get_time_breaker_on(),
+            config_power.get_time_breaker_off(),
+        );
+        let power_system_motor = MockPowerSystem::new(
+            PLANT_VOLTAGE,
+            PLANT_CURRENT_MOTOR,
+            config_power.breaker_operating_voltage,
+            config_power.loop_time as i32,
+            config_power.get_time_power_on(PowerType::Motor),
+            config_power.get_time_power_off(PowerType::Motor),
+            config_power.get_time_breaker_on(),
+            config_power.get_time_breaker_off(),
+        );
+
         Self {
             _static_transfer_matrix: matrix,
 
@@ -130,26 +156,13 @@ impl MockPlant {
             temperature_intake: vec![PLANT_TEMPERATURE_LOW; NUM_TEMPERATURE_INTAKE],
             temperature_exhaust: vec![PLANT_TEMPERATURE_HIGH; NUM_TEMPERATURE_EXHAUST],
 
-            is_power_on_communication: false,
-            is_power_on_motor: false,
+            power_system_communication: power_system_communication,
+            power_system_motor: power_system_motor,
+
             _ilcs: vec![MockInnerLoopController::new(); NUM_INNER_LOOP_CONTROLLER],
 
-            digital_output: Self::get_default_digital_output(),
+            digital_output: 0,
         }
-    }
-
-    /// Get the default digital output.
-    ///
-    /// # Returns
-    /// The default digital output.
-    fn get_default_digital_output() -> u8 {
-        [
-            DigitalOutput::InterlockEnable,
-            DigitalOutput::ResetMotorBreakers,
-            DigitalOutput::ResetCommunicationBreakers,
-        ]
-        .iter()
-        .fold(0, |acc, x| acc | x.bit_value())
     }
 
     /// Switch the digital output with the specific bit.
@@ -185,7 +198,7 @@ impl MockPlant {
             DigitalInput::PowerSupplyCurrent1OK,
         ];
 
-        if !self.is_power_on_communication {
+        if !self.power_system_communication.is_breaker_enabled() {
             bits.extend_from_slice(&[
                 DigitalInput::J1W12N1CommunicationPowerBreaker,
                 DigitalInput::J1W12N2CommunicationPowerBreaker,
@@ -196,7 +209,7 @@ impl MockPlant {
             ]);
         }
 
-        if !self.is_power_on_motor {
+        if !self.power_system_motor.is_breaker_enabled() {
             bits.extend_from_slice(&[
                 DigitalInput::J1W9N1MotorPowerBreaker,
                 DigitalInput::J1W9N2MotorPowerBreaker,
@@ -360,39 +373,13 @@ impl MockPlant {
             });
     }
 
-    /// Get the power of communication.
-    ///
-    /// # Returns
-    /// A tuple of the communication's power. The first element is the voltage
-    /// in volt and the second element is the current in ampere.
-    pub fn get_power_communication(&self) -> (f64, f64) {
-        if self.is_power_on_communication {
-            return (PLANT_VOLTAGE, PLANT_CURRENT_COMMUNICATION);
-        } else {
-            return (0.0, 0.0);
-        };
-    }
-
-    /// Get the power of motor.
-    ///
-    /// # Returns
-    /// A tuple of the motor's power. The first element is the voltage in volt
-    /// and the second element is the current in ampere.
-    pub fn get_power_motor(&self) -> (f64, f64) {
-        if self.is_power_on_motor {
-            return (PLANT_VOLTAGE, PLANT_CURRENT_MOTOR);
-        } else {
-            return (0.0, 0.0);
-        };
-    }
-
     /// Get the status of 78 actuator inner-loop controllers.
     ///
     /// # Returns
     /// A vector of the status of 78 actuator inner-loop controllers.
     fn get_actuator_ilc_status(&mut self) -> Vec<u8> {
         let mut ilc_status = vec![0; NUM_ACTUATOR];
-        if self.is_power_on_communication {
+        if self.power_system_communication.is_power_on {
             for (idx, ilc) in self._ilcs.iter_mut().enumerate() {
                 if idx < NUM_ACTUATOR {
                     ilc_status[idx] = ilc.get_status();
@@ -478,7 +465,7 @@ mod tests {
     use crate::control::math_tool::calculate_position_ims;
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
-        TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_NO_POWER,
+        TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
     };
     use crate::utility::read_file_stiffness;
 
@@ -489,6 +476,19 @@ mod tests {
         let stiffness = read_file_stiffness(filepath);
 
         MockPlant::new(&stiffness, 0.0)
+    }
+
+    fn run_until_breaker_enabled(power_system: &mut MockPowerSystem) {
+        power_system.is_power_on = true;
+        power_system.is_breaker_on = true;
+
+        loop {
+            if power_system.is_breaker_enabled() {
+                break;
+            }
+
+            power_system.get_voltage_and_current();
+        }
     }
 
     #[test]
@@ -502,8 +502,6 @@ mod tests {
                 assert_eq!(*value, PLANT_TEMPERATURE_LOW);
             }
         }
-
-        assert_eq!(mock_plant.digital_output, TEST_DIGITAL_OUTPUT_NO_POWER);
     }
 
     #[test]
@@ -543,15 +541,20 @@ mod tests {
     fn test_get_digital_input() {
         let mut mock_plant = create_mock_plant();
 
+        // Default
         assert_eq!(mock_plant.get_digital_input(), TEST_DIGITAL_INPUT_NO_POWER);
 
-        mock_plant.is_power_on_communication = true;
+        // Communication power
+        run_until_breaker_enabled(&mut mock_plant.power_system_communication);
+
         assert_eq!(
             mock_plant.get_digital_input(),
             TEST_DIGITAL_INPUT_POWER_COMM
         );
 
-        mock_plant.is_power_on_motor = true;
+        // Motor power
+        run_until_breaker_enabled(&mut mock_plant.power_system_motor);
+
         assert_eq!(
             mock_plant.get_digital_input(),
             TEST_DIGITAL_INPUT_POWER_COMM_MOTOR
@@ -673,44 +676,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_power_communication() {
-        let mut mock_plant = create_mock_plant();
-
-        // Power off
-        let (voltage, current) = mock_plant.get_power_communication();
-
-        assert_eq!(voltage, 0.0);
-        assert_eq!(current, 0.0);
-
-        // Power on
-        mock_plant.is_power_on_communication = true;
-
-        let (voltage, current) = mock_plant.get_power_communication();
-
-        assert_eq!(voltage, PLANT_VOLTAGE);
-        assert_eq!(current, PLANT_CURRENT_COMMUNICATION);
-    }
-
-    #[test]
-    fn test_get_power_motor() {
-        let mut mock_plant = create_mock_plant();
-
-        // Power off
-        let (voltage, current) = mock_plant.get_power_motor();
-
-        assert_eq!(voltage, 0.0);
-        assert_eq!(current, 0.0);
-
-        // Power on
-        mock_plant.is_power_on_motor = true;
-
-        let (voltage, current) = mock_plant.get_power_motor();
-
-        assert_eq!(voltage, PLANT_VOLTAGE);
-        assert_eq!(current, PLANT_CURRENT_MOTOR);
-    }
-
-    #[test]
     fn test_get_actuator_ilc_status() {
         let mut mock_plant = create_mock_plant();
 
@@ -718,7 +683,7 @@ mod tests {
         assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
 
         // With communication power
-        mock_plant.is_power_on_communication = true;
+        mock_plant.power_system_communication.is_power_on = true;
 
         assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
         assert_eq!(mock_plant.get_actuator_ilc_status(), vec![16; NUM_ACTUATOR]);
