@@ -19,6 +19,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use log::error;
+
 use crate::enums::{DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType};
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
@@ -50,11 +52,31 @@ impl PowerSystem {
     /// # Returns
     /// New instance of the power system.
     pub fn new(plant: Option<MockPlant>) -> Self {
-        Self {
-            config: ConfigPower::new(),
+        let config_power = ConfigPower::new();
 
-            system_motor: SubPowerSystem::new(),
-            system_communication: SubPowerSystem::new(),
+        Self {
+            system_motor: SubPowerSystem::new(
+                PowerType::Motor,
+                config_power.output_voltage_off_level,
+                config_power.breaker_operating_voltage,
+                config_power.loop_time as i32,
+                config_power.get_time_power_on(PowerType::Motor),
+                config_power.get_time_power_off(PowerType::Motor),
+                config_power.get_time_breaker_on(PowerType::Motor),
+                config_power.get_time_breaker_off(PowerType::Motor),
+            ),
+            system_communication: SubPowerSystem::new(
+                PowerType::Communication,
+                config_power.output_voltage_off_level,
+                config_power.breaker_operating_voltage,
+                config_power.loop_time as i32,
+                config_power.get_time_power_on(PowerType::Communication),
+                config_power.get_time_power_off(PowerType::Communication),
+                config_power.get_time_breaker_on(PowerType::Communication),
+                config_power.get_time_breaker_off(PowerType::Communication),
+            ),
+
+            config: config_power,
 
             is_closed_loop_control: false,
 
@@ -72,18 +94,23 @@ impl PowerSystem {
     /// # Returns
     /// Power system state.
     pub fn power_on(&mut self, power_type: PowerType) -> PowerSystemState {
-        // Update the internal state
-        let power_system = self.get_system_mut(power_type);
-
         // Return the current state if the power is already on
-        if power_system.is_power_on && (power_system.state == PowerSystemState::PoweredOn) {
-            return power_system.state;
+        if self.is_powered_on(power_type) {
+            return PowerSystemState::PoweredOn;
         }
 
-        power_system.is_power_on = true;
-        power_system.state = PowerSystemState::PoweringOn;
+        // Power on the system
+        let actions;
+        let state;
+        if power_type == PowerType::Motor {
+            actions = self.system_motor.power_on();
+            state = self.system_motor.state;
+        } else {
+            actions = self.system_communication.power_on();
+            state = self.system_communication.state;
+        }
 
-        let state = power_system.state;
+        self.apply_actions_to_hardware(&actions);
 
         // Add an event
         self.event_queue
@@ -91,36 +118,23 @@ impl PowerSystem {
                 power_type, true, state,
             ));
 
-        // Update the plant model
-        if let Some(plant) = &mut self._plant {
-            if power_type == PowerType::Motor {
-                plant.power_system_motor.is_power_on = true;
-                plant.switch_digital_output(
-                    DigitalOutput::MotorPower,
-                    DigitalOutputStatus::BinaryHighLevel,
-                );
+        state
+    }
 
-                plant.power_system_motor.is_breaker_on = true;
-                plant.switch_digital_output(
-                    DigitalOutput::ResetMotorBreakers,
-                    DigitalOutputStatus::BinaryHighLevel,
-                );
-            } else {
-                plant.power_system_communication.is_power_on = true;
-                plant.switch_digital_output(
-                    DigitalOutput::CommunicationPower,
-                    DigitalOutputStatus::BinaryHighLevel,
-                );
-
-                plant.power_system_communication.is_breaker_on = true;
-                plant.switch_digital_output(
-                    DigitalOutput::ResetCommunicationBreakers,
-                    DigitalOutputStatus::BinaryHighLevel,
-                );
-            }
+    /// Check if the power system is powered on.
+    ///
+    /// # Arguments
+    /// * `power_type` - Power type.
+    ///
+    /// # Returns
+    /// True if the power system is powered on, false otherwise.
+    fn is_powered_on(&mut self, power_type: PowerType) -> bool {
+        let power_system = self.get_system_mut(power_type);
+        if power_system.is_power_on && (power_system.state == PowerSystemState::PoweredOn) {
+            return true;
         }
 
-        state
+        false
     }
 
     /// Get the mutable power system.
@@ -138,6 +152,25 @@ impl PowerSystem {
         }
     }
 
+    /// Apply the actions to the hardware.
+    ///
+    /// # Arguments
+    /// * `actions` - Actions to apply.
+    ///
+    /// # Panics
+    /// If not in simulation mode.
+    fn apply_actions_to_hardware(&mut self, actions: &[(DigitalOutput, DigitalOutputStatus)]) {
+        // Update the plant model
+        if let Some(plant) = &mut self._plant {
+            actions.iter().for_each(|(digital_output, status)| {
+                plant.switch_digital_output(*digital_output, *status);
+            });
+        } else {
+            // Update the hardware
+            panic!("Not implemented yet.");
+        }
+    }
+
     /// Power off the system.
     ///
     /// # Arguments
@@ -146,18 +179,23 @@ impl PowerSystem {
     /// # Returns
     /// Power system state.
     pub fn power_off(&mut self, power_type: PowerType) -> PowerSystemState {
-        // Update the internal state
-        let power_system = self.get_system_mut(power_type);
-
         // Return the current state if the power is already off
-        if (!power_system.is_power_on) && (power_system.state == PowerSystemState::PoweredOff) {
-            return power_system.state;
+        if self.is_powered_off(power_type) {
+            return PowerSystemState::PoweredOff;
         }
 
-        power_system.is_power_on = false;
-        power_system.state = PowerSystemState::PoweringOff;
+        // Power off the system
+        let actions;
+        let state;
+        if power_type == PowerType::Motor {
+            actions = self.system_motor.power_off();
+            state = self.system_motor.state;
+        } else {
+            actions = self.system_communication.power_off();
+            state = self.system_communication.state;
+        }
 
-        let state = power_system.state;
+        self.apply_actions_to_hardware(&actions);
 
         // Add an event
         self.event_queue
@@ -165,28 +203,23 @@ impl PowerSystem {
                 power_type, false, state,
             ));
 
-        // Update the plant model
-        if let Some(plant) = &mut self._plant {
-            if power_type == PowerType::Motor {
-                plant.power_system_motor.is_power_on = false;
-                plant.switch_digital_output(
-                    DigitalOutput::MotorPower,
-                    DigitalOutputStatus::BinaryLowLevel,
-                );
+        state
+    }
 
-                plant.power_system_motor.is_breaker_on = false;
-            } else {
-                plant.power_system_communication.is_power_on = false;
-                plant.switch_digital_output(
-                    DigitalOutput::CommunicationPower,
-                    DigitalOutputStatus::BinaryLowLevel,
-                );
-
-                plant.power_system_communication.is_breaker_on = false;
-            }
+    /// Check if the power system is powered off.
+    ///
+    /// # Arguments
+    /// * `power_type` - Power type.
+    ///
+    /// # Returns
+    /// True if the power system is powered off, false otherwise.
+    fn is_powered_off(&mut self, power_type: PowerType) -> bool {
+        let power_system = self.get_system_mut(power_type);
+        if (!power_system.is_power_on) && (power_system.state == PowerSystemState::PoweredOff) {
+            return true;
         }
 
-        state
+        false
     }
 
     /// Reset breakers.
@@ -195,77 +228,91 @@ impl PowerSystem {
     /// * `power_type` - Power type.
     ///
     /// # Returns
-    /// Power system state.
-    pub fn reset_breakers(&mut self, power_type: PowerType) -> PowerSystemState {
-        // Update the internal state
-        let power_system = self.get_system_mut(power_type);
-        let is_power_on = power_system.is_power_on;
-        if is_power_on {
-            power_system.state = PowerSystemState::ResettingBreakers;
+    /// Power system state if the breakers were reset. Otherwise, None.
+    pub fn reset_breakers(&mut self, power_type: PowerType) -> Option<PowerSystemState> {
+        // Only reset the breakers when the power is on
+        if !self.is_powered_on(power_type) {
+            error!(
+                "Cannot reset breakers for {:?} power system if the state is not powered on.",
+                power_type
+            );
+
+            return None;
         }
 
-        let state = power_system.state;
+        // Reset the breakers
+        let actions;
+        let state;
+        if power_type == PowerType::Motor {
+            actions = self
+                .system_motor
+                .reset_breakers(DigitalOutputStatus::BinaryLowLevel);
+            state = self.system_motor.state;
+        } else {
+            actions = self
+                .system_communication
+                .reset_breakers(DigitalOutputStatus::BinaryLowLevel);
+            state = self.system_communication.state;
+        }
+
+        self.apply_actions_to_hardware(&actions);
 
         // Add an event
         self.event_queue
             .add_event(Event::get_message_power_system_state(
-                power_type,
-                is_power_on,
-                state,
+                power_type, true, state,
             ));
 
-        // Update the plant model
-        if let Some(plant) = &mut self._plant {
-            if power_type == PowerType::Motor {
-                plant.power_system_motor.is_breaker_on = false;
-                plant.switch_digital_output(
-                    DigitalOutput::ResetMotorBreakers,
-                    DigitalOutputStatus::BinaryLowLevel,
-                );
-            } else {
-                plant.power_system_communication.is_breaker_on = false;
-                plant.switch_digital_output(
-                    DigitalOutput::ResetCommunicationBreakers,
-                    DigitalOutputStatus::BinaryLowLevel,
-                );
-            }
-        }
-
-        state
+        Some(state)
     }
 
     /// Transition the state of the power system.
     ///
     /// # Arguments
     /// * `power_type` - Power type.
+    /// * `voltage` - Voltage in volt.
+    /// * `current` - Current in ampere.
+    /// * `digital_output` - Digital output value.
     ///
     /// # Returns
-    /// Power system state.
-    pub fn transition_state(&mut self, power_type: PowerType) -> PowerSystemState {
-        let mut is_resetting_breakers = false;
+    /// Tuple containing two values:
+    /// 1. True if the state is changed. Otherwise, false.
+    /// 2. True if there is the error and need to power off the system.
+    /// Otherwise, false.
+    pub fn transition_state(
+        &mut self,
+        power_type: PowerType,
+        voltage: f64,
+        current: f64,
+        digital_output: u8,
+    ) -> (bool, bool) {
+        // Transition the state of the power system
+        let is_state_changed;
+        let has_error;
+        let actions;
 
-        // Update the internal state
-        let power_system = self.get_system_mut(power_type);
+        let is_power_on;
+        let state;
+        if power_type == PowerType::Motor {
+            (is_state_changed, has_error, actions) =
+                self.system_motor
+                    .transition_state(voltage, current, digital_output);
 
-        let mut is_state_changed = false;
-        if power_system.state == PowerSystemState::PoweringOn {
-            power_system.state = PowerSystemState::PoweredOn;
+            is_power_on = self.system_motor.is_power_on;
+            state = self.system_motor.state;
+        } else {
+            (is_state_changed, has_error, actions) =
+                self.system_communication
+                    .transition_state(voltage, current, digital_output);
 
-            is_state_changed = true;
-        } else if power_system.state == PowerSystemState::PoweringOff {
-            power_system.state = PowerSystemState::PoweredOff;
-
-            is_state_changed = true;
-        } else if power_system.state == PowerSystemState::ResettingBreakers {
-            power_system.state = PowerSystemState::PoweredOn;
-
-            is_resetting_breakers = true;
-            is_state_changed = true;
+            is_power_on = self.system_communication.is_power_on;
+            state = self.system_communication.state;
         }
 
+        // Apply the actions to the hardware
+        self.apply_actions_to_hardware(&actions);
+
         // Add an event
-        let is_power_on = power_system.is_power_on;
-        let state = power_system.state;
         if is_state_changed {
             self.event_queue
                 .add_event(Event::get_message_power_system_state(
@@ -275,26 +322,7 @@ impl PowerSystem {
                 ));
         }
 
-        // Update the plant model
-        if is_resetting_breakers {
-            if let Some(plant) = &mut self._plant {
-                if power_type == PowerType::Motor {
-                    plant.power_system_motor.is_breaker_on = true;
-                    plant.switch_digital_output(
-                        DigitalOutput::ResetMotorBreakers,
-                        DigitalOutputStatus::BinaryHighLevel,
-                    );
-                } else {
-                    plant.power_system_communication.is_breaker_on = true;
-                    plant.switch_digital_output(
-                        DigitalOutput::ResetCommunicationBreakers,
-                        DigitalOutputStatus::BinaryHighLevel,
-                    );
-                }
-            }
-        }
-
-        state
+        (is_state_changed, has_error)
     }
 
     /// Get the telemetry data.
@@ -498,6 +526,24 @@ mod tests {
         }
     }
 
+    fn transition_state_until_change(power_type: PowerType, power_system: &mut PowerSystem) {
+        loop {
+            let (voltage, current) = power_system.get_power(power_type);
+            let is_state_changed = power_system
+                .transition_state(
+                    power_type,
+                    voltage,
+                    current,
+                    power_system.get_digital_output(),
+                )
+                .0;
+
+            if is_state_changed {
+                break;
+            }
+        }
+    }
+
     #[test]
     fn test_power_on() {
         let mut power_system = create_power_system();
@@ -509,10 +555,7 @@ mod tests {
         );
         assert!(power_system.system_motor.is_power_on);
 
-        assert_eq!(
-            power_system.transition_state(PowerType::Motor),
-            PowerSystemState::PoweredOn
-        );
+        transition_state_until_change(PowerType::Motor, &mut power_system);
 
         assert_eq!(
             power_system.event_queue.get_events_and_clear(),
@@ -525,14 +568,42 @@ mod tests {
                 Event::get_message_power_system_state(
                     PowerType::Motor,
                     true,
-                    PowerSystemState::PoweredOn
-                )
+                    PowerSystemState::ResettingBreakers
+                ),
             ]
         );
 
-        let power_system_motor = &power_system._plant.as_ref().unwrap().power_system_motor;
-        assert!(power_system_motor.is_power_on);
-        assert!(power_system_motor.is_breaker_on);
+        transition_state_until_change(PowerType::Motor, &mut power_system);
+
+        assert_eq!(
+            power_system.event_queue.get_events_and_clear(),
+            vec![Event::get_message_power_system_state(
+                PowerType::Motor,
+                true,
+                PowerSystemState::PoweredOn
+            )]
+        );
+    }
+
+    #[test]
+    fn test_is_powered_on() {
+        let mut power_system = create_power_system();
+
+        // Motor
+        assert!(!power_system.is_powered_on(PowerType::Motor));
+
+        power_system.system_motor.is_power_on = true;
+        power_system.system_motor.state = PowerSystemState::PoweredOn;
+
+        assert!(power_system.is_powered_on(PowerType::Motor));
+
+        // Communication
+        assert!(!power_system.is_powered_on(PowerType::Communication));
+
+        power_system.system_communication.is_power_on = true;
+        power_system.system_communication.state = PowerSystemState::PoweredOn;
+
+        assert!(power_system.is_powered_on(PowerType::Communication));
     }
 
     #[test]
@@ -547,10 +618,7 @@ mod tests {
         );
         assert!(!power_system.system_motor.is_power_on);
 
-        assert_eq!(
-            power_system.transition_state(PowerType::Motor),
-            PowerSystemState::PoweredOff
-        );
+        transition_state_until_change(PowerType::Motor, &mut power_system);
 
         assert_eq!(
             power_system.event_queue.get_events_and_clear(),
@@ -572,10 +640,27 @@ mod tests {
                 )
             ]
         );
+    }
 
-        let power_system_motor = &power_system._plant.as_ref().unwrap().power_system_motor;
-        assert!(!power_system_motor.is_power_on);
-        assert!(!power_system_motor.is_breaker_on);
+    #[test]
+    fn test_is_powered_off() {
+        let mut power_system = create_power_system();
+
+        // Motor
+        assert!(!power_system.is_powered_off(PowerType::Motor));
+
+        power_system.system_motor.is_power_on = false;
+        power_system.system_motor.state = PowerSystemState::PoweredOff;
+
+        assert!(power_system.is_powered_off(PowerType::Motor));
+
+        // Communication
+        assert!(!power_system.is_powered_off(PowerType::Communication));
+
+        power_system.system_communication.is_power_on = false;
+        power_system.system_communication.state = PowerSystemState::PoweredOff;
+
+        assert!(power_system.is_powered_off(PowerType::Communication));
     }
 
     #[test]
@@ -583,7 +668,16 @@ mod tests {
         let mut power_system = create_power_system();
         power_system.init_default_digital_output();
 
+        // Not powered on
+        assert_eq!(power_system.reset_breakers(PowerType::Communication), None);
+
+        // Power on
         power_system.power_on(PowerType::Communication);
+
+        // The first time is to reset the breakers. The second time is to be
+        // powered on.
+        transition_state_until_change(PowerType::Communication, &mut power_system);
+        transition_state_until_change(PowerType::Communication, &mut power_system);
 
         assert!(
             power_system.get_digital_output()
@@ -594,7 +688,7 @@ mod tests {
         // Reset the breakers
         assert_eq!(
             power_system.reset_breakers(PowerType::Communication),
-            PowerSystemState::ResettingBreakers
+            Some(PowerSystemState::ResettingBreakers)
         );
 
         assert!(
@@ -616,13 +710,12 @@ mod tests {
         );
 
         // Transition the state
-        assert_eq!(
-            power_system.transition_state(PowerType::Communication),
-            PowerSystemState::PoweredOn
-        );
+        transition_state_until_change(PowerType::Communication, &mut power_system);
 
         assert!(
-            power_system.get_digital_output() & DigitalOutput::ResetMotorBreakers.bit_value() != 0
+            power_system.get_digital_output()
+                & DigitalOutput::ResetCommunicationBreakers.bit_value()
+                != 0
         );
         assert!(
             power_system
@@ -653,6 +746,16 @@ mod tests {
                     PowerType::Communication,
                     true,
                     PowerSystemState::PoweringOn
+                ),
+                Event::get_message_power_system_state(
+                    PowerType::Communication,
+                    true,
+                    PowerSystemState::ResettingBreakers
+                ),
+                Event::get_message_power_system_state(
+                    PowerType::Communication,
+                    true,
+                    PowerSystemState::PoweredOn
                 ),
                 Event::get_message_power_system_state(
                     PowerType::Communication,
@@ -700,6 +803,11 @@ mod tests {
         // Power on the communication and enable the breaker
         power_system.power_on(PowerType::Communication);
 
+        // The first time is to reset the breakers. The second time is to be
+        // powered on.
+        transition_state_until_change(PowerType::Communication, &mut power_system);
+        transition_state_until_change(PowerType::Communication, &mut power_system);
+
         let mock_power_system = &mut power_system
             ._plant
             .as_mut()
@@ -714,12 +822,14 @@ mod tests {
         assert_eq!(telemetry.digital_input, TEST_DIGITAL_INPUT_POWER_COMM);
 
         assert_eq!(
-            telemetry.power_processed["motorCurrent"],
-            power_system.get_power(PowerType::Motor).1
+            telemetry.power_processed["commCurrent"],
+            power_system.get_power(PowerType::Communication).1
         );
 
-        // Power on the motor
+        // // Power on the motor
         power_system.power_on(PowerType::Motor);
+        transition_state_until_change(PowerType::Motor, &mut power_system);
+        transition_state_until_change(PowerType::Motor, &mut power_system);
 
         loop {
             telemetry = power_system.get_telemetry_data();
