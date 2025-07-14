@@ -75,7 +75,7 @@ impl Command for CommandResetBreakers {
         let power_type = PowerType::from_repr(discriminant as u8)?;
 
         let system = power_system?;
-        system.reset_breakers(power_type);
+        system.reset_breakers(power_type)?;
 
         Some(())
     }
@@ -136,6 +136,7 @@ mod tests {
     use std::path::Path;
 
     use crate::enums::{BitEnum, PowerSystemState};
+    use crate::mock::mock_constants::{PLANT_CURRENT_COMMUNICATION, PLANT_VOLTAGE};
     use crate::mock::mock_plant::MockPlant;
     use crate::utility::read_file_stiffness;
 
@@ -146,6 +147,28 @@ mod tests {
         let plant = MockPlant::new(&stiffness, 0.0);
 
         PowerSystem::new(Some(plant))
+    }
+
+    fn transition_state_until_change(
+        power_type: PowerType,
+        power_system: &mut PowerSystem,
+        voltage: f64,
+        current: f64,
+    ) {
+        loop {
+            let is_state_changed = power_system
+                .transition_state(
+                    power_type,
+                    voltage,
+                    current,
+                    power_system.get_digital_output(),
+                )
+                .0;
+
+            if is_state_changed {
+                break;
+            }
+        }
     }
 
     #[test]
@@ -188,6 +211,13 @@ mod tests {
     fn test_command_reset_breakers() {
         let mut power_system = create_power_system();
         power_system.power_on(PowerType::Communication);
+
+        transition_state_until_change(
+            PowerType::Communication,
+            &mut power_system,
+            PLANT_VOLTAGE,
+            PLANT_CURRENT_COMMUNICATION,
+        );
 
         let command = CommandResetBreakers;
 
