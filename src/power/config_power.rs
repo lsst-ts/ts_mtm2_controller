@@ -32,6 +32,8 @@ pub struct ConfigPower {
     // Maximum of the counter of toggling the closed-loop control bit used in
     // the PowerSystemProcess.
     pub maximum_counter_closed_loop_control_bit: i32,
+    // Output voltage off level in volt.
+    pub output_voltage_off_level: f64,
     // Minimum of the warning voltage level.
     pub warning_voltage_min: f64,
     // Maximum of the warning voltage level.
@@ -47,6 +49,8 @@ pub struct ConfigPower {
     // Gain and offset for the motor current.
     pub current_gain_motor: f64,
     pub current_offset_motor: f64,
+    // Time to wait for the telemetry to stabilize in millisecond.
+    pub telemetry_stable_time: i32,
     // Breaker operating voltage rise time in millisecond for the communication
     // and motor.
     pub breaker_voltage_rise_time_communication: i32,
@@ -107,6 +111,7 @@ impl ConfigPower {
                 filepath,
                 "period_toggle_closed_loop_control_bit",
             ) / loop_time,
+            output_voltage_off_level: get_parameter(filepath, "output_voltage_off_level"),
 
             warning_voltage_min: warning_voltage_min,
             warning_voltage_max: warning_voltage_max,
@@ -122,6 +127,8 @@ impl ConfigPower {
 
             current_gain_motor: get_parameter(filepath, "current_gain_motor"),
             current_offset_motor: get_parameter(filepath, "current_offset_motor"),
+
+            telemetry_stable_time: get_parameter(filepath, "telemetry_stable_time"),
 
             breaker_voltage_rise_time_communication: get_parameter(
                 filepath,
@@ -186,14 +193,13 @@ impl ConfigPower {
     /// The time in milliseconds required to power on the system.
     pub fn get_time_power_on(&self, power_type: PowerType) -> i32 {
         if power_type == PowerType::Motor {
-            return self.breaker_voltage_rise_time_motor
-                + self.output_voltage_settling_time_motor
-                + self.relay_close_delay
-                + self.interlock_output_delay;
+            return self.telemetry_stable_time
+                + self.breaker_voltage_rise_time_motor
+                + self.output_voltage_settling_time_motor;
         } else {
-            return self.breaker_voltage_rise_time_communication
-                + self.output_voltage_settling_time_communication
-                + self.relay_close_delay;
+            return self.telemetry_stable_time
+                + self.breaker_voltage_rise_time_communication
+                + self.output_voltage_settling_time_communication;
         }
     }
 
@@ -206,28 +212,43 @@ impl ConfigPower {
     /// The time in milliseconds required to power off the system.
     pub fn get_time_power_off(&self, power_type: PowerType) -> i32 {
         if power_type == PowerType::Motor {
-            return self.output_voltage_fall_time_motor
-                + self.relay_open_delay
-                + self.interlock_output_delay;
+            return self.output_voltage_fall_time_motor;
         } else {
-            return self.output_voltage_fall_time_communication + self.relay_open_delay;
+            return self.output_voltage_fall_time_communication;
         }
     }
 
     /// Get the time required to power on the breaker.
     ///
+    /// # Arguments
+    /// * `power_type` - The type of power.
+    ///
     /// # Returns
     /// The time in milliseconds required to power on the breaker.
-    pub fn get_time_breaker_on(&self) -> i32 {
-        self.relay_close_delay + self.reset_breaker_pulse_width + self.breaker_on_time
+    pub fn get_time_breaker_on(&self, power_type: PowerType) -> i32 {
+        if power_type == PowerType::Motor {
+            return self.reset_breaker_pulse_width
+                + self.breaker_on_time
+                + self.relay_close_delay
+                + self.interlock_output_delay;
+        } else {
+            return self.reset_breaker_pulse_width + self.breaker_on_time + self.relay_close_delay;
+        }
     }
 
     /// Get the time required to power off the breaker.
     ///
+    /// # Arguments
+    /// * `power_type` - The type of power.
+    ///
     /// # Returns
     /// The time in milliseconds required to power off the breaker.
-    pub fn get_time_breaker_off(&self) -> i32 {
-        self.relay_open_delay
+    pub fn get_time_breaker_off(&self, power_type: PowerType) -> i32 {
+        if power_type == PowerType::Motor {
+            return self.relay_open_delay + self.interlock_output_delay;
+        } else {
+            return self.relay_open_delay;
+        }
     }
 }
 
@@ -248,28 +269,30 @@ mod tests {
         let config = ConfigPower::new();
 
         assert_eq!(config.get_time_power_on(PowerType::Motor), 210);
-        assert_eq!(config.get_time_power_on(PowerType::Communication), 90);
+        assert_eq!(config.get_time_power_on(PowerType::Communication), 140);
     }
 
     #[test]
     fn test_get_time_power_off() {
         let config = ConfigPower::new();
 
-        assert_eq!(config.get_time_power_off(PowerType::Motor), 380);
-        assert_eq!(config.get_time_power_off(PowerType::Communication), 80);
+        assert_eq!(config.get_time_power_off(PowerType::Motor), 300);
+        assert_eq!(config.get_time_power_off(PowerType::Communication), 50);
     }
 
     #[test]
     fn test_get_time_breaker_on() {
         let config = ConfigPower::new();
 
-        assert_eq!(config.get_time_breaker_on(), 950);
+        assert_eq!(config.get_time_breaker_on(PowerType::Motor), 1000);
+        assert_eq!(config.get_time_breaker_on(PowerType::Communication), 950);
     }
 
     #[test]
     fn test_get_time_breaker_off() {
         let config = ConfigPower::new();
 
-        assert_eq!(config.get_time_breaker_off(), 30);
+        assert_eq!(config.get_time_breaker_off(PowerType::Motor), 80);
+        assert_eq!(config.get_time_breaker_off(PowerType::Communication), 30);
     }
 }
