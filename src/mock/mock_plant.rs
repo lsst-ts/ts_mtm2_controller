@@ -117,8 +117,8 @@ impl MockPlant {
             config_power.loop_time as i32,
             config_power.get_time_power_on(PowerType::Communication),
             config_power.get_time_power_off(PowerType::Communication),
-            config_power.get_time_breaker_on(),
-            config_power.get_time_breaker_off(),
+            config_power.get_time_breaker_on(PowerType::Communication),
+            config_power.get_time_breaker_off(PowerType::Communication),
         );
         let power_system_motor = MockPowerSystem::new(
             PLANT_VOLTAGE,
@@ -127,8 +127,8 @@ impl MockPlant {
             config_power.loop_time as i32,
             config_power.get_time_power_on(PowerType::Motor),
             config_power.get_time_power_off(PowerType::Motor),
-            config_power.get_time_breaker_on(),
-            config_power.get_time_breaker_off(),
+            config_power.get_time_breaker_on(PowerType::Motor),
+            config_power.get_time_breaker_off(PowerType::Motor),
         );
 
         Self {
@@ -171,6 +171,13 @@ impl MockPlant {
     /// * `bit` - The digital output bit to switch.
     /// * `status` - The status of the digital output.
     pub fn switch_digital_output(&mut self, bit: DigitalOutput, status: DigitalOutputStatus) {
+        // Check if the current motor/communication breakers were on.
+        let were_motor_breakers_on =
+            (self.digital_output & DigitalOutput::ResetMotorBreakers.bit_value()) != 0;
+        let were_communication_breakers_on =
+            (self.digital_output & DigitalOutput::ResetCommunicationBreakers.bit_value()) != 0;
+
+        // Update the digital output.
         match status {
             DigitalOutputStatus::BinaryLowLevel => {
                 self.digital_output &= !bit.bit_value();
@@ -181,6 +188,37 @@ impl MockPlant {
             DigitalOutputStatus::ToggleBit => {
                 self.digital_output ^= bit.bit_value();
             }
+        }
+
+        // Update the power systems based on the digital output.
+        if (self.digital_output & DigitalOutput::MotorPower.bit_value()) != 0 {
+            self.power_system_motor.is_power_on = true;
+        } else {
+            self.power_system_motor.is_power_on = false;
+            self.power_system_motor.is_breaker_on = false;
+        }
+
+        if (self.digital_output & DigitalOutput::CommunicationPower.bit_value()) != 0 {
+            self.power_system_communication.is_power_on = true;
+        } else {
+            self.power_system_communication.is_power_on = false;
+            self.power_system_communication.is_breaker_on = false;
+        }
+
+        if (self.digital_output & DigitalOutput::ResetMotorBreakers.bit_value()) != 0 {
+            if self.power_system_motor.is_power_on && (!were_motor_breakers_on) {
+                self.power_system_motor.is_breaker_on = true;
+            }
+        } else {
+            self.power_system_motor.is_breaker_on = false;
+        }
+
+        if (self.digital_output & DigitalOutput::ResetCommunicationBreakers.bit_value()) != 0 {
+            if self.power_system_communication.is_power_on && (!were_communication_breakers_on) {
+                self.power_system_communication.is_breaker_on = true;
+            }
+        } else {
+            self.power_system_communication.is_breaker_on = false;
         }
     }
 
@@ -507,7 +545,6 @@ mod tests {
     #[test]
     fn test_switch_digital_output() {
         let mut mock_plant = create_mock_plant();
-        mock_plant.digital_output = 0;
 
         // Binary high level
         mock_plant.switch_digital_output(
@@ -535,6 +572,132 @@ mod tests {
             DigitalOutputStatus::ToggleBit,
         );
         assert!(mock_plant.digital_output & DigitalOutput::InterlockEnable.bit_value() == 0);
+    }
+
+    #[test]
+    fn test_switch_digital_output_power_communication() {
+        let mut mock_plant = create_mock_plant();
+
+        // Reset communication breakers (should fail because no power yet)
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetCommunicationBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(!mock_plant.power_system_communication.is_power_on);
+        assert!(!mock_plant.power_system_communication.is_breaker_on);
+
+        // Turn on the communication power
+        mock_plant.switch_digital_output(
+            DigitalOutput::CommunicationPower,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(mock_plant.power_system_communication.is_power_on);
+        assert!(!mock_plant.power_system_communication.is_breaker_on);
+
+        // Reset communication breakers (should succeed now). Note we have a
+        // reset process here (off the breakers and then on again).
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetCommunicationBreakers,
+            DigitalOutputStatus::BinaryLowLevel,
+        );
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetCommunicationBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(mock_plant.power_system_communication.is_power_on);
+        assert!(mock_plant.power_system_communication.is_breaker_on);
+
+        // Unset communication breakers
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetCommunicationBreakers,
+            DigitalOutputStatus::BinaryLowLevel,
+        );
+
+        assert!(mock_plant.power_system_communication.is_power_on);
+        assert!(!mock_plant.power_system_communication.is_breaker_on);
+
+        // Turn off the communication power
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetCommunicationBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(mock_plant.power_system_communication.is_power_on);
+        assert!(mock_plant.power_system_communication.is_breaker_on);
+
+        mock_plant.switch_digital_output(
+            DigitalOutput::CommunicationPower,
+            DigitalOutputStatus::BinaryLowLevel,
+        );
+
+        assert!(!mock_plant.power_system_communication.is_power_on);
+        assert!(!mock_plant.power_system_communication.is_breaker_on);
+    }
+
+    #[test]
+    fn test_switch_digital_output_power_motor() {
+        let mut mock_plant = create_mock_plant();
+
+        // Reset motor breakers (should fail because no power yet)
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(!mock_plant.power_system_motor.is_power_on);
+        assert!(!mock_plant.power_system_motor.is_breaker_on);
+
+        // Turn on the motor power
+        mock_plant.switch_digital_output(
+            DigitalOutput::MotorPower,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(mock_plant.power_system_motor.is_power_on);
+        assert!(!mock_plant.power_system_motor.is_breaker_on);
+
+        // Reset motor breakers (should succeed now). Note we have a reset
+        // process here (off the breakers and then on again).
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutputStatus::BinaryLowLevel,
+        );
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(mock_plant.power_system_motor.is_power_on);
+        assert!(mock_plant.power_system_motor.is_breaker_on);
+
+        // Unset motor breakers
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutputStatus::BinaryLowLevel,
+        );
+
+        assert!(mock_plant.power_system_motor.is_power_on);
+        assert!(!mock_plant.power_system_motor.is_breaker_on);
+
+        // Turn off the motor power
+        mock_plant.switch_digital_output(
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        assert!(mock_plant.power_system_motor.is_power_on);
+        assert!(mock_plant.power_system_motor.is_breaker_on);
+
+        mock_plant.switch_digital_output(
+            DigitalOutput::MotorPower,
+            DigitalOutputStatus::BinaryLowLevel,
+        );
+
+        assert!(!mock_plant.power_system_motor.is_power_on);
+        assert!(!mock_plant.power_system_motor.is_breaker_on);
     }
 
     #[test]
@@ -683,7 +846,10 @@ mod tests {
         assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
 
         // With communication power
-        mock_plant.power_system_communication.is_power_on = true;
+        mock_plant.switch_digital_output(
+            DigitalOutput::CommunicationPower,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
 
         assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
         assert_eq!(mock_plant.get_actuator_ilc_status(), vec![16; NUM_ACTUATOR]);
