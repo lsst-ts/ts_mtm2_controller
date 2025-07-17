@@ -53,7 +53,7 @@ use crate::control::control_loop_process::ControlLoopProcess;
 use crate::controller::Controller;
 use crate::enums::{
     BitEnum, ClosedLoopControlMode, CommandStatus, Commander, DigitalInput, DigitalOutput,
-    PowerType,
+    DigitalOutputStatus, PowerType,
 };
 use crate::interface::command_telemetry_server::CommandTelemetryServer;
 use crate::mock::mock_plant::MockPlant;
@@ -100,6 +100,11 @@ pub struct Model {
     pub stop: Arc<AtomicBool>,
     // Handles of the threads.
     _handles: Vec<JoinHandle<()>>,
+    // Flag to stop publishing telemetry. This is for the test purpose only. For
+    // the OS such as MacOS, the TCP/IP connection will be closed when the pipe
+    // is full, which will cause the test to fail. This flag is used to prevent
+    // publishing telemetry in such cases.
+    _stop_publish_telemetry: bool,
 }
 
 impl Model {
@@ -168,6 +173,8 @@ impl Model {
             stop: stop,
 
             _handles: Vec::new(),
+
+            _stop_publish_telemetry: false,
         }
     }
 
@@ -449,11 +456,14 @@ impl Model {
     fn run_power_system(&mut self, mut plant: Option<MockPlant>) {
         // Make sure the mock plant (if any) has no power
         if let Some(mock_plant) = plant.as_mut() {
-            mock_plant.power_system_communication.is_power_on = false;
-            mock_plant.power_system_communication.is_breaker_on = false;
-
-            mock_plant.power_system_motor.is_power_on = false;
-            mock_plant.power_system_motor.is_breaker_on = false;
+            mock_plant.switch_digital_output(
+                DigitalOutput::MotorPower,
+                DigitalOutputStatus::BinaryLowLevel,
+            );
+            mock_plant.switch_digital_output(
+                DigitalOutput::CommunicationPower,
+                DigitalOutputStatus::BinaryLowLevel,
+            );
         }
 
         let mut power_system_process = PowerSystemProcess::new(
@@ -596,7 +606,9 @@ impl Model {
                     all_events.append(&mut self._controller.event_queue.get_events_and_clear());
                 }
 
-                self.publish_events(all_events);
+                if !all_events.is_empty() {
+                    self.publish_events(all_events);
+                }
             }
 
             Err(_) => {
@@ -796,8 +808,8 @@ impl Model {
     /// # Returns
     /// Did the publishment or not.
     fn publish_telemetry(&self, messages: Vec<Value>) -> bool {
-        // No connection, return immediately
-        if !self.is_connected() {
+        // No connection or stop publishing telemetry, return immediately
+        if (!self.is_connected()) || self._stop_publish_telemetry {
             return false;
         }
 
@@ -1046,14 +1058,40 @@ mod tests {
         }
     }
 
-    fn run_until_expected_digital_input_output(
-        model: &mut Model,
-        expected_digital_input: u32,
-        expected_digital_output: u8,
-    ) {
+    fn run_until_power_on_with_expected_state(power_type: PowerType, model: &mut Model) {
         loop {
-            if (model._controller.status.digital_input == expected_digital_input)
-                && (model._controller.status.digital_output == expected_digital_output)
+            let controller = &model._controller;
+            if (power_type == PowerType::Communication)
+                && controller.status.power_system[&PowerType::Communication].is_power_on()
+                && (controller.status.power_system[&PowerType::Communication].state
+                    == PowerSystemState::PoweredOn)
+            {
+                break;
+            } else if (power_type == PowerType::Motor)
+                && controller.status.power_system[&PowerType::Motor].is_power_on()
+                && (controller.status.power_system[&PowerType::Motor].state
+                    == PowerSystemState::PoweredOn)
+            {
+                break;
+            }
+
+            model.step();
+        }
+    }
+
+    fn run_until_power_off_with_expected_state(power_type: PowerType, model: &mut Model) {
+        loop {
+            let controller = &model._controller;
+            if (power_type == PowerType::Communication)
+                && (!controller.status.power_system[&PowerType::Communication].is_power_on())
+                && (controller.status.power_system[&PowerType::Communication].state
+                    == PowerSystemState::PoweredOff)
+            {
+                break;
+            } else if (power_type == PowerType::Motor)
+                && (!controller.status.power_system[&PowerType::Motor].is_power_on())
+                && (controller.status.power_system[&PowerType::Motor].state
+                    == PowerSystemState::PoweredOff)
             {
                 break;
             }
@@ -1186,6 +1224,7 @@ mod tests {
     #[test]
     fn test_run_processes_and_power_communication() {
         let mut model = create_model();
+        model._stop_publish_telemetry = true;
 
         model.run_processes();
 
@@ -1221,15 +1260,26 @@ mod tests {
             &mut client_command_gui,
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":3,\"status\":true}\r\n",
         );
+
+        run_until_power_on_with_expected_state(PowerType::Communication, &mut model);
+
         client_read_and_assert(
             &mut client_command_gui,
-            "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":5,\"status\":true}\r\n",
+            &format!("{{\"id\":\"digitalOutput\",\"value\":{TEST_DIGITAL_OUTPUT_POWER_COMM}}}\r\n"),
         );
 
-        run_until_expected_digital_input_output(
-            &mut model,
-            TEST_DIGITAL_INPUT_POWER_COMM,
-            TEST_DIGITAL_OUTPUT_POWER_COMM,
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":4,\"status\":true}\r\n",
+        );
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            &format!(
+                "{{\"id\":\"digitalOutput\",\"value\":{}}}\r\n",
+                TEST_DIGITAL_OUTPUT_POWER_COMM
+                    - DigitalOutput::ResetCommunicationBreakers.bit_value()
+            ),
         );
 
         client_read_and_assert(
@@ -1240,6 +1290,11 @@ mod tests {
         client_read_and_assert(
             &mut client_command_gui,
             &format!("{{\"id\":\"digitalInput\",\"value\":{TEST_DIGITAL_INPUT_POWER_COMM}}}\r\n"),
+        );
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":5,\"status\":true}\r\n",
         );
 
         // Check the power system status
@@ -1276,10 +1331,8 @@ mod tests {
             &mut client_command_gui,
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":6,\"status\":false}\r\n",
         );
-        client_read_and_assert(
-            &mut client_command_gui,
-            "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":2,\"status\":false}\r\n",
-        );
+
+        run_until_power_off_with_expected_state(PowerType::Communication, &mut model);
 
         client_read_and_assert(
             &mut client_command_gui,
@@ -1289,6 +1342,11 @@ mod tests {
         client_read_and_assert(
             &mut client_command_gui,
             &format!("{{\"id\":\"digitalInput\",\"value\":{TEST_DIGITAL_INPUT_NO_POWER}}}\r\n"),
+        );
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":2,\"status\":false}\r\n",
         );
 
         // Check the power system status
@@ -1308,6 +1366,7 @@ mod tests {
     #[test]
     fn test_run_processes_and_transition_to_closed_loop_control() {
         let mut model = create_model();
+        model._stop_publish_telemetry = true;
 
         model.run_processes();
 
@@ -1330,9 +1389,11 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         // Check the communication power system status
+        run_until_power_on_with_expected_state(PowerType::Communication, &mut model);
+
         assert!(model._controller.status.power_system[&PowerType::Communication].is_power_on());
 
-        // Issue a command to the power on the communication system
+        // Issue a command to the power on the motor system
         client_write_and_sleep(
             &mut client_command_gui,
             "{\"id\":\"cmd_power\",\"sequence_id\":2,\"status\":true,\"powerType\":1}\r\n",
@@ -1342,13 +1403,9 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         // Check the motor power system status
-        assert!(model._controller.status.power_system[&PowerType::Motor].is_power_on());
+        run_until_power_on_with_expected_state(PowerType::Motor, &mut model);
 
-        run_until_expected_digital_input_output(
-            &mut model,
-            TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
-            TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
-        );
+        assert!(model._controller.status.power_system[&PowerType::Motor].is_power_on());
 
         // Check the system staus
         let status = &model._controller.status;
