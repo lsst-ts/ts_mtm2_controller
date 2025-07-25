@@ -83,11 +83,14 @@ impl Status {
             connections.insert(*key, ConnectionStatus::new());
         });
 
+        // We only use the SubPowerSystem to hold the current power status
+        // instead of tracking the power on/off process as the PowerSystem does.
+        // Therefore, we just put the time-relate arguments to be 0.
         let mut power_system = HashMap::new();
         [PowerType::Motor, PowerType::Communication]
             .iter()
             .for_each(|key| {
-                power_system.insert(*key, SubPowerSystem::new());
+                power_system.insert(*key, SubPowerSystem::new(*key, 0.0, 0.0, 1, 0, 0, 0, 0));
             });
 
         let mut limit_switch = HashMap::new();

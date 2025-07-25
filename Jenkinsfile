@@ -17,6 +17,10 @@ pipeline {
         XML_REPORT_COVERAGE = "coverage.xml"
     }
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     stages {
 
         stage('Check Code') {

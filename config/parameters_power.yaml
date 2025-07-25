@@ -17,7 +17,8 @@ period_toggle_closed_loop_control_bit: 100
 # Norminal voltage for the 24V power supply in volt.
 norminal_voltage: 24.0
 
-# Output voltage off level in volt.
+# Output voltage off level in volt. This is used to check the power voltage is
+# shutting down or not.
 output_voltage_off_level: 12.0
 
 # 24V accuracy warning level in percent.
@@ -33,6 +34,11 @@ excessive_current_motor: 20.0
 # Calibration gain and offset for the motor current.
 current_gain_motor: 5.0
 current_offset_motor: 0.0
+
+# Time to wait for the telemetry to stabilize in millisecond. It is only
+# meaningful to track the voltage and current change once the telemetry is
+# stable.
+telemetry_stable_time: 100
 
 # Breaker operating voltage rise time in millisecond for the communication and
 # motor.
