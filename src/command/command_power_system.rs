@@ -26,6 +26,7 @@ use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
 use crate::enums::{DigitalOutput, DigitalOutputStatus, PowerType};
 use crate::power::power_system::PowerSystem;
+use crate::utility::get_message_sequence_id;
 
 /// Command to power on/off the system.
 pub struct CommandPower;
@@ -45,12 +46,11 @@ impl Command for CommandPower {
         let power_type = PowerType::from_repr(discriminant as u8)?;
 
         let system = power_system?;
+        let sequence_id = get_message_sequence_id(message);
         if message["status"].as_bool()? {
-            system.power_on(power_type);
+            system.power_on(power_type, sequence_id)?;
         } else {
-            system.power_off(power_type);
-
-            system.is_closed_loop_control = false;
+            system.power_off(power_type, sequence_id)?;
         }
 
         Some(())
@@ -75,7 +75,7 @@ impl Command for CommandResetBreakers {
         let power_type = PowerType::from_repr(discriminant as u8)?;
 
         let system = power_system?;
-        system.reset_breakers(power_type)?;
+        system.reset_breakers(power_type, get_message_sequence_id(message))?;
 
         Some(())
     }
@@ -136,7 +136,7 @@ mod tests {
     use std::path::Path;
 
     use crate::enums::{BitEnum, PowerSystemState};
-    use crate::mock::mock_constants::{PLANT_CURRENT_COMMUNICATION, PLANT_VOLTAGE};
+    use crate::mock::mock_constants::{PLANT_VOLTAGE, TEST_DIGITAL_INPUT_POWER_COMM};
     use crate::mock::mock_plant::MockPlant;
     use crate::utility::read_file_stiffness;
 
@@ -149,23 +149,23 @@ mod tests {
         PowerSystem::new(Some(plant))
     }
 
-    fn transition_state_until_change(
+    fn run_until_done(
         power_type: PowerType,
         power_system: &mut PowerSystem,
         voltage: f64,
-        current: f64,
+        digital_input: u32,
     ) {
         loop {
-            let is_state_changed = power_system
+            power_system
                 .transition_state(
                     power_type,
                     voltage,
-                    current,
                     power_system.get_digital_output(),
+                    digital_input,
                 )
                 .0;
 
-            if is_state_changed {
+            if power_system.has_command_result() {
                 break;
             }
         }
@@ -182,7 +182,7 @@ mod tests {
         // Power on
         assert!(command
             .execute(
-                &json!({"powerType": 1, "status": true}),
+                &json!({"powerType": 1, "status": true, "sequence_id": 1}),
                 Some(&mut power_system),
                 None,
                 None
@@ -190,6 +190,16 @@ mod tests {
             .is_some());
 
         assert!(power_system.system_motor.is_power_on);
+
+        // Second time to power on should fail
+        assert!(command
+            .execute(
+                &json!({"powerType": 1, "status": true, "sequence_id": 2}),
+                Some(&mut power_system),
+                None,
+                None
+            )
+            .is_none());
 
         // Power off
         power_system.is_closed_loop_control = true;
@@ -210,13 +220,15 @@ mod tests {
     #[test]
     fn test_command_reset_breakers() {
         let mut power_system = create_power_system();
-        power_system.power_on(PowerType::Communication);
+        power_system.power_on(PowerType::Communication, 1);
 
-        transition_state_until_change(
+        // Note we put the final voltage and digital input values here to get
+        // the command done as soon as possible.
+        run_until_done(
             PowerType::Communication,
             &mut power_system,
             PLANT_VOLTAGE,
-            PLANT_CURRENT_COMMUNICATION,
+            TEST_DIGITAL_INPUT_POWER_COMM,
         );
 
         let command = CommandResetBreakers;
@@ -224,7 +236,7 @@ mod tests {
         assert_eq!(command.name(), "cmd_resetBreakers");
         assert!(command
             .execute(
-                &json!({"powerType": 2}),
+                &json!({"powerType": 2, "sequence_id": 1}),
                 Some(&mut power_system),
                 None,
                 None
@@ -235,6 +247,16 @@ mod tests {
             power_system.system_communication.state,
             PowerSystemState::ResettingBreakers,
         );
+
+        // Second time should fail
+        assert!(command
+            .execute(
+                &json!({"powerType": 2, "sequence_id": 2}),
+                Some(&mut power_system),
+                None,
+                None
+            )
+            .is_none());
     }
 
     #[test]
