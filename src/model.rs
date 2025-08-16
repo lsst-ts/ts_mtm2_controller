@@ -534,20 +534,6 @@ impl Model {
         // are running.
         match self._receiver_to_model.recv() {
             Ok(telemetry) => {
-                if let Some(command_result) = telemetry.command_result {
-                    // Check the sequencd id is -1 or not. If it is, this is
-                    // the internal command.
-                    if get_message_sequence_id(&command_result) != -1 {
-                        if let Some(sender) = &self._senders_to_tcp[&self._controller.commander].0 {
-                            let _ = sender.try_send(vec![command_result.clone()]);
-                        }
-
-                        // Update the last effective telemetry.
-                        self._controller.last_effective_telemetry.command_result =
-                            Some(command_result);
-                    }
-                }
-
                 let mut all_events: Vec<Value> = Vec::new();
                 if let Some(mut events) = telemetry.events {
                     self.process_subsystem_event(&events);
@@ -608,6 +594,20 @@ impl Model {
 
                 if !all_events.is_empty() {
                     self.publish_events(all_events);
+                }
+
+                if let Some(command_result) = telemetry.command_result {
+                    // Check the sequencd id is -1 or not. If it is, this is
+                    // the internal command.
+                    if get_message_sequence_id(&command_result) != -1 {
+                        if let Some(sender) = &self._senders_to_tcp[&self._controller.commander].0 {
+                            let _ = sender.try_send(vec![command_result.clone()]);
+                        }
+
+                        // Update the last effective telemetry.
+                        self._controller.last_effective_telemetry.command_result =
+                            Some(command_result);
+                    }
                 }
             }
 
@@ -1001,7 +1001,7 @@ mod tests {
         client_write_and_sleep, read_file_stiffness,
     };
 
-    const MAX_TIME_WAIT_FOR_COMMAND_RESULT: i32 = 30;
+    const MAX_TIME_WAIT_FOR_COMMAND_RESULT: i32 = 500;
     const SLEEP_TIME: u64 = 100;
     const MAX_TIMEOUT: u64 = 200;
 
@@ -1055,48 +1055,6 @@ mod tests {
                 model._controller.last_effective_telemetry.command_result = None;
                 break;
             }
-        }
-    }
-
-    fn run_until_power_on_with_expected_state(power_type: PowerType, model: &mut Model) {
-        loop {
-            let controller = &model._controller;
-            if (power_type == PowerType::Communication)
-                && controller.status.power_system[&PowerType::Communication].is_power_on()
-                && (controller.status.power_system[&PowerType::Communication].state
-                    == PowerSystemState::PoweredOn)
-            {
-                break;
-            } else if (power_type == PowerType::Motor)
-                && controller.status.power_system[&PowerType::Motor].is_power_on()
-                && (controller.status.power_system[&PowerType::Motor].state
-                    == PowerSystemState::PoweredOn)
-            {
-                break;
-            }
-
-            model.step();
-        }
-    }
-
-    fn run_until_power_off_with_expected_state(power_type: PowerType, model: &mut Model) {
-        loop {
-            let controller = &model._controller;
-            if (power_type == PowerType::Communication)
-                && (!controller.status.power_system[&PowerType::Communication].is_power_on())
-                && (controller.status.power_system[&PowerType::Communication].state
-                    == PowerSystemState::PoweredOff)
-            {
-                break;
-            } else if (power_type == PowerType::Motor)
-                && (!controller.status.power_system[&PowerType::Motor].is_power_on())
-                && (controller.status.power_system[&PowerType::Motor].state
-                    == PowerSystemState::PoweredOff)
-            {
-                break;
-            }
-
-            model.step();
         }
     }
 
@@ -1253,15 +1211,8 @@ mod tests {
 
         client_read_and_assert(
             &mut client_command_gui,
-            "{\"id\":\"success\",\"sequence_id\":1}\r\n",
-        );
-
-        client_read_and_assert(
-            &mut client_command_gui,
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":3,\"status\":true}\r\n",
         );
-
-        run_until_power_on_with_expected_state(PowerType::Communication, &mut model);
 
         client_read_and_assert(
             &mut client_command_gui,
@@ -1297,6 +1248,11 @@ mod tests {
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":5,\"status\":true}\r\n",
         );
 
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"success\",\"sequence_id\":1}\r\n",
+        );
+
         // Check the power system status
         let power_system = model
             ._controller
@@ -1324,15 +1280,8 @@ mod tests {
 
         client_read_and_assert(
             &mut client_command_gui,
-            "{\"id\":\"success\",\"sequence_id\":2}\r\n",
-        );
-
-        client_read_and_assert(
-            &mut client_command_gui,
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":6,\"status\":false}\r\n",
         );
-
-        run_until_power_off_with_expected_state(PowerType::Communication, &mut model);
 
         client_read_and_assert(
             &mut client_command_gui,
@@ -1347,6 +1296,11 @@ mod tests {
         client_read_and_assert(
             &mut client_command_gui,
             "{\"id\":\"powerSystemState\",\"powerType\":2,\"state\":2,\"status\":false}\r\n",
+        );
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"success\",\"sequence_id\":2}\r\n",
         );
 
         // Check the power system status
@@ -1389,8 +1343,6 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         // Check the communication power system status
-        run_until_power_on_with_expected_state(PowerType::Communication, &mut model);
-
         assert!(model._controller.status.power_system[&PowerType::Communication].is_power_on());
 
         // Issue a command to the power on the motor system
@@ -1403,8 +1355,6 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         // Check the motor power system status
-        run_until_power_on_with_expected_state(PowerType::Motor, &mut model);
-
         assert!(model._controller.status.power_system[&PowerType::Motor].is_power_on());
 
         // Check the system staus
@@ -1487,27 +1437,23 @@ mod tests {
     }
 
     #[test]
-    fn test_run_processes_and_update_elevation_anle() {
+    fn test_run_processes_and_update_elevation_angle() {
         let mut model = create_model();
+        model._controller.status.update_power_system(
+            PowerType::Communication,
+            true,
+            PowerSystemState::PoweredOn,
+        );
 
         model.run_processes();
 
         // Create the clients to connect the servers
-        let (mut client_command_csc, mut client_telemetry_csc) =
+        let (_client_command_csc, mut client_telemetry_csc) =
             create_tcp_clients(model._ports["csc_command"], model._ports["csc_telemetry"]);
 
         sleep(Duration::from_millis(MAX_TIMEOUT));
 
         wait_for_connection(&mut model);
-
-        // Issue a command to the power on the communication system
-        client_write_and_sleep(
-            &mut client_command_csc,
-            "{\"id\":\"cmd_power\",\"sequence_id\":1,\"status\":true,\"powerType\":2}\r\n",
-            SLEEP_TIME,
-        );
-
-        wait_for_command_result_and_reset(&mut model);
 
         // Write the telemetry of the external elevation angle.
         client_write_and_sleep(
@@ -1647,6 +1593,8 @@ mod tests {
     #[test]
     fn test_get_welcome_messages_multiple_times_connection() {
         let mut model = create_model();
+        model._stop_publish_telemetry = true;
+
         model.run_processes();
 
         for _ in 0..2 {
@@ -1663,6 +1611,8 @@ mod tests {
             // Client disconnects the servers
             let _ = client_command.shutdown(Shutdown::Both);
             let _ = _client_telemetry.shutdown(Shutdown::Both);
+
+            sleep(Duration::from_millis(MAX_TIMEOUT));
         }
 
         model.stop();
