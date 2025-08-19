@@ -21,7 +21,9 @@
 
 use log::error;
 
-use crate::enums::{BitEnum, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType};
+use crate::enums::{
+    BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
+};
 
 #[derive(Copy, Clone)]
 pub struct SubPowerSystem {
@@ -36,10 +38,12 @@ pub struct SubPowerSystem {
     // Specifies the minimum voltage level, plus some hysteresis, required to
     // operate the electronic breakers.
     _breaker_operating_voltage: f64,
+    // Bit mask for the breakers.
+    _breaker_mask: u32,
     // Current counts used to simulate the time for the increase and decrease of
-    // the output voltage and current.
+    // the output voltage and breaker status.
     _count_voltage: i32,
-    _count_current: i32,
+    _count_breaker: i32,
     // The maximum counts for the power and breaker operations.
     _max_count_power_on: i32,
     _max_count_power_off: i32,
@@ -82,9 +86,10 @@ impl SubPowerSystem {
 
             _output_voltage_off_level: output_voltage_off_level,
             _breaker_operating_voltage: breaker_operating_voltage,
+            _breaker_mask: Self::get_breaker_mask(power_type),
 
             _count_voltage: 0,
-            _count_current: 0,
+            _count_breaker: 0,
 
             _max_count_power_on: time_power_on / time_unit,
             _max_count_power_off: time_power_off / time_unit,
@@ -92,6 +97,41 @@ impl SubPowerSystem {
             _max_count_breaker_on: time_breaker_on / time_unit,
             _max_count_breaker_off: time_breaker_off / time_unit,
         }
+    }
+
+    /// Get the breaker mask for the specified power type.
+    ///
+    /// # Arguments
+    /// * `power_type` - Type of the power system.
+    ///
+    /// # Returns
+    /// Bit mask for the breakers.
+    fn get_breaker_mask(power_type: PowerType) -> u32 {
+        let bits;
+        if power_type == PowerType::Motor {
+            bits = vec![
+                DigitalInput::J1W9N1MotorPowerBreaker,
+                DigitalInput::J1W9N2MotorPowerBreaker,
+                DigitalInput::J1W9N3MotorPowerBreaker,
+                DigitalInput::J2W10N1MotorPowerBreaker,
+                DigitalInput::J2W10N2MotorPowerBreaker,
+                DigitalInput::J2W10N3MotorPowerBreaker,
+                DigitalInput::J3W11N1MotorPowerBreaker,
+                DigitalInput::J3W11N2MotorPowerBreaker,
+                DigitalInput::J3W11N3MotorPowerBreaker,
+            ];
+        } else {
+            bits = vec![
+                DigitalInput::J1W12N1CommunicationPowerBreaker,
+                DigitalInput::J1W12N2CommunicationPowerBreaker,
+                DigitalInput::J2W13N1CommunicationPowerBreaker,
+                DigitalInput::J2W13N2CommunicationPowerBreaker,
+                DigitalInput::J3W14N1CommunicationPowerBreaker,
+                DigitalInput::J3W14N2CommunicationPowerBreaker,
+            ];
+        }
+
+        bits.iter().fold(0, |acc, x| acc | x.bit_value())
     }
 
     /// Is the power on or not.
@@ -151,7 +191,7 @@ impl SubPowerSystem {
         self.state = PowerSystemState::PoweringOff;
 
         self._count_voltage = self._max_count_power_off;
-        self._count_current = self._max_count_breaker_off;
+        self._count_breaker = self._max_count_breaker_off;
 
         if self.power_type == PowerType::Motor {
             vec![(
@@ -184,7 +224,7 @@ impl SubPowerSystem {
     ) -> Vec<(DigitalOutput, DigitalOutputStatus)> {
         self.state = PowerSystemState::ResettingBreakers;
 
-        self._count_current = self._max_count_breaker_on;
+        self._count_breaker = self._max_count_breaker_on;
 
         vec![(
             if self.power_type == PowerType::Motor {
@@ -200,8 +240,8 @@ impl SubPowerSystem {
     ///
     /// # Arguments
     /// * `voltage` - Voltage in volt.
-    /// * `current` - Current in ampere.
     /// * `digital_output` - Digital output value.
+    /// * `digital_input` - Digital input value.
     ///
     /// # Returns
     /// Tuple containing three values:
@@ -213,8 +253,8 @@ impl SubPowerSystem {
     pub fn transition_state(
         &mut self,
         voltage: f64,
-        current: f64,
         digital_output: u8,
+        digital_input: u32,
     ) -> (bool, bool, Vec<(DigitalOutput, DigitalOutputStatus)>) {
         match self.state {
             PowerSystemState::PoweringOn => {
@@ -229,13 +269,9 @@ impl SubPowerSystem {
                     if voltage >= self._breaker_operating_voltage {
                         // Check we can transition to the powered on state or
                         // not. Or we might need to reset the breakers instead.
-
-                        // TODO: Instead of using the minimum current value, we
-                        // should check the breaker status instead. Change this
-                        // in a later time (OSW-745).
-                        let minimum_current = 1.0;
-                        if current > minimum_current {
+                        if self.are_breakers_enabled(digital_input) {
                             self.state = PowerSystemState::PoweredOn;
+
                             return (true, false, Vec::new());
                         } else {
                             return (
@@ -250,6 +286,7 @@ impl SubPowerSystem {
                             self.power_type,
                             PowerSystemState::PoweringOn
                         );
+
                         return (true, true, self.power_off());
                     }
                 }
@@ -257,18 +294,18 @@ impl SubPowerSystem {
 
             PowerSystemState::PoweringOff => {
                 // Update the counters.
-                if self._count_current > 0 {
-                    self._count_current -= 1;
+                if self._count_breaker > 0 {
+                    self._count_breaker -= 1;
                 }
 
-                if self._count_current == 0 {
+                if self._count_breaker == 0 {
                     if self._count_voltage > 0 {
                         self._count_voltage -= 1;
                     }
                 }
 
                 // Check if the voltage is below the output voltage off level.
-                if (self._count_voltage == 0) && (self._count_current == 0) {
+                if (self._count_voltage == 0) && (self._count_breaker == 0) {
                     let has_error = voltage >= self._output_voltage_off_level;
                     if has_error {
                         error!(
@@ -293,15 +330,16 @@ impl SubPowerSystem {
                         self.power_type,
                         PowerSystemState::ResettingBreakers
                     );
+
                     return (true, true, self.power_off());
                 }
 
                 // Update the counter.
-                if self._count_current > 0 {
-                    self._count_current -= 1;
+                if self._count_breaker > 0 {
+                    self._count_breaker -= 1;
                 }
 
-                if self._count_current == 0 {
+                if self._count_breaker == 0 {
                     // Check if the reset breakers output is set to a logic
                     // low level. If yes, set it to a logic high level to reset
                     // the breakers.
@@ -325,11 +363,7 @@ impl SubPowerSystem {
                         }
                     }
 
-                    // TODO: Instead of using the minimum current value, we
-                    // should check the breaker status instead. Change this
-                    // in a later time (OSW-745).
-                    let minimum_current = 1.0;
-                    if current > minimum_current {
+                    if self.are_breakers_enabled(digital_input) {
                         self.state = PowerSystemState::PoweredOn;
 
                         return (true, false, Vec::new());
@@ -339,6 +373,7 @@ impl SubPowerSystem {
                             self.power_type,
                             PowerSystemState::ResettingBreakers
                         );
+
                         return (true, true, self.power_off());
                     }
                 }
@@ -351,6 +386,23 @@ impl SubPowerSystem {
 
         (false, false, Vec::new())
     }
+
+    /// Check if all the breakers are enabled or not.
+    ///
+    /// # Notes
+    /// If the inputs are active low, meaning that a low logic state on an input
+    /// indicates that the breaker is closed. A logic high on an input means
+    /// that the breaker is open or its input voltage is below its operating
+    /// threshold.
+    ///
+    /// # Arguments
+    /// * `digital_input` - Digital input value to check the breaker status.
+    ///
+    /// # Returns
+    /// True if all the breakers are enabled. Otherwise, false.
+    pub fn are_breakers_enabled(&self, digital_input: u32) -> bool {
+        digital_input & self._breaker_mask == 0
+    }
 }
 
 #[cfg(test)]
@@ -359,7 +411,9 @@ mod tests {
 
     use std::path::Path;
 
-    use crate::mock::mock_constants::PLANT_CURRENT_COMMUNICATION;
+    use crate::mock::mock_constants::{
+        PLANT_CURRENT_COMMUNICATION, TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
+    };
     use crate::mock::mock_plant::MockPlant;
     use crate::power::config_power::ConfigPower;
     use crate::utility::read_file_stiffness;
@@ -397,8 +451,11 @@ mod tests {
         loop {
             (voltage, current) = plant.power_system_communication.get_voltage_and_current();
 
-            let (is_state_changed, has_error, actions) =
-                sub_power_system.transition_state(voltage, current, plant.digital_output);
+            let (is_state_changed, has_error, actions) = sub_power_system.transition_state(
+                voltage,
+                plant.digital_output,
+                plant.get_digital_input(),
+            );
             actions.iter().for_each(|(digital_output, status)| {
                 plant.switch_digital_output(*digital_output, *status);
             });
@@ -410,6 +467,18 @@ mod tests {
         }
 
         (voltage, current, has_error_in_transition)
+    }
+
+    #[test]
+    fn test_get_breaker_mask() {
+        assert_eq!(
+            SubPowerSystem::get_breaker_mask(PowerType::Motor),
+            0b111111111000000
+        );
+        assert_eq!(
+            SubPowerSystem::get_breaker_mask(PowerType::Communication),
+            0b11111000000001000000000000000
+        );
     }
 
     #[test]
@@ -471,7 +540,7 @@ mod tests {
             sub_power_system._max_count_power_off
         );
         assert_eq!(
-            sub_power_system._count_current,
+            sub_power_system._count_breaker,
             sub_power_system._max_count_breaker_off
         );
     }
@@ -495,7 +564,7 @@ mod tests {
 
         assert_eq!(sub_power_system.state, PowerSystemState::ResettingBreakers);
         assert_eq!(
-            sub_power_system._count_current,
+            sub_power_system._count_breaker,
             sub_power_system._max_count_breaker_on
         );
     }
@@ -569,12 +638,12 @@ mod tests {
         });
 
         sub_power_system._count_voltage = 0;
-        sub_power_system._count_current = 0;
+        sub_power_system._count_breaker = 0;
 
         let (state_is_changed, has_error, actions) = sub_power_system.transition_state(
             sub_power_system._output_voltage_off_level + 1.0,
-            current,
             plant.digital_output,
+            plant.get_digital_input(),
         );
         actions.iter().for_each(|(digital_output, status)| {
             plant.switch_digital_output(*digital_output, *status);
@@ -597,8 +666,8 @@ mod tests {
         // Should fail because the voltage is below the operating voltage.
         let (state_is_changed, has_error, _) = sub_power_system.transition_state(
             sub_power_system._breaker_operating_voltage - 1.0,
-            0.0,
             plant.digital_output,
+            plant.get_digital_input(),
         );
 
         assert!(state_is_changed);
@@ -608,5 +677,13 @@ mod tests {
         transition_state_until_change(&mut sub_power_system, &mut plant);
 
         assert_eq!(sub_power_system.state, PowerSystemState::PoweredOff);
+    }
+
+    #[test]
+    fn test_are_breakers_enabled() {
+        let sub_power_system = create_sub_power_system_and_plant().0;
+
+        assert!(!sub_power_system.are_breakers_enabled(TEST_DIGITAL_INPUT_NO_POWER));
+        assert!(sub_power_system.are_breakers_enabled(TEST_DIGITAL_INPUT_POWER_COMM));
     }
 }
