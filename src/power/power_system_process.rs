@@ -34,13 +34,14 @@ use crate::command::{
         CommandPower, CommandResetBreakers, CommandSwitchDigitalOutput,
         CommandToggleBitClosedLoopControl,
     },
-    command_schema::CommandSchema,
+    command_schema::{Command, CommandSchema},
 };
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::enums::PowerType;
 use crate::mock::mock_plant::MockPlant;
 use crate::power::power_system::PowerSystem;
 use crate::telemetry::telemetry::Telemetry;
+use crate::utility::{get_message_name, get_message_sequence_id};
 
 pub struct PowerSystemProcess {
     // Power system
@@ -138,12 +139,21 @@ impl PowerSystemProcess {
                 // Process the messages.
                 let mut command_result = None;
                 if let Ok(message) = self._receiver_to_power_system.try_recv() {
+                    let command_name = get_message_name(&message);
+                    let is_new_power_command = (command_name == CommandPower.name())
+                        || (command_name == CommandResetBreakers.name());
                     command_result = Some(self._command_schema.execute(
                         &message,
                         Some(&mut self._power_system),
                         None,
                         None,
                     ));
+
+                    // Skip the command result if we are just beginning to track
+                    // the power command.
+                    if is_new_power_command && command_result.is_some() {
+                        command_result = None;
+                    }
                 }
 
                 // Read the module and get the telemetry.
@@ -153,14 +163,14 @@ impl PowerSystemProcess {
                 self._power_system.transition_state(
                     PowerType::Communication,
                     telemetry.power_raw["commVoltage"],
-                    telemetry.power_raw["commCurrent"],
                     telemetry.digital_output,
+                    telemetry.digital_input,
                 );
                 self._power_system.transition_state(
                     PowerType::Motor,
                     telemetry.power_raw["motorVoltage"],
-                    telemetry.power_raw["motorCurrent"],
                     telemetry.digital_output,
+                    telemetry.digital_input,
                 );
 
                 // Send the telemetry and event data to the model and ignore the
@@ -170,6 +180,20 @@ impl PowerSystemProcess {
                 } else {
                     None
                 };
+
+                if command_result.is_none() && self._power_system.has_command_result() {
+                    // Only publish the command result if the command is
+                    // external.
+                    let result = self._power_system.get_command_result();
+                    let mut is_external_command_result = false;
+                    if let Some(message) = &result {
+                        is_external_command_result = get_message_sequence_id(message) != -1;
+                    }
+
+                    if is_external_command_result {
+                        command_result = result;
+                    }
+                }
 
                 let _ = self._sender_to_model.try_send(Telemetry::new(
                     Some(telemetry),
@@ -244,26 +268,6 @@ mod tests {
         )
     }
 
-    fn wait_command_result(receiver_to_model: &Receiver<Telemetry>) -> Telemetry {
-        let latest_telemetry;
-        loop {
-            match receiver_to_model.try_recv() {
-                Ok(telemetry) => {
-                    if telemetry.command_result.is_some() {
-                        latest_telemetry = telemetry;
-                        break;
-                    }
-                }
-
-                Err(_) => {
-                    sleep(Duration::from_millis(100));
-                }
-            }
-        }
-
-        latest_telemetry
-    }
-
     fn wait_events(receiver_to_model: &Receiver<Telemetry>) -> Telemetry {
         let latest_telemetry;
         loop {
@@ -315,12 +319,8 @@ mod tests {
         // Check the telemetry data.
 
         // Command result should be received.
-        let latest_telemetry = wait_command_result(&receiver_to_model);
+        let latest_telemetry = wait_events(&receiver_to_model);
 
-        assert_eq!(
-            latest_telemetry.command_result.unwrap(),
-            json!({"id": "success", "sequence_id": 1}),
-        );
         assert_eq!(
             latest_telemetry.events.unwrap(),
             vec![json!({
@@ -356,23 +356,57 @@ mod tests {
             }),]
         );
 
-        // Turn off the communication power.
+        assert_eq!(
+            latest_telemetry.command_result.unwrap(),
+            json!({"id": "success", "sequence_id": 1}),
+        );
+
+        // Reset the breakers
         let _ = sender_to_power_system.try_send(json!({
-            "id": "cmd_power",
+            "id": "cmd_resetBreakers",
             "sequence_id": 2,
-            "status": false,
             "powerType": 2,
         }));
 
-        // Check the telemetry data.
+        // Check the next events.
+        let latest_telemetry = wait_events(&receiver_to_model);
+        assert_eq!(
+            latest_telemetry.events.unwrap(),
+            vec![json!({
+                "id": "powerSystemState",
+                "powerType": 2,
+                "status": true,
+                "state": 4,
+            }),]
+        );
 
-        // Command result should be received.
-        let latest_telemetry = wait_command_result(&receiver_to_model);
+        let latest_telemetry = wait_events(&receiver_to_model);
+
+        assert_eq!(
+            latest_telemetry.events.unwrap(),
+            vec![json!({
+                "id": "powerSystemState",
+                "powerType": 2,
+                "status": true,
+                "state": 5,
+            }),]
+        );
 
         assert_eq!(
             latest_telemetry.command_result.unwrap(),
             json!({"id": "success", "sequence_id": 2}),
         );
+
+        // Turn off the communication power.
+        let _ = sender_to_power_system.try_send(json!({
+            "id": "cmd_power",
+            "sequence_id": 3,
+            "status": false,
+            "powerType": 2,
+        }));
+
+        // Check the next events.
+        let latest_telemetry = wait_events(&receiver_to_model);
         assert_eq!(
             latest_telemetry.events.unwrap(),
             vec![json!({
@@ -383,7 +417,6 @@ mod tests {
             }),]
         );
 
-        // Check the next events.
         let latest_telemetry = wait_events(&receiver_to_model);
 
         assert_eq!(
@@ -394,6 +427,11 @@ mod tests {
                 "status": false,
                 "state": 2,
             }),]
+        );
+
+        assert_eq!(
+            latest_telemetry.command_result.unwrap(),
+            json!({"id": "success", "sequence_id": 3}),
         );
 
         // Close the server.

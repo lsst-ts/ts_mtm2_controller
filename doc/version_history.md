@@ -1,5 +1,10 @@
 # Version Histroy
 
+0.2.5
+
+- Track the power command status.
+- Check the power-on status with the breaker status (digital out value).
+
 0.2.4
 
 - Add the **telemetry_stable_time** to `parameters_power.yaml`.

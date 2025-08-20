@@ -158,7 +158,7 @@ impl MockPowerSystem {
         if self.is_breaker_on {
             Self::saturate_count(&mut self._count_current, self._max_count_breaker_on);
 
-            if self.is_breaker_enabled() && (self._count_current < self._max_count_breaker_on) {
+            if self.is_breaker_charging() && (self._count_current < self._max_count_breaker_on) {
                 self._count_current += 1;
 
                 self._current = self._max_current
@@ -178,12 +178,22 @@ impl MockPowerSystem {
         current
     }
 
+    /// Check if the breaker is charging.
+    ///
+    /// # Returns
+    /// True if the breaker is charging, false otherwise.
+    fn is_breaker_charging(&self) -> bool {
+        self.is_breaker_on && self.is_power_on && (self._voltage >= self._breaker_operating_voltage)
+    }
+
     /// Check if the breaker is enabled.
     ///
     /// # Returns
-    /// `true` if the breaker is enabled, `false` otherwise.
+    /// True if the breaker is enabled, false otherwise.
     pub fn is_breaker_enabled(&self) -> bool {
-        self.is_breaker_on && self.is_power_on && (self._voltage >= self._breaker_operating_voltage)
+        // Randomly say that the breaker is enabled once the current is greater
+        // than or equal to half of the maximum current.
+        self.is_breaker_charging() && (self._current >= (self._max_current / 2.0))
     }
 }
 
@@ -404,6 +414,24 @@ mod tests {
     }
 
     #[test]
+    fn test_is_breaker_charging() {
+        let mut power_system = create_mock_power_system();
+
+        assert!(!power_system.is_breaker_charging());
+
+        // Turn on the power and breaker.
+        power_system.is_power_on = true;
+        power_system.is_breaker_on = true;
+
+        assert!(!power_system.is_breaker_charging());
+
+        // Set the voltage to the operating voltage.
+        power_system._voltage = power_system._breaker_operating_voltage;
+
+        assert!(power_system.is_breaker_charging());
+    }
+
+    #[test]
     fn test_is_breaker_enabled() {
         let mut power_system = create_mock_power_system();
 
@@ -415,8 +443,10 @@ mod tests {
 
         assert!(!power_system.is_breaker_enabled());
 
-        // Set the voltage to the operating voltage.
+        // Set the voltage to the operating voltage and the current to the
+        // half of the maximum.
         power_system._voltage = power_system._breaker_operating_voltage;
+        power_system._current = power_system._max_current / 2.0;
 
         assert!(power_system.is_breaker_enabled());
     }
