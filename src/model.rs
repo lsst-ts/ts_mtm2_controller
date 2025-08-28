@@ -733,6 +733,10 @@ impl Model {
         }
 
         // Update the interlock
+        // Note we do not use the ErrorHandler.check_power_supply_health() here
+        // because the logic here only considers the interlock itself instead of
+        // the fault. That means the interlock can be triggered but this does
+        // not consider the be a fault.
         let is_interlock_on = (digital_output & DigitalOutput::InterlockEnable.bit_value() == 0)
             | (digital_input & DigitalInput::InterlockPowerRelay.bit_value() != 0);
         if let Some(()) = self
@@ -763,6 +767,7 @@ impl Model {
             && ((mode == ClosedLoopControlMode::OpenLoop)
                 || (mode == ClosedLoopControlMode::ClosedLoop))
         {
+            info!("There is a fault in the control system. Change the control mode to be telemetry only.");
             if self
                 ._controller
                 .update_closed_loop_control_mode(ClosedLoopControlMode::TelemetryOnly)
@@ -864,7 +869,7 @@ impl Model {
             if name == "powerSystemState" {
                 if self
                     ._controller
-                    .update_internal_status_power_system(event)
+                    .update_internal_status_power_system_and_check_error(event)
                     .is_none()
                 {
                     debug!("Failed to update the power system status: {event}.");
