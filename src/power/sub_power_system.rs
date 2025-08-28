@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::error;
+use log::{error, warn};
 
 use crate::enums::{
     BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
@@ -139,10 +139,7 @@ impl SubPowerSystem {
     /// # Returns
     /// True if the power is on. Otherwise, false.
     pub fn is_power_on(&self) -> bool {
-        self.is_power_on
-            && (self.state == PowerSystemState::PoweringOn
-                || self.state == PowerSystemState::PoweredOn
-                || self.state == PowerSystemState::ResettingBreakers)
+        self.is_power_on && (self.state == PowerSystemState::PoweredOn)
     }
 
     /// Power on the system.
@@ -363,19 +360,20 @@ impl SubPowerSystem {
                         }
                     }
 
-                    if self.are_breakers_enabled(digital_input) {
-                        self.state = PowerSystemState::PoweredOn;
+                    // Transition the power state anyway. The ErrorHandler will
+                    // check the breaker status if not all the breakers are
+                    // enabled.
+                    self.state = PowerSystemState::PoweredOn;
 
-                        return (true, false, Vec::new());
-                    } else {
-                        error!(
+                    if !self.are_breakers_enabled(digital_input) {
+                        warn!(
                             "Resetting breakers failed for power system ({:?}) in power system state: {:?}.",
                             self.power_type,
                             PowerSystemState::ResettingBreakers
                         );
-
-                        return (true, true, self.power_off());
                     }
+
+                    return (true, false, Vec::new());
                 }
             }
 
@@ -489,13 +487,13 @@ mod tests {
 
         sub_power_system.is_power_on = true;
         sub_power_system.state = PowerSystemState::PoweringOn;
-        assert!(sub_power_system.is_power_on());
+        assert!(!sub_power_system.is_power_on());
 
         sub_power_system.state = PowerSystemState::PoweredOn;
         assert!(sub_power_system.is_power_on());
 
         sub_power_system.state = PowerSystemState::ResettingBreakers;
-        assert!(sub_power_system.is_power_on());
+        assert!(!sub_power_system.is_power_on());
     }
 
     #[test]
