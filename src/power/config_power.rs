@@ -49,6 +49,8 @@ pub struct ConfigPower {
     // Gain and offset for the motor current.
     pub current_gain_motor: f64,
     pub current_offset_motor: f64,
+    // Boost current fault is enabled or not.
+    pub is_boost_current_fault_enabled: bool,
     // Time to wait for the telemetry to stabilize in millisecond.
     pub telemetry_stable_time: i32,
     // Breaker operating voltage rise time in millisecond for the communication
@@ -127,6 +129,11 @@ impl ConfigPower {
 
             current_gain_motor: get_parameter(filepath, "current_gain_motor"),
             current_offset_motor: get_parameter(filepath, "current_offset_motor"),
+
+            is_boost_current_fault_enabled: get_parameter(
+                filepath,
+                "is_boost_current_fault_enabled",
+            ),
 
             telemetry_stable_time: get_parameter(filepath, "telemetry_stable_time"),
 
