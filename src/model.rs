@@ -864,7 +864,7 @@ impl Model {
             if name == "powerSystemState" {
                 if self
                     ._controller
-                    .update_internal_status_power_system(event)
+                    .update_internal_status_power_system_and_check_error(event)
                     .is_none()
                 {
                     debug!("Failed to update the power system status: {event}.");
