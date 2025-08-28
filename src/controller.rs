@@ -534,20 +534,57 @@ impl Controller {
         None
     }
 
-    /// Update the internal status of power system status.
+    /// Update the internal status of power system status and check the possible
+    /// error.
     ///
     /// # Arguments
     /// * `event` - Event.
     ///
     /// # Returns
     /// Some if the status is updated. Otherwise, None.
-    pub fn update_internal_status_power_system(&mut self, event: &Value) -> Option<()> {
+    pub fn update_internal_status_power_system_and_check_error(
+        &mut self,
+        event: &Value,
+    ) -> Option<()> {
         let power_type = PowerType::from_repr(event["powerType"].as_u64()? as u8)?;
         let status = event["status"].as_bool()?;
         let power_system_state = PowerSystemState::from_repr(event["state"].as_u64()? as u8)?;
 
-        self.status
-            .update_power_system(power_type, status, power_system_state)
+        // Cache the old power system state for the following check of error.
+        let power_system_state_old = self.status.power_system[&power_type].state;
+
+        // Update the internal status of power system and check the possible error.
+        let update_result = self
+            .status
+            .update_power_system(power_type, status, power_system_state);
+
+        if update_result.is_some() {
+            if let Some(telemetry) = &self.last_effective_telemetry.power {
+                let key = match power_type {
+                    PowerType::Motor => "motorVoltage",
+                    PowerType::Communication => "commVoltage",
+                };
+                let voltage = telemetry.power_processed[key];
+
+                if ((power_system_state_old == PowerSystemState::PoweringOn)
+                    || (power_system_state_old == PowerSystemState::ResettingBreakers))
+                    && (power_system_state == PowerSystemState::PoweringOff)
+                {
+                    self.error_handler.add_error(ErrorCode::IgnoreFaultHardware);
+                    self.error_handler
+                        .check_breaker_operation_voltage(power_type, voltage);
+                }
+
+                if (power_system_state_old == PowerSystemState::PoweringOff)
+                    && (power_system_state == PowerSystemState::PoweredOff)
+                {
+                    self.error_handler
+                        .check_power_relay_open_fault_when_shut_down(power_type, voltage);
+                }
+            }
+        }
+
+        update_result
     }
 
     /// Update the internal status of closed-loop control mode.
@@ -1108,7 +1145,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_internal_status_power_system() {
+    fn test_update_internal_status_power_system_and_check_error() {
         let mut controller = create_controller().0;
 
         let event = json!({
@@ -1118,7 +1155,7 @@ mod tests {
         });
 
         assert!(controller
-            .update_internal_status_power_system(&event)
+            .update_internal_status_power_system_and_check_error(&event)
             .is_some());
 
         let power_system = &controller.status.power_system[&PowerType::Communication];
