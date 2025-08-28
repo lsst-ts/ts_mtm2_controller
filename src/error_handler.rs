@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, warn};
+use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use strum::IntoEnumIterator;
@@ -27,7 +27,7 @@ use strum::IntoEnumIterator;
 use crate::config::Config;
 use crate::constants::NUM_AXIAL_ACTUATOR;
 use crate::control::actuator::Actuator;
-use crate::enums::{BitEnum, ErrorCode, PowerType};
+use crate::enums::{BitEnum, DigitalInput, DigitalOutput, ErrorCode, PowerType};
 use crate::power::config_power::ConfigPower;
 use crate::telemetry::{
     telemetry_control_loop::TelemetryControlLoop, telemetry_power::TelemetryPower,
@@ -144,6 +144,11 @@ impl ErrorHandler {
     /// * `enabled_faults_mask` - Enabled faults mask.
     pub fn update_enabled_faults_mask(&mut self, enabled_faults_mask: u64) {
         self.config_control_loop.enabled_faults_mask = enabled_faults_mask;
+
+        info!(
+            "Update the enabled faults mask to {:#X}.",
+            enabled_faults_mask
+        );
 
         self.summary_faults_status &= self.config_control_loop.enabled_faults_mask;
     }
@@ -456,11 +461,30 @@ impl ErrorHandler {
         is_power_on_communication: bool,
         is_power_on_motor: bool,
     ) {
+        // Check the digital input and output
+        let digital_input = telemetry.digital_input;
+        let digital_output = telemetry.digital_output;
+
+        let (has_fault_power_supply_load_share, has_fault_power_health, has_fault_interlock) =
+            Self::check_power_supply_health(
+                self.config_power.is_boost_current_fault_enabled,
+                digital_input,
+                digital_output,
+            );
+        if has_fault_power_supply_load_share {
+            self.add_error(ErrorCode::FaultPowerSupplyLoadShare);
+        }
+        if has_fault_power_health {
+            self.add_error(ErrorCode::FaultPowerHealth);
+        }
+
         // Check the communication voltage.
         if is_power_on_communication {
             if self._count_voltage_communication >= self._max_count_voltage_communication {
-                self.check_voltage(
-                    telemetry.power_processed["commVoltage"],
+                let voltage = telemetry.power_processed["commVoltage"];
+                self.check_breaker_operation_voltage(PowerType::Communication, voltage);
+                self.check_voltage_in_range(
+                    voltage,
                     ErrorCode::FaultCommVoltage,
                     ErrorCode::WarnCommVoltage,
                 );
@@ -470,6 +494,8 @@ impl ErrorHandler {
                 {
                     self.add_error(ErrorCode::FaultCommOverCurrent);
                 }
+
+                self.check_breakers(PowerType::Communication, digital_input);
             } else {
                 self._count_voltage_communication += 1;
             }
@@ -480,8 +506,10 @@ impl ErrorHandler {
         // Check the motor voltage.
         if is_power_on_motor {
             if self._count_voltage_motor >= self._max_count_voltage_motor {
-                self.check_voltage(
-                    telemetry.power_processed["motorVoltage"],
+                let voltage = telemetry.power_processed["motorVoltage"];
+                self.check_breaker_operation_voltage(PowerType::Motor, voltage);
+                self.check_voltage_in_range(
+                    voltage,
                     ErrorCode::FaultMotorVoltage,
                     ErrorCode::WarnMotorVoltage,
                 );
@@ -491,6 +519,12 @@ impl ErrorHandler {
                 {
                     self.add_error(ErrorCode::FaultMotorOverCurrent);
                 }
+
+                self.check_breakers(PowerType::Motor, digital_input);
+
+                if has_fault_interlock {
+                    self.add_error(ErrorCode::IgnoreFaultInterlock);
+                }
             } else {
                 self._count_voltage_motor += 1;
             }
@@ -499,13 +533,78 @@ impl ErrorHandler {
         }
     }
 
-    /// Check the voltage.
+    /// Check the power supply health.
+    ///
+    /// # Arguments
+    /// * `is_boost_current_fault_enabled` - Is the boost current fault enabled
+    /// or not.
+    /// * `digital_input` - The digital input value.
+    /// * `digital_output` - The digital output value.
+    ///
+    /// # Returns
+    /// A tuple containing three boolean values:
+    /// * The first value indicates if there is a fault in power supply load
+    /// sharing.
+    /// * The second value indicates if there is a fault in power health.
+    /// * The third value indicates if there is a fault in interlock.
+    pub fn check_power_supply_health(
+        is_boost_current_fault_enabled: bool,
+        digital_input: u32,
+        digital_output: u8,
+    ) -> (bool, bool, bool) {
+        let mut has_fault_power_supply_load_share = false;
+        let mut has_fault_power_health = false;
+        let mut has_fault_interlock = false;
+
+        // Active high inputs
+        let is_redundancy_ok = (digital_input & DigitalInput::RedundancyOK.bit_value()) != 0;
+        let is_load_distribution_ok =
+            (digital_input & DigitalInput::LoadDistributionOK.bit_value()) != 0;
+        let is_dc_ok_1 = (digital_input & DigitalInput::PowerSupplyDC1OK.bit_value()) != 0;
+        let is_dc_ok_2 = (digital_input & DigitalInput::PowerSupplyDC2OK.bit_value()) != 0;
+
+        let is_motor_relay_output_on =
+            (digital_output & DigitalOutput::MotorPower.bit_value()) != 0;
+        let is_interlock_enable =
+            (digital_output & DigitalOutput::InterlockEnable.bit_value()) != 0;
+
+        // Active low inputs
+        let is_boost_current_on_1 =
+            (digital_input & DigitalInput::PowerSupplyCurrent1OK.bit_value()) == 0;
+        let is_boost_current_on_2 =
+            (digital_input & DigitalInput::PowerSupplyCurrent2OK.bit_value()) == 0;
+
+        let is_interlock_power_relay_on =
+            (digital_input & DigitalInput::InterlockPowerRelay.bit_value()) == 0;
+
+        if !(is_redundancy_ok && is_load_distribution_ok) {
+            has_fault_power_supply_load_share = true;
+        }
+
+        if (!(is_dc_ok_1 && is_dc_ok_2))
+            || (is_boost_current_fault_enabled && (is_boost_current_on_1 || is_boost_current_on_2))
+        {
+            has_fault_power_health = true;
+        }
+
+        if is_motor_relay_output_on && is_interlock_enable && (!is_interlock_power_relay_on) {
+            has_fault_interlock = true;
+        }
+
+        (
+            has_fault_power_supply_load_share,
+            has_fault_power_health,
+            has_fault_interlock,
+        )
+    }
+
+    /// Check the voltage is in the range or not.
     ///
     /// # Arguments
     /// * `voltage` - The voltage in volt.
     /// * `error_code_fault` - The error code for the fault level.
     /// * `error_code_warning` - The error code for the warning level.
-    fn check_voltage(
+    fn check_voltage_in_range(
         &mut self,
         voltage: f64,
         error_code_fault: ErrorCode,
@@ -544,6 +643,136 @@ impl ErrorHandler {
     fn is_out_range(&self, value: f64, min: f64, max: f64) -> bool {
         (value < min) || (value > max)
     }
+
+    /// Check the breaker operation voltage.
+    ///
+    /// # Arguments
+    /// * `power_type` - The type of power system.
+    /// * `voltage` - The voltage to check.
+    pub fn check_breaker_operation_voltage(&mut self, power_type: PowerType, voltage: f64) {
+        if voltage < self.config_power.breaker_operating_voltage {
+            self.add_error(ErrorCode::IgnoreFaultHardware);
+
+            match power_type {
+                PowerType::Motor => {
+                    self.add_error(ErrorCode::FaultMotorVoltage);
+                }
+                PowerType::Communication => {
+                    self.add_error(ErrorCode::FaultCommVoltage);
+                }
+            }
+        }
+    }
+
+    /// Check the breakers.
+    ///
+    /// # Arguments
+    /// * `power_type` - Type of the power system.
+    /// * `digital_input` - Digital input value to check the breaker status.
+    fn check_breakers(&mut self, power_type: PowerType, digital_input: u32) {
+        let (has_warning_1, has_fault_1, has_warning_2, has_fault_2, has_warning_3, has_fault_3);
+
+        match power_type {
+            PowerType::Motor => {
+                (has_warning_1, has_fault_1) = self.check_breaker_line(
+                    digital_input & DigitalInput::J1W9N1MotorPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J1W9N2MotorPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J1W9N3MotorPowerBreaker.bit_value() == 0,
+                );
+                (has_warning_2, has_fault_2) = self.check_breaker_line(
+                    digital_input & DigitalInput::J2W10N1MotorPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J2W10N2MotorPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J2W10N3MotorPowerBreaker.bit_value() == 0,
+                );
+                (has_warning_3, has_fault_3) = self.check_breaker_line(
+                    digital_input & DigitalInput::J3W11N1MotorPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J3W11N2MotorPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J3W11N3MotorPowerBreaker.bit_value() == 0,
+                );
+            }
+            PowerType::Communication => {
+                (has_warning_1, has_fault_1) = self.check_breaker_line(
+                    digital_input & DigitalInput::J1W12N1CommunicationPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J1W12N2CommunicationPowerBreaker.bit_value() == 0,
+                    true,
+                );
+                (has_warning_2, has_fault_2) = self.check_breaker_line(
+                    digital_input & DigitalInput::J2W13N1CommunicationPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J2W13N2CommunicationPowerBreaker.bit_value() == 0,
+                    true,
+                );
+                (has_warning_3, has_fault_3) = self.check_breaker_line(
+                    digital_input & DigitalInput::J3W14N1CommunicationPowerBreaker.bit_value() == 0,
+                    digital_input & DigitalInput::J3W14N2CommunicationPowerBreaker.bit_value() == 0,
+                    true,
+                );
+            }
+        }
+
+        // For the warnings and faults, their status is based on any one of them
+        // having a fault or a warning. It is possible that we could have
+        // warnings and faults at the same time.
+        if has_warning_1 || has_warning_2 || has_warning_3 {
+            self.add_error(ErrorCode::WarnSingleBreakerTrip);
+        }
+
+        if has_fault_1 || has_fault_2 || has_fault_3 {
+            match power_type {
+                PowerType::Motor => self.add_error(ErrorCode::FaultMotorMultiBreaker),
+                PowerType::Communication => self.add_error(ErrorCode::FaultCommMultiBreaker),
+            }
+        }
+    }
+
+    /// Check the breaker line.
+    ///
+    /// # Arguments
+    /// * `is_closed_1` - The first breaker is closed or not.
+    /// * `is_closed_2` - The second breaker is closed or not.
+    /// * `is_closed_3` - The third breaker is closed or not.
+    ///
+    /// # Returns
+    /// A tuple containing the status of the three breakers. The first element
+    /// is true if there is one open breaker (Warning), and the second element
+    /// is true if there is more than one open breaker (Fault).
+    fn check_breaker_line(
+        &self,
+        is_closed_1: bool,
+        is_closed_2: bool,
+        is_closed_3: bool,
+    ) -> (bool, bool) {
+        let status = (is_closed_1 as i32) + (is_closed_2 as i32) + (is_closed_3 as i32);
+
+        match status {
+            3 => (false, false),
+            2 => (true, false),
+            _ => (false, true),
+        }
+    }
+
+    /// Check the power relay open fault when shut down.
+    ///
+    /// # Arguments
+    /// * `power_type` - Type of the power system.
+    /// * `voltage` - The voltage to check.
+    pub fn check_power_relay_open_fault_when_shut_down(
+        &mut self,
+        power_type: PowerType,
+        voltage: f64,
+    ) {
+        if voltage >= self.config_power.output_voltage_off_level {
+            self.add_error(ErrorCode::FaultPowerRelayOpen);
+
+            match power_type {
+                PowerType::Motor => {
+                    self.add_error(ErrorCode::IgnoreWarnMotorRelay);
+                }
+                PowerType::Communication => {
+                    self.add_error(ErrorCode::IgnoreWarnCommRelay);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -552,6 +781,10 @@ mod tests {
     use std::path::Path;
 
     use crate::constants::NUM_ACTUATOR;
+    use crate::mock::mock_constants::{
+        TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
+        TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+    };
 
     fn create_error_handler() -> ErrorHandler {
         let config = Config::new(
@@ -884,6 +1117,7 @@ mod tests {
         telemetry
             .power_processed
             .insert(String::from("motorCurrent"), 10.0);
+        telemetry.digital_input = TEST_DIGITAL_INPUT_POWER_COMM_MOTOR;
 
         // Need to run some cycles to pass the maximum counts
         for _ in 0..(error_handler._max_count_voltage_communication
@@ -915,20 +1149,61 @@ mod tests {
         assert!(error_handler.has_error(ErrorCode::FaultCommOverCurrent));
         assert!(error_handler.has_error(ErrorCode::FaultMotorOverCurrent));
 
+        // Abnormal digital input
+        telemetry.digital_input = TEST_DIGITAL_INPUT_NO_POWER;
+
+        error_handler.check_condition_power_system(&telemetry, true, true);
+
+        assert!(error_handler.has_error(ErrorCode::FaultCommMultiBreaker));
+        assert!(error_handler.has_error(ErrorCode::FaultMotorMultiBreaker));
+
         // No fault if the power is off
         error_handler.clear();
 
         error_handler.check_condition_power_system(&telemetry, false, false);
 
         assert!(!error_handler.has_fault());
+
+        // Existed fault even the power is off
+        telemetry.digital_input =
+            TEST_DIGITAL_INPUT_NO_POWER - DigitalInput::RedundancyOK.bit_value();
+
+        error_handler.check_condition_power_system(&telemetry, true, true);
+
+        assert!(error_handler.has_error(ErrorCode::FaultPowerSupplyLoadShare));
     }
 
     #[test]
-    fn test_check_voltage() {
+    fn test_check_power_supply_health() {
+        // No fault
+        assert_eq!(
+            ErrorHandler::check_power_supply_health(
+                false,
+                TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
+                TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+            ),
+            (false, false, false),
+        );
+
+        // Has fault
+        assert_eq!(
+            ErrorHandler::check_power_supply_health(
+                false,
+                TEST_DIGITAL_INPUT_NO_POWER
+                    - DigitalInput::RedundancyOK.bit_value()
+                    - DigitalInput::PowerSupplyDC1OK.bit_value(),
+                TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+            ),
+            (true, true, true),
+        );
+    }
+
+    #[test]
+    fn test_check_voltage_in_range() {
         let mut error_handler = create_error_handler();
 
         // No error
-        error_handler.check_voltage(
+        error_handler.check_voltage_in_range(
             24.0,
             ErrorCode::FaultCommVoltage,
             ErrorCode::WarnCommVoltage,
@@ -937,7 +1212,7 @@ mod tests {
         assert!(!error_handler.has_fault());
 
         // Test the fault level
-        error_handler.check_voltage(
+        error_handler.check_voltage_in_range(
             20.0,
             ErrorCode::FaultCommVoltage,
             ErrorCode::WarnCommVoltage,
@@ -949,7 +1224,7 @@ mod tests {
         // Test the warning level
         error_handler.clear();
 
-        error_handler.check_voltage(
+        error_handler.check_voltage_in_range(
             26.0,
             ErrorCode::FaultCommVoltage,
             ErrorCode::WarnCommVoltage,
@@ -967,5 +1242,130 @@ mod tests {
         assert!(error_handler.is_out_range(2.5, 1.0, 2.0));
 
         assert!(!error_handler.is_out_range(1.5, 1.0, 2.0));
+    }
+
+    #[test]
+    fn test_check_breaker_operation_voltage() {
+        let mut error_handler = create_error_handler();
+
+        // No fault
+        let operating_voltage = error_handler.config_power.breaker_operating_voltage;
+
+        error_handler.check_breaker_operation_voltage(PowerType::Motor, operating_voltage);
+        assert!(!error_handler.has_fault());
+
+        error_handler.check_breaker_operation_voltage(PowerType::Communication, operating_voltage);
+        assert!(!error_handler.has_fault());
+
+        // Has fault
+        error_handler.check_breaker_operation_voltage(PowerType::Motor, operating_voltage - 1.0);
+        assert!(error_handler.has_error(ErrorCode::IgnoreFaultHardware));
+        assert!(error_handler.has_error(ErrorCode::FaultMotorVoltage));
+
+        error_handler.clear();
+
+        error_handler
+            .check_breaker_operation_voltage(PowerType::Communication, operating_voltage - 1.0);
+        assert!(error_handler.has_error(ErrorCode::IgnoreFaultHardware));
+        assert!(error_handler.has_error(ErrorCode::FaultCommVoltage));
+    }
+
+    #[test]
+    fn test_check_breakers() {
+        let mut error_handler = create_error_handler();
+
+        // No warning or fault
+        error_handler.check_breakers(PowerType::Motor, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR);
+        assert!(!error_handler.has_fault());
+
+        error_handler.check_breakers(
+            PowerType::Communication,
+            TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
+        );
+        assert!(!error_handler.has_fault());
+
+        // Has warning
+        error_handler.check_breakers(
+            PowerType::Motor,
+            TEST_DIGITAL_INPUT_POWER_COMM_MOTOR
+                + DigitalInput::J3W11N3MotorPowerBreaker.bit_value(),
+        );
+        assert!(error_handler.has_error(ErrorCode::WarnSingleBreakerTrip));
+
+        error_handler.clear();
+
+        error_handler.check_breakers(
+            PowerType::Communication,
+            TEST_DIGITAL_INPUT_POWER_COMM_MOTOR
+                + DigitalInput::J2W13N1CommunicationPowerBreaker.bit_value(),
+        );
+        assert!(error_handler.has_error(ErrorCode::WarnSingleBreakerTrip));
+
+        // Has fault
+        error_handler.check_breakers(PowerType::Motor, TEST_DIGITAL_INPUT_NO_POWER);
+        assert!(error_handler.has_error(ErrorCode::FaultMotorMultiBreaker));
+
+        error_handler.check_breakers(PowerType::Communication, TEST_DIGITAL_INPUT_NO_POWER);
+        assert!(error_handler.has_error(ErrorCode::FaultCommMultiBreaker));
+    }
+
+    #[test]
+    fn test_check_breaker_line() {
+        let error_handler = create_error_handler();
+
+        assert_eq!(
+            (false, false),
+            error_handler.check_breaker_line(true, true, true)
+        );
+
+        assert_eq!(
+            (true, false),
+            error_handler.check_breaker_line(true, true, false)
+        );
+
+        assert_eq!(
+            (false, true),
+            error_handler.check_breaker_line(true, false, false)
+        );
+
+        assert_eq!(
+            (false, true),
+            error_handler.check_breaker_line(false, false, false)
+        );
+    }
+
+    #[test]
+    fn test_check_power_relay_open_fault_when_shut_down() {
+        let mut error_handler = create_error_handler();
+
+        // No fault
+        error_handler.check_power_relay_open_fault_when_shut_down(
+            PowerType::Motor,
+            error_handler.config_power.output_voltage_off_level - 1.0,
+        );
+        assert!(!error_handler.has_fault());
+
+        error_handler.check_power_relay_open_fault_when_shut_down(
+            PowerType::Communication,
+            error_handler.config_power.output_voltage_off_level - 1.0,
+        );
+        assert!(!error_handler.has_fault());
+
+        // Has fault
+        error_handler.check_power_relay_open_fault_when_shut_down(
+            PowerType::Motor,
+            error_handler.config_power.output_voltage_off_level,
+        );
+        assert!(error_handler.has_error(ErrorCode::FaultPowerRelayOpen));
+        assert!(error_handler.has_error(ErrorCode::IgnoreWarnMotorRelay));
+
+        error_handler.clear();
+
+        error_handler.check_power_relay_open_fault_when_shut_down(
+            PowerType::Communication,
+            error_handler.config_power.output_voltage_off_level,
+        );
+        assert!(error_handler.has_error(ErrorCode::FaultPowerRelayOpen));
+        assert!(error_handler.has_error(ErrorCode::IgnoreWarnCommRelay));
     }
 }
