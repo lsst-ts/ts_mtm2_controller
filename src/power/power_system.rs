@@ -25,6 +25,7 @@ use serde_json::Value;
 use crate::enums::{
     BitEnum, CommandStatus, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
 };
+use crate::error_handler::ErrorHandler;
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
 use crate::power::{config_power::ConfigPower, sub_power_system::SubPowerSystem};
@@ -52,6 +53,10 @@ pub struct PowerSystem {
     pub is_closed_loop_control: bool,
     // Events to publish
     pub event_queue: EventQueue,
+    // Has the power supply fault or not.
+    _has_fault_power_supply: bool,
+    // Has the interlock fault or not.
+    _has_fault_interlock: bool,
     // Power command status
     _command_status: Option<PowerCommandStatus>,
     // Power command result
@@ -99,6 +104,9 @@ impl PowerSystem {
 
             event_queue: EventQueue::new(),
 
+            _has_fault_power_supply: false,
+            _has_fault_interlock: false,
+
             _command_status: None,
             _command_result: None,
 
@@ -119,6 +127,16 @@ impl PowerSystem {
         power_type: PowerType,
         sequence_id: i64,
     ) -> Option<PowerSystemState> {
+        // Fail the command if there is the power supply fault.
+        if self._has_fault_power_supply {
+            error!(
+                "Cannot power on the {:?} power system if there is the power supply error.",
+                power_type
+            );
+
+            return None;
+        }
+
         // If there is the ongoing power command, reject the new power
         // command.
         if self._command_status.is_some() {
@@ -362,6 +380,23 @@ impl PowerSystem {
         Some(state)
     }
 
+    /// Check the power supply error.
+    ///
+    /// # Arguments
+    /// * `digital_output` - Digital output value.
+    /// * `digital_input` - Digital input value.
+    pub fn check_power_supply_error(&mut self, digital_output: u8, digital_input: u32) {
+        let (has_fault_power_supply_load_share, has_fault_power_health, has_fault_interlock) =
+            ErrorHandler::check_power_supply_health(
+                self.config.is_boost_current_fault_enabled,
+                digital_input,
+                digital_output,
+            );
+
+        self._has_fault_power_supply = has_fault_power_supply_load_share || has_fault_power_health;
+        self._has_fault_interlock = has_fault_interlock;
+    }
+
     /// Transition the state of the power system.
     ///
     /// # Arguments
@@ -390,16 +425,22 @@ impl PowerSystem {
         let is_power_on;
         let state;
         if power_type == PowerType::Motor {
-            (is_state_changed, has_error, actions) =
-                self.system_motor
-                    .transition_state(voltage, digital_output, digital_input);
+            (is_state_changed, has_error, actions) = self.system_motor.transition_state(
+                voltage,
+                digital_output,
+                digital_input,
+                self._has_fault_interlock,
+            );
 
             is_power_on = self.system_motor.is_power_on;
             state = self.system_motor.state;
         } else {
-            (is_state_changed, has_error, actions) =
-                self.system_communication
-                    .transition_state(voltage, digital_output, digital_input);
+            (is_state_changed, has_error, actions) = self.system_communication.transition_state(
+                voltage,
+                digital_output,
+                digital_input,
+                self._has_fault_interlock,
+            );
 
             is_power_on = self.system_communication.is_power_on;
             state = self.system_communication.state;
@@ -650,10 +691,13 @@ mod tests {
 
     use std::path::Path;
 
-    use crate::enums::BitEnum;
+    use crate::enums::{BitEnum, DigitalInput};
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_NO_POWER,
         TEST_DIGITAL_OUTPUT_POWER_COMM,
+    };
+    use crate::mock::mock_constants::{
+        TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
     use crate::mock::mock_power_system::MockPowerSystem;
     use crate::utility::read_file_stiffness;
@@ -698,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn test_power_on() {
+    fn test_power_on_success() {
         let mut power_system = create_power_system();
         assert!(!power_system.system_motor.is_power_on);
 
@@ -735,6 +779,26 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn test_power_on_fail() {
+        let mut power_system = create_power_system();
+
+        // Has the power supply error
+        power_system._has_fault_power_supply = true;
+
+        assert!(power_system.power_on(PowerType::Motor, 1).is_none());
+
+        // Has the ongoing power command
+        power_system._has_fault_power_supply = false;
+
+        assert_eq!(
+            power_system.power_on(PowerType::Motor, 1),
+            Some(PowerSystemState::PoweringOn)
+        );
+
+        assert!(power_system.power_on(PowerType::Motor, 1).is_none());
     }
 
     #[test]
@@ -968,6 +1032,31 @@ mod tests {
                 )
             ]
         );
+    }
+
+    #[test]
+    fn test_check_power_supply_error() {
+        let mut power_system = create_power_system();
+
+        // No error
+        power_system.check_power_supply_error(
+            TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+            TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
+        );
+
+        assert!(!power_system._has_fault_power_supply);
+        assert!(!power_system._has_fault_interlock);
+
+        // Has the interlock error
+        power_system.check_power_supply_error(
+            TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+            TEST_DIGITAL_INPUT_NO_POWER
+                - DigitalInput::RedundancyOK.bit_value()
+                - DigitalInput::PowerSupplyDC1OK.bit_value(),
+        );
+
+        assert!(power_system._has_fault_power_supply);
+        assert!(power_system._has_fault_interlock);
     }
 
     #[test]
