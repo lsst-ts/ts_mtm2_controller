@@ -247,6 +247,10 @@ impl MockPlant {
             ]);
         }
 
+        if !self.power_system_motor.is_power_on {
+            bits.push(DigitalInput::InterlockPowerRelay);
+        }
+
         if !self.power_system_motor.is_breaker_enabled() {
             bits.extend_from_slice(&[
                 DigitalInput::J1W9N1MotorPowerBreaker,
@@ -258,7 +262,6 @@ impl MockPlant {
                 DigitalInput::J3W11N1MotorPowerBreaker,
                 DigitalInput::J3W11N2MotorPowerBreaker,
                 DigitalInput::J3W11N3MotorPowerBreaker,
-                DigitalInput::InterlockPowerRelay,
             ]);
         }
 
@@ -715,7 +718,19 @@ mod tests {
             TEST_DIGITAL_INPUT_POWER_COMM
         );
 
+        // Check the interlock bit
+        assert!(
+            (mock_plant.get_digital_input() & DigitalInput::InterlockPowerRelay.bit_value()) != 0
+        );
+
+        mock_plant.power_system_motor.is_power_on = true;
+
+        assert!(
+            (mock_plant.get_digital_input() & DigitalInput::InterlockPowerRelay.bit_value()) == 0
+        );
+
         // Motor power
+        mock_plant.power_system_motor.is_power_on = false;
         run_until_breaker_enabled(&mut mock_plant.power_system_motor);
 
         assert_eq!(
