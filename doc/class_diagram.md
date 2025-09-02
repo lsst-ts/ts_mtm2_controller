@@ -96,6 +96,7 @@ classDiagram
 
 namespace main {
   class EventQueue
+  class ErrorHandler
 }
 
 namespace mock {
@@ -130,6 +131,7 @@ PowerSystem o-- MockPlant
 PowerSystem *-- EventQueue
 PowerSystem ..> Event
 PowerSystem --> TelemetryPower
+PowerSystem ..> ErrorHandler
 ```
 
 ## Control

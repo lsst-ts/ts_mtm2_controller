@@ -1,5 +1,16 @@
 # Version Histroy
 
+0.2.6
+
+- Fix the digital input of interlock bit in **MockPlant**.
+- Add the **is_boost_current_fault_enabled** to `parameters_power.yaml`.
+- Check the power health and interlock in the power system and error handler.
+If there is issue, fail the power command.
+- Improve the `TcpServer.write_jsons()` and `TcpServer.flush()` to consider the system resource of **std::io::ErrorKind::WouldBlock**.
+- Fix the `CommandSetExternalElevation.execute()` to use the lower case.
+- Log the current closed-loop control mode.
+- Improve the control loop process to make sure to process the non-telemetry command when there is the telemetry in each loop.
+
 0.2.5
 
 - Track the power command status.
