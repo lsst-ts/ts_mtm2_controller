@@ -159,18 +159,24 @@ impl PowerSystemProcess {
                 // Read the module and get the telemetry.
                 let telemetry = self._power_system.get_telemetry_data();
 
+                // Check the power supply error.
+                let digital_output = telemetry.digital_output;
+                let digital_input = telemetry.digital_input;
+                self._power_system
+                    .check_power_supply_error(digital_output, digital_input);
+
                 // Transition the states based on the telemetry data.
                 self._power_system.transition_state(
                     PowerType::Communication,
                     telemetry.power_raw["commVoltage"],
-                    telemetry.digital_output,
-                    telemetry.digital_input,
+                    digital_output,
+                    digital_input,
                 );
                 self._power_system.transition_state(
                     PowerType::Motor,
                     telemetry.power_raw["motorVoltage"],
-                    telemetry.digital_output,
-                    telemetry.digital_input,
+                    digital_output,
+                    digital_input,
                 );
 
                 // Send the telemetry and event data to the model and ignore the
