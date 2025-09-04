@@ -36,12 +36,13 @@ use crate::command::{
         CommandSetClosedLoopControlMode, CommandSetConfig, CommandSetExternalElevation,
         CommandSetInnerLoopControlMode,
     },
-    command_schema::CommandSchema,
+    command_schema::{Command, CommandSchema},
 };
 use crate::config::Config;
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::control::control_loop::ControlLoop;
 use crate::telemetry::telemetry::Telemetry;
+use crate::utility::get_message_name;
 
 pub struct ControlLoopProcess {
     // Control loop
@@ -127,6 +128,9 @@ impl ControlLoopProcess {
     pub fn run(&mut self) {
         info!("Control loop is running.");
 
+        // Telemetry command name
+        let telemetry_command_name = CommandSetExternalElevation.name();
+
         let period = (1000.0 / self.control_loop.config.control_frequency) as u64;
         while !self._stop.load(Ordering::Relaxed) {
             // Time the control loop
@@ -134,13 +138,45 @@ impl ControlLoopProcess {
 
             // Process the messages.
             let mut command_result = None;
-            if let Ok(message) = self._receiver_to_control_loop.try_recv() {
-                command_result = Some(self._command_schema.execute(
-                    &message,
-                    None,
-                    Some(&mut self.control_loop),
-                    None,
-                ));
+            let mut had_processed_telemetry_command = false;
+            let mut is_telemetry_command = false;
+            loop {
+                match self._receiver_to_control_loop.try_recv() {
+                    Ok(message) => {
+                        command_result = Some(self._command_schema.execute(
+                            &message,
+                            None,
+                            Some(&mut self.control_loop),
+                            None,
+                        ));
+
+                        // If we receive a telemetry command as the first time,
+                        // continue to process the second command.
+                        is_telemetry_command = get_message_name(&message) == telemetry_command_name;
+
+                        if (!had_processed_telemetry_command) && is_telemetry_command {
+                            had_processed_telemetry_command = true;
+                            continue;
+                        }
+
+                        // Break the loop if we processed a non-telemetry
+                        // command or two consecutive telemetry commands.
+                        if (!is_telemetry_command)
+                            || (had_processed_telemetry_command && is_telemetry_command)
+                        {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        // No command to process.
+                        break;
+                    }
+                }
+            }
+
+            // For the telemetry command, no need to send the result.
+            if is_telemetry_command {
+                command_result = None;
             }
 
             // Run the control loop
