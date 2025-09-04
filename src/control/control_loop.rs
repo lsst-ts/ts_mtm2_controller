@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use log::info;
 use nalgebra::SMatrix;
 use std::path::Path;
 
@@ -129,6 +130,7 @@ impl ControlLoop {
     /// * `mode` - The control mode to be set.
     pub fn update_control_mode(&mut self, mode: ClosedLoopControlMode) {
         self._mode = mode;
+        info!("Control mode is set to: {:?}.", mode);
 
         self.event_queue
             .add_event(Event::get_message_closed_loop_control_mode(mode));
