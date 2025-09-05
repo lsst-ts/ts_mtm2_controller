@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::error;
+use log::{error, info, warn};
 
 use crate::enums::{
     BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
@@ -139,10 +139,7 @@ impl SubPowerSystem {
     /// # Returns
     /// True if the power is on. Otherwise, false.
     pub fn is_power_on(&self) -> bool {
-        self.is_power_on
-            && (self.state == PowerSystemState::PoweringOn
-                || self.state == PowerSystemState::PoweredOn
-                || self.state == PowerSystemState::ResettingBreakers)
+        self.is_power_on && (self.state == PowerSystemState::PoweredOn)
     }
 
     /// Power on the system.
@@ -152,7 +149,7 @@ impl SubPowerSystem {
     /// applied.
     pub fn power_on(&mut self) -> Vec<(DigitalOutput, DigitalOutputStatus)> {
         self.is_power_on = true;
-        self.state = PowerSystemState::PoweringOn;
+        self.update_and_log_state(PowerSystemState::PoweringOn);
 
         self._count_voltage = self._max_count_power_on;
 
@@ -181,6 +178,19 @@ impl SubPowerSystem {
         }
     }
 
+    /// Update and log the state.
+    ///
+    /// # Arguments
+    /// * `state` - The new state to set.
+    fn update_and_log_state(&mut self, state: PowerSystemState) {
+        self.state = state;
+
+        info!(
+            "The new power state is {:?} in the {:?} power system.",
+            self.state, self.power_type
+        );
+    }
+
     /// Power off the system.
     ///
     /// # Returns
@@ -188,7 +198,7 @@ impl SubPowerSystem {
     /// applied.
     pub fn power_off(&mut self) -> Vec<(DigitalOutput, DigitalOutputStatus)> {
         self.is_power_on = false;
-        self.state = PowerSystemState::PoweringOff;
+        self.update_and_log_state(PowerSystemState::PoweringOff);
 
         self._count_voltage = self._max_count_power_off;
         self._count_breaker = self._max_count_breaker_off;
@@ -222,7 +232,7 @@ impl SubPowerSystem {
         &mut self,
         status: DigitalOutputStatus,
     ) -> Vec<(DigitalOutput, DigitalOutputStatus)> {
-        self.state = PowerSystemState::ResettingBreakers;
+        self.update_and_log_state(PowerSystemState::ResettingBreakers);
 
         self._count_breaker = self._max_count_breaker_on;
 
@@ -238,10 +248,16 @@ impl SubPowerSystem {
 
     /// Transition the state of the power system.
     ///
+    /// # Notes
+    /// For the failure conditions, make sure to be consistent with
+    /// `Controller.update_internal_status_power_system_and_check_error()`.
+    ///
     /// # Arguments
     /// * `voltage` - Voltage in volt.
     /// * `digital_output` - Digital output value.
     /// * `digital_input` - Digital input value.
+    /// * `is_interlock_active` - True if the interlock is active. Otherwise,
+    /// false.
     ///
     /// # Returns
     /// Tuple containing three values:
@@ -255,6 +271,7 @@ impl SubPowerSystem {
         voltage: f64,
         digital_output: u8,
         digital_input: u32,
+        is_interlock_active: bool,
     ) -> (bool, bool, Vec<(DigitalOutput, DigitalOutputStatus)>) {
         match self.state {
             PowerSystemState::PoweringOn => {
@@ -267,10 +284,21 @@ impl SubPowerSystem {
                 // system.
                 if self._count_voltage == 0 {
                     if voltage >= self._breaker_operating_voltage {
+                        // Check the interlock status.
+                        if (self.power_type == PowerType::Motor) && is_interlock_active {
+                            error!(
+                                "Powering on failed: interlock is active for power system ({:?}) in power system state: {:?}.",
+                                self.power_type,
+                                PowerSystemState::PoweringOn
+                            );
+
+                            return (true, true, self.power_off());
+                        }
+
                         // Check we can transition to the powered on state or
                         // not. Or we might need to reset the breakers instead.
                         if self.are_breakers_enabled(digital_input) {
-                            self.state = PowerSystemState::PoweredOn;
+                            self.update_and_log_state(PowerSystemState::PoweredOn);
 
                             return (true, false, Vec::new());
                         } else {
@@ -315,7 +343,7 @@ impl SubPowerSystem {
                         );
                     }
 
-                    self.state = PowerSystemState::PoweredOff;
+                    self.update_and_log_state(PowerSystemState::PoweredOff);
 
                     return (true, has_error, Vec::new());
                 }
@@ -363,19 +391,31 @@ impl SubPowerSystem {
                         }
                     }
 
-                    if self.are_breakers_enabled(digital_input) {
-                        self.state = PowerSystemState::PoweredOn;
-
-                        return (true, false, Vec::new());
-                    } else {
+                    // Check the interlock status.
+                    if (self.power_type == PowerType::Motor) && is_interlock_active {
                         error!(
-                            "Resetting breakers failed for power system ({:?}) in power system state: {:?}.",
+                            "Resetting breakers: interlock is active for power system ({:?}) in power system state: {:?}.",
                             self.power_type,
                             PowerSystemState::ResettingBreakers
                         );
 
                         return (true, true, self.power_off());
                     }
+
+                    // Transition the power state anyway. The ErrorHandler will
+                    // check the breaker status if not all the breakers are
+                    // enabled.
+                    self.update_and_log_state(PowerSystemState::PoweredOn);
+
+                    if !self.are_breakers_enabled(digital_input) {
+                        warn!(
+                            "Resetting breakers failed for power system ({:?}) in power system state: {:?}.",
+                            self.power_type,
+                            PowerSystemState::ResettingBreakers
+                        );
+                    }
+
+                    return (true, false, Vec::new());
                 }
             }
 
@@ -418,7 +458,7 @@ mod tests {
     use crate::power::config_power::ConfigPower;
     use crate::utility::read_file_stiffness;
 
-    fn create_sub_power_system_and_plant() -> (SubPowerSystem, MockPlant) {
+    fn create_sub_power_system_and_plant(power_type: PowerType) -> (SubPowerSystem, MockPlant) {
         let config_power = ConfigPower::new();
 
         let filepath = Path::new("config/stiff_matrix_m2.yaml");
@@ -426,14 +466,14 @@ mod tests {
 
         (
             SubPowerSystem::new(
-                PowerType::Communication,
+                power_type,
                 config_power.output_voltage_off_level,
                 config_power.breaker_operating_voltage,
                 config_power.loop_time as i32,
-                config_power.get_time_power_on(PowerType::Communication),
-                config_power.get_time_power_off(PowerType::Communication),
-                config_power.get_time_breaker_on(PowerType::Communication),
-                config_power.get_time_breaker_off(PowerType::Communication),
+                config_power.get_time_power_on(power_type),
+                config_power.get_time_power_off(power_type),
+                config_power.get_time_breaker_on(power_type),
+                config_power.get_time_breaker_off(power_type),
             ),
             MockPlant::new(&stiffness, 0.0),
         )
@@ -442,6 +482,7 @@ mod tests {
     fn transition_state_until_change(
         sub_power_system: &mut SubPowerSystem,
         plant: &mut MockPlant,
+        is_interlock_active: bool,
     ) -> (f64, f64, bool) {
         let mut voltage;
         let mut current;
@@ -449,12 +490,17 @@ mod tests {
         let has_error_in_transition;
 
         loop {
-            (voltage, current) = plant.power_system_communication.get_voltage_and_current();
+            if sub_power_system.power_type == PowerType::Motor {
+                (voltage, current) = plant.power_system_motor.get_voltage_and_current();
+            } else {
+                (voltage, current) = plant.power_system_communication.get_voltage_and_current();
+            }
 
             let (is_state_changed, has_error, actions) = sub_power_system.transition_state(
                 voltage,
                 plant.digital_output,
                 plant.get_digital_input(),
+                is_interlock_active,
             );
             actions.iter().for_each(|(digital_output, status)| {
                 plant.switch_digital_output(*digital_output, *status);
@@ -483,24 +529,25 @@ mod tests {
 
     #[test]
     fn test_is_power_on() {
-        let mut sub_power_system = create_sub_power_system_and_plant().0;
+        let mut sub_power_system = create_sub_power_system_and_plant(PowerType::Communication).0;
 
         assert!(!sub_power_system.is_power_on());
 
         sub_power_system.is_power_on = true;
         sub_power_system.state = PowerSystemState::PoweringOn;
-        assert!(sub_power_system.is_power_on());
+        assert!(!sub_power_system.is_power_on());
 
         sub_power_system.state = PowerSystemState::PoweredOn;
         assert!(sub_power_system.is_power_on());
 
         sub_power_system.state = PowerSystemState::ResettingBreakers;
-        assert!(sub_power_system.is_power_on());
+        assert!(!sub_power_system.is_power_on());
     }
 
     #[test]
     fn test_power_on() {
-        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant();
+        let (mut sub_power_system, mut plant) =
+            create_sub_power_system_and_plant(PowerType::Communication);
 
         let actions = sub_power_system.power_on();
         actions.iter().for_each(|(digital_output, status)| {
@@ -519,7 +566,8 @@ mod tests {
 
     #[test]
     fn test_power_off() {
-        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant();
+        let (mut sub_power_system, mut plant) =
+            create_sub_power_system_and_plant(PowerType::Communication);
         let actions = sub_power_system.power_on();
         actions.iter().for_each(|(digital_output, status)| {
             plant.switch_digital_output(*digital_output, *status);
@@ -547,7 +595,8 @@ mod tests {
 
     #[test]
     fn test_reset_breakers() {
-        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant();
+        let (mut sub_power_system, mut plant) =
+            create_sub_power_system_and_plant(PowerType::Communication);
         plant.switch_digital_output(
             DigitalOutput::ResetCommunicationBreakers,
             DigitalOutputStatus::BinaryHighLevel,
@@ -570,8 +619,9 @@ mod tests {
     }
 
     #[test]
-    fn test_transition_state_power_on() {
-        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant();
+    fn test_transition_state_power_on_success() {
+        let (mut sub_power_system, mut plant) =
+            create_sub_power_system_and_plant(PowerType::Communication);
         plant.switch_digital_output(
             DigitalOutput::ResetCommunicationBreakers,
             DigitalOutputStatus::BinaryHighLevel,
@@ -583,7 +633,7 @@ mod tests {
         });
 
         let (voltage, current, has_error) =
-            transition_state_until_change(&mut sub_power_system, &mut plant);
+            transition_state_until_change(&mut sub_power_system, &mut plant, false);
 
         assert_eq!(sub_power_system.state, PowerSystemState::ResettingBreakers);
         assert!(voltage >= sub_power_system._breaker_operating_voltage);
@@ -591,7 +641,7 @@ mod tests {
         assert!(!has_error);
 
         let (voltage, current, has_error) =
-            transition_state_until_change(&mut sub_power_system, &mut plant);
+            transition_state_until_change(&mut sub_power_system, &mut plant, false);
 
         assert_eq!(sub_power_system.state, PowerSystemState::PoweredOn);
         assert!(voltage >= sub_power_system._breaker_operating_voltage);
@@ -600,8 +650,39 @@ mod tests {
     }
 
     #[test]
+    fn test_transition_state_power_on_fail() {
+        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant(PowerType::Motor);
+        plant.switch_digital_output(
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutputStatus::BinaryHighLevel,
+        );
+
+        let actions = sub_power_system.power_on();
+        actions.iter().for_each(|(digital_output, status)| {
+            plant.switch_digital_output(*digital_output, *status);
+        });
+
+        let (voltage, current, has_error) =
+            transition_state_until_change(&mut sub_power_system, &mut plant, true);
+
+        assert_eq!(sub_power_system.state, PowerSystemState::PoweringOff);
+        assert!(voltage >= sub_power_system._breaker_operating_voltage);
+        assert_eq!(current, 0.0);
+        assert!(has_error);
+
+        let (voltage, current, has_error) =
+            transition_state_until_change(&mut sub_power_system, &mut plant, true);
+
+        assert_eq!(sub_power_system.state, PowerSystemState::PoweredOff);
+        assert_eq!(voltage, 0.0);
+        assert_eq!(current, 0.0);
+        assert!(!has_error);
+    }
+
+    #[test]
     fn test_transition_state_power_off() {
-        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant();
+        let (mut sub_power_system, mut plant) =
+            create_sub_power_system_and_plant(PowerType::Communication);
         plant.switch_digital_output(
             DigitalOutput::ResetCommunicationBreakers,
             DigitalOutputStatus::BinaryHighLevel,
@@ -612,8 +693,8 @@ mod tests {
         actions.iter().for_each(|(digital_output, status)| {
             plant.switch_digital_output(*digital_output, *status);
         });
-        transition_state_until_change(&mut sub_power_system, &mut plant);
-        transition_state_until_change(&mut sub_power_system, &mut plant);
+        transition_state_until_change(&mut sub_power_system, &mut plant, false);
+        transition_state_until_change(&mut sub_power_system, &mut plant, false);
 
         assert_eq!(sub_power_system.state, PowerSystemState::PoweredOn);
 
@@ -624,7 +705,7 @@ mod tests {
         });
 
         let (voltage, current, has_error) =
-            transition_state_until_change(&mut sub_power_system, &mut plant);
+            transition_state_until_change(&mut sub_power_system, &mut plant, false);
 
         assert_eq!(sub_power_system.state, PowerSystemState::PoweredOff);
         assert!(voltage < sub_power_system._output_voltage_off_level);
@@ -644,6 +725,7 @@ mod tests {
             sub_power_system._output_voltage_off_level + 1.0,
             plant.digital_output,
             plant.get_digital_input(),
+            false,
         );
         actions.iter().for_each(|(digital_output, status)| {
             plant.switch_digital_output(*digital_output, *status);
@@ -655,8 +737,9 @@ mod tests {
     }
 
     #[test]
-    fn test_test_transition_state_resetting_breakers_fail() {
-        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant();
+    fn test_transition_state_resetting_breakers_fail_voltage() {
+        let (mut sub_power_system, mut plant) =
+            create_sub_power_system_and_plant(PowerType::Communication);
 
         let actions = sub_power_system.reset_breakers(DigitalOutputStatus::BinaryLowLevel);
         actions.iter().for_each(|(digital_output, status)| {
@@ -668,20 +751,41 @@ mod tests {
             sub_power_system._breaker_operating_voltage - 1.0,
             plant.digital_output,
             plant.get_digital_input(),
+            false,
         );
 
         assert!(state_is_changed);
         assert!(has_error);
         assert_eq!(sub_power_system.state, PowerSystemState::PoweringOff);
 
-        transition_state_until_change(&mut sub_power_system, &mut plant);
+        transition_state_until_change(&mut sub_power_system, &mut plant, false);
+
+        assert_eq!(sub_power_system.state, PowerSystemState::PoweredOff);
+    }
+
+    #[test]
+    fn test_transition_state_resetting_breakers_fail_interlock() {
+        let (mut sub_power_system, mut plant) = create_sub_power_system_and_plant(PowerType::Motor);
+
+        let actions = sub_power_system.reset_breakers(DigitalOutputStatus::BinaryLowLevel);
+        actions.iter().for_each(|(digital_output, status)| {
+            plant.switch_digital_output(*digital_output, *status);
+        });
+
+        // Should fail because the interlock is active.
+        let has_error = transition_state_until_change(&mut sub_power_system, &mut plant, true).2;
+
+        assert!(has_error);
+        assert_eq!(sub_power_system.state, PowerSystemState::PoweringOff);
+
+        transition_state_until_change(&mut sub_power_system, &mut plant, false);
 
         assert_eq!(sub_power_system.state, PowerSystemState::PoweredOff);
     }
 
     #[test]
     fn test_are_breakers_enabled() {
-        let sub_power_system = create_sub_power_system_and_plant().0;
+        let sub_power_system = create_sub_power_system_and_plant(PowerType::Communication).0;
 
         assert!(!sub_power_system.are_breakers_enabled(TEST_DIGITAL_INPUT_NO_POWER));
         assert!(sub_power_system.are_breakers_enabled(TEST_DIGITAL_INPUT_POWER_COMM));

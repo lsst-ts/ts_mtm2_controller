@@ -235,11 +235,20 @@ impl TcpServer {
         self.flush();
     }
 
-    /// Write the JSON items.
+    /// Write the JSON items. This is used for the telemetry. If there is still
+    /// data in the buffer, we don't want to write the new data but to flush the
+    /// existing data instead.
     ///
     /// # Arguments
     /// * `items` - A vector of Value instances that holds the JSON data.
     pub fn write_jsons(&mut self, items: &Vec<Value>) {
+        if let Some(stream) = self._writer.as_mut() {
+            if stream.buffer().len() != 0 {
+                self.flush();
+                return;
+            }
+        }
+
         for item in items {
             self.write_string(item.to_string());
         }
@@ -264,10 +273,20 @@ impl TcpServer {
     /// Flush the stream.
     fn flush(&mut self) {
         if let Some(stream) = self._writer.as_mut() {
-            if let Err(_) = stream.flush() {
-                // The client is disconnected.
-                debug!("{} fails to flush the stream. Diconnecting...", self._name);
-                self.close_stream();
+            if let Err(error) = stream.flush() {
+                match error.kind() {
+                    std::io::ErrorKind::WouldBlock => {
+                        // The operation would block, we can try again later.
+                    }
+                    _ => {
+                        // The client is disconnected.
+                        debug!(
+                            "{} fails to flush the stream: {}. Diconnecting...",
+                            self._name, error
+                        );
+                        self.close_stream();
+                    }
+                }
             }
         }
     }

@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::error;
+use log::{error, info};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::fs::File;
@@ -107,6 +107,8 @@ impl Controller {
                 commander == Commander::CSC,
             ));
 
+        info!("Commander set to {:?}.", commander);
+
         Some(())
     }
 
@@ -149,6 +151,8 @@ impl Controller {
         // Update the configuration.
         let mut config = self.error_handler.config_control_loop.clone();
         config.hardpoints = hardpoints.clone();
+
+        info!("Set the hardpoints to {:?}.", hardpoints);
 
         self.send_config_to_control_loop_and_update(config)
     }
@@ -255,6 +259,8 @@ impl Controller {
         if enable && (self.status.mode == ClosedLoopControlMode::ClosedLoop) {
             return None;
         }
+
+        info!("Enable the open-loop maximum limit: {}.", enable);
 
         // Update the configuration.
         let mut config = self.error_handler.config_control_loop.clone();
@@ -477,6 +483,8 @@ impl Controller {
         if self.status.summary_faults_status != summary_faults_status {
             self.status.summary_faults_status = summary_faults_status;
 
+            info!("Summary faults status is {:#X}.", summary_faults_status);
+
             return Some(());
         }
 
@@ -493,6 +501,8 @@ impl Controller {
     pub fn update_internal_status_interlock(&mut self, is_interlock_on: bool) -> Option<()> {
         if self.status.is_interlock_on != is_interlock_on {
             self.status.is_interlock_on = is_interlock_on;
+
+            info!("Interlock status is {:?}.", is_interlock_on);
 
             return Some(());
         }
@@ -528,26 +538,85 @@ impl Controller {
         if self.status.digital_input != digital_input {
             self.status.digital_input = digital_input;
 
+            info!("Digital input updated to {:#X}.", digital_input);
+
             return Some(());
         }
 
         None
     }
 
-    /// Update the internal status of power system status.
+    /// Update the internal status of power system status and check the possible
+    /// error.
+    ///
+    /// # Notes
+    /// For the failure conditions, make sure to be consistent with
+    /// `SubPowerSystem.transition_state()`.
     ///
     /// # Arguments
     /// * `event` - Event.
     ///
     /// # Returns
     /// Some if the status is updated. Otherwise, None.
-    pub fn update_internal_status_power_system(&mut self, event: &Value) -> Option<()> {
+    pub fn update_internal_status_power_system_and_check_error(
+        &mut self,
+        event: &Value,
+    ) -> Option<()> {
         let power_type = PowerType::from_repr(event["powerType"].as_u64()? as u8)?;
         let status = event["status"].as_bool()?;
         let power_system_state = PowerSystemState::from_repr(event["state"].as_u64()? as u8)?;
 
-        self.status
-            .update_power_system(power_type, status, power_system_state)
+        // Cache the old power system state for the following check of error.
+        let power_system_state_old = self.status.power_system[&power_type].state;
+
+        // Update the internal status of power system and check the possible error.
+        let update_result = self
+            .status
+            .update_power_system(power_type, status, power_system_state);
+
+        if update_result.is_some() {
+            if let Some(telemetry) = &self.last_effective_telemetry.power {
+                let key = match power_type {
+                    PowerType::Motor => "motorVoltage",
+                    PowerType::Communication => "commVoltage",
+                };
+                let voltage = telemetry.power_processed[key];
+
+                if ((power_system_state_old == PowerSystemState::PoweringOn)
+                    || (power_system_state_old == PowerSystemState::ResettingBreakers))
+                    && (power_system_state == PowerSystemState::PoweringOff)
+                {
+                    self.error_handler.add_error(ErrorCode::IgnoreFaultHardware);
+                    self.error_handler
+                        .check_breaker_operation_voltage(power_type, voltage);
+
+                    let config_power = &self.error_handler.config_power;
+                    if (power_type == PowerType::Motor)
+                        && (voltage >= config_power.breaker_operating_voltage)
+                    {
+                        let has_fault_interlock = ErrorHandler::check_power_supply_health(
+                            config_power.is_boost_current_fault_enabled,
+                            telemetry.digital_input,
+                            telemetry.digital_output,
+                        )
+                        .2;
+                        if has_fault_interlock {
+                            self.error_handler
+                                .add_error(ErrorCode::IgnoreFaultInterlock);
+                        }
+                    }
+                }
+
+                if (power_system_state_old == PowerSystemState::PoweringOff)
+                    && (power_system_state == PowerSystemState::PoweredOff)
+                {
+                    self.error_handler
+                        .check_power_relay_open_fault_when_shut_down(power_type, voltage);
+                }
+            }
+        }
+
+        update_result
     }
 
     /// Update the internal status of closed-loop control mode.
@@ -731,7 +800,11 @@ mod tests {
     use tempfile::tempfile;
 
     use crate::constants::BOUND_SYNC_CHANNEL;
+    use crate::mock::mock_constants::{
+        TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+    };
     use crate::telemetry::telemetry_control_loop::TelemetryControlLoop;
+    use crate::telemetry::telemetry_power::TelemetryPower;
 
     fn create_controller() -> (Controller, Receiver<Value>, Receiver<Value>) {
         let (sender_to_power_system, receiver_to_power_system) = sync_channel(BOUND_SYNC_CHANNEL);
@@ -1108,22 +1181,47 @@ mod tests {
     }
 
     #[test]
-    fn test_update_internal_status_power_system() {
+    fn test_update_internal_status_power_system_and_check_error() {
         let mut controller = create_controller().0;
 
-        let event = json!({
-            "powerType": 2,
+        let mut telemetry = TelemetryPower::new();
+        telemetry
+            .power_processed
+            .insert(String::from("motorVoltage"), 24.0);
+        telemetry.digital_input = TEST_DIGITAL_INPUT_NO_POWER;
+        telemetry.digital_output = TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR;
+
+        controller.last_effective_telemetry.power = Some(telemetry);
+
+        // Transition to the powering on state
+        let event_on = json!({
+            "powerType": 1,
             "status": true,
-            "state": 2,
+            "state": 3,
         });
 
         assert!(controller
-            .update_internal_status_power_system(&event)
+            .update_internal_status_power_system_and_check_error(&event_on)
             .is_some());
 
-        let power_system = &controller.status.power_system[&PowerType::Communication];
+        let power_system = &controller.status.power_system[&PowerType::Motor];
         assert!(power_system.is_power_on);
-        assert_eq!(power_system.state, PowerSystemState::PoweredOff);
+        assert_eq!(power_system.state, PowerSystemState::PoweringOn);
+
+        // Transition to the powering off state
+        let event_off = json!({
+            "powerType": 1,
+            "status": false,
+            "state": 6,
+        });
+
+        assert!(controller
+            .update_internal_status_power_system_and_check_error(&event_off)
+            .is_some());
+
+        let error_handler = &controller.error_handler;
+        assert!(error_handler.has_error(ErrorCode::IgnoreFaultHardware));
+        assert!(error_handler.has_error(ErrorCode::IgnoreFaultInterlock));
     }
 
     #[test]

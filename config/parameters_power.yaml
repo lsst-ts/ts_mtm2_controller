@@ -35,6 +35,9 @@ excessive_current_motor: 20.0
 current_gain_motor: 5.0
 current_offset_motor: 0.0
 
+# Boost current fault is enabled or not.
+is_boost_current_fault_enabled: false
+
 # Time to wait for the telemetry to stabilize in millisecond. It is only
 # meaningful to track the voltage and current change once the telemetry is
 # stable.

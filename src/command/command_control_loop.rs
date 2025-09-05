@@ -325,8 +325,8 @@ impl Command for CommandSetExternalElevation {
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
     ) -> Option<()> {
-        if message["compName"].as_str()? != "mtmount" {
-            error!("The compName is not mtmount.");
+        if message["compName"].as_str()?.to_lowercase() != "mtmount" {
+            error!("The lowercase of compName is not mtmount.");
 
             return None;
         }
@@ -602,6 +602,20 @@ mod tests {
         assert_eq!(
             control_loop.telemetry.inclinometer.get("external"),
             Some(&1.0)
+        );
+
+        assert!(command
+            .execute(
+                &json!({"compName": "MTMount", "actualPosition": 2.0}),
+                None,
+                Some(&mut control_loop),
+                None
+            )
+            .is_some());
+
+        assert_eq!(
+            control_loop.telemetry.inclinometer.get("external"),
+            Some(&2.0)
         );
     }
 
