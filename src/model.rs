@@ -53,7 +53,7 @@ use crate::control::control_loop_process::ControlLoopProcess;
 use crate::controller::Controller;
 use crate::enums::{
     BitEnum, ClosedLoopControlMode, CommandStatus, Commander, DigitalInput, DigitalOutput,
-    DigitalOutputStatus, PowerType,
+    DigitalOutputStatus, ErrorCode, PowerType,
 };
 use crate::interface::command_telemetry_server::CommandTelemetryServer;
 use crate::mock::mock_plant::MockPlant;
@@ -698,6 +698,15 @@ impl Model {
                         let _ = sender_to_tcp.try_send(Self::get_welcome_messages(controller));
                     }
                 }
+
+                // Lost all the connections, transition to the safe mode and set
+                // the related error code.
+                if !controller.status.has_connection() {
+                    info!("Lost all the connections. Transition to the safe mode.");
+
+                    controller.error_handler.add_error(ErrorCode::FaultCrioComm);
+                    controller.transition_to_safe_mode();
+                }
             }
         }
 
@@ -761,9 +770,12 @@ impl Model {
             .check_condition_control_loop(telemetry, is_closed_loop);
 
         // Put the control loop in the telemetry-only mode if there
-        // is a fault.
+        // is a fault and there is still the connection. Note that if there is
+        // no connection, the system will be put in the safe mode (idle)
+        // instead.
         let mode = self._controller.status.mode;
         if self._controller.error_handler.has_fault()
+            && self._controller.status.has_connection()
             && ((mode == ClosedLoopControlMode::OpenLoop)
                 || (mode == ClosedLoopControlMode::ClosedLoop))
         {
@@ -995,7 +1007,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::constants::{LOCAL_HOST, NUM_INNER_LOOP_CONTROLLER, TERMINATOR};
-    use crate::enums::PowerSystemState;
+    use crate::enums::{InnerLoopControlMode, PowerSystemState};
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
         TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_NO_POWER,
@@ -1037,15 +1049,26 @@ mod tests {
         }
     }
 
-    fn consume_welcome_messages(model: &Model, client: &mut TcpStream) -> usize {
+    fn consume_welcome_messages(model: &Model, client: &mut TcpStream) -> Vec<Value> {
         let welcome_messages = Model::get_welcome_messages(&model._controller);
         let num_welcome_messages = welcome_messages.len();
 
+        let mut messages = Vec::new();
         for _idx in 0..num_welcome_messages {
-            let _ = client_read_json(client, TERMINATOR);
+            messages.push(client_read_json(client, TERMINATOR));
         }
 
-        num_welcome_messages
+        messages
+    }
+
+    fn get_specific_message(messages: &Vec<Value>, name: &str) -> Option<Value> {
+        for message in messages {
+            if get_message_name(message) == name {
+                return Some(message.clone());
+            }
+        }
+
+        None
     }
 
     fn wait_for_command_result_and_reset(model: &mut Model) {
@@ -1060,6 +1083,27 @@ mod tests {
                 model._controller.last_effective_telemetry.command_result = None;
                 break;
             }
+        }
+    }
+
+    fn run_until_powers_off(model: &mut Model) {
+        loop {
+            let controller = &model._controller;
+
+            let is_power_off_communication =
+                (!controller.status.power_system[&PowerType::Communication].is_power_on())
+                    && (controller.status.power_system[&PowerType::Communication].state
+                        == PowerSystemState::PoweredOff);
+            let is_power_off_motor = (!controller.status.power_system[&PowerType::Motor]
+                .is_power_on())
+                && (controller.status.power_system[&PowerType::Motor].state
+                    == PowerSystemState::PoweredOff);
+
+            if is_power_off_communication && is_power_off_motor {
+                break;
+            }
+
+            model.step();
         }
     }
 
@@ -1442,6 +1486,91 @@ mod tests {
     }
 
     #[test]
+    fn test_run_processes_and_transition_to_safe_mode() {
+        let mut model = create_model();
+        model._stop_publish_telemetry = true;
+
+        model.run_processes();
+
+        // Create the clients to connect the servers
+        let (mut client_command_gui, client_telemetry_gui) =
+            create_tcp_clients(model._ports["gui_command"], model._ports["gui_telemetry"]);
+
+        sleep(Duration::from_millis(MAX_TIMEOUT));
+
+        wait_for_connection(&mut model);
+        consume_welcome_messages(&model, &mut client_command_gui);
+
+        // Power on the communication and motor systems
+        client_write_and_sleep(
+            &mut client_command_gui,
+            "{\"id\":\"cmd_power\",\"sequence_id\":1,\"status\":true,\"powerType\":2}\r\n",
+            SLEEP_TIME,
+        );
+        wait_for_command_result_and_reset(&mut model);
+
+        client_write_and_sleep(
+            &mut client_command_gui,
+            "{\"id\":\"cmd_power\",\"sequence_id\":2,\"status\":true,\"powerType\":1}\r\n",
+            SLEEP_TIME,
+        );
+        wait_for_command_result_and_reset(&mut model);
+
+        // Check the communication and motor power system status
+        assert!(model._controller.status.power_system[&PowerType::Communication].is_power_on());
+        assert!(model._controller.status.power_system[&PowerType::Motor].is_power_on());
+
+        // Enable the ILCs (skip the state transtions)
+        let addresses: Vec<usize> = (0..NUM_INNER_LOOP_CONTROLLER).collect();
+
+        client_write_and_sleep(
+            &mut client_command_gui,
+            &format!(
+                "{{\"id\":\"cmd_setInnerLoopControlMode\",\"sequence_id\":3,\"mode\":3,\"addresses\":{:?}}}\r\n", addresses
+            ),
+            SLEEP_TIME,
+        );
+        wait_for_command_result_and_reset(&mut model);
+
+        let bypassed_ilcs = &model
+            ._controller
+            .error_handler
+            .config_control_loop
+            .bypassed_actuator_ilcs;
+        assert!(model._controller.status.are_ilc_enabled(bypassed_ilcs));
+
+        // Set the open-loop mode (skip the telemetry mode)
+        client_write_and_sleep(
+            &mut client_command_gui,
+            "{\"id\":\"cmd_setClosedLoopControlMode\",\"sequence_id\":4,\"mode\":3}\r\n",
+            SLEEP_TIME,
+        );
+        wait_for_command_result_and_reset(&mut model);
+
+        assert_eq!(
+            model._controller.status.mode,
+            ClosedLoopControlMode::OpenLoop
+        );
+
+        // Client disconnects the servers
+        let _ = client_command_gui.shutdown(Shutdown::Both);
+        let _ = client_telemetry_gui.shutdown(Shutdown::Both);
+
+        // Wait for the power systems to be powered off
+        run_until_powers_off(&mut model);
+
+        // Check the system status
+        let status = &model._controller.status;
+
+        for idx in 0..NUM_INNER_LOOP_CONTROLLER {
+            assert_eq!(status.ilc_modes[idx], InnerLoopControlMode::Unknown);
+        }
+        assert_eq!(status.mode, ClosedLoopControlMode::Idle);
+
+        model.stop();
+    }
+
+    #[test]
     fn test_run_processes_and_update_elevation_angle() {
         let mut model = create_model();
         model._controller.status.update_power_system(
@@ -1602,7 +1731,7 @@ mod tests {
 
         model.run_processes();
 
-        for _ in 0..2 {
+        for idx in 0..2 {
             // Create the clients to connect the servers
             let (mut client_command, _client_telemetry) =
                 create_tcp_clients(model._ports["gui_command"], model._ports["gui_telemetry"]);
@@ -1611,7 +1740,18 @@ mod tests {
 
             wait_for_connection(&mut model);
 
-            assert_eq!(consume_welcome_messages(&model, &mut client_command), 102);
+            let messages = consume_welcome_messages(&model, &mut client_command);
+            assert_eq!(messages.len(), 102);
+
+            // Check the summary faults status message
+            let message = get_specific_message(&messages, "summaryFaultsStatus");
+
+            let summary_faults_status = message.unwrap()["status"].as_u64().unwrap();
+            if idx == 0 {
+                assert_eq!(summary_faults_status, 0);
+            } else {
+                assert_eq!(summary_faults_status, ErrorCode::FaultCrioComm.bit_value());
+            }
 
             // Client disconnects the servers
             let _ = client_command.shutdown(Shutdown::Both);
