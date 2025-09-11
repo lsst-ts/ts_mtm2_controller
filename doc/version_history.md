@@ -1,5 +1,13 @@
 # Version Histroy
 
+0.2.7
+
+- Update the packages.
+- Update the **PowerSystem** to track the communication and motor power systems individually.
+- Update the **ControlLoopProcess** that it does not report the command result for the internal command.
+- Remove the **ConnectionStatus**.
+- Support the safe mode when the controller loses the connection with clients.
+
 0.2.6
 
 - Fix the digital input of interlock bit in **MockPlant**.
