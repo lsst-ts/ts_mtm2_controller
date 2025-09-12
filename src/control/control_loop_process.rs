@@ -42,7 +42,7 @@ use crate::config::Config;
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::control::control_loop::ControlLoop;
 use crate::telemetry::telemetry::Telemetry;
-use crate::utility::get_message_name;
+use crate::utility::{get_message_name, get_message_sequence_id};
 
 pub struct ControlLoopProcess {
     // Control loop
@@ -140,6 +140,7 @@ impl ControlLoopProcess {
             let mut command_result = None;
             let mut had_processed_telemetry_command = false;
             let mut is_telemetry_command = false;
+            let mut is_internal_command = false;
             loop {
                 match self._receiver_to_control_loop.try_recv() {
                     Ok(message) => {
@@ -149,6 +150,8 @@ impl ControlLoopProcess {
                             Some(&mut self.control_loop),
                             None,
                         ));
+
+                        is_internal_command = get_message_sequence_id(&message) == -1;
 
                         // If we receive a telemetry command as the first time,
                         // continue to process the second command.
@@ -174,8 +177,8 @@ impl ControlLoopProcess {
                 }
             }
 
-            // For the telemetry command, no need to send the result.
-            if is_telemetry_command {
+            // For the telemetry/internal command, no need to send the result.
+            if is_telemetry_command || is_internal_command {
                 command_result = None;
             }
 
