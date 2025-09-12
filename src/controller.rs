@@ -29,17 +29,20 @@ use std::sync::mpsc::SyncSender;
 
 use crate::command::{
     command_control_loop::{
+        CommandMoveActuators, CommandResetActuatorSteps, CommandResetForceOffsets,
         CommandSetClosedLoopControlMode, CommandSetConfig, CommandSetExternalElevation,
     },
-    command_power_system::{CommandSwitchDigitalOutput, CommandToggleBitClosedLoopControl},
+    command_power_system::{
+        CommandPower, CommandSwitchDigitalOutput, CommandToggleBitClosedLoopControl,
+    },
     command_schema::Command,
 };
 use crate::config::Config;
 use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_HARDPOINTS, NUM_HARDPOINTS_AXIAL};
 use crate::control::{lut::Lut, math_tool::check_hardpoints};
 use crate::enums::{
-    BitEnum, ClosedLoopControlMode, Commander, DigitalOutput, DigitalOutputStatus, ErrorCode,
-    InnerLoopControlMode, PowerSystemState, PowerType,
+    BitEnum, ClosedLoopControlMode, CommandActuator, Commander, DigitalOutput, DigitalOutputStatus,
+    ErrorCode, InnerLoopControlMode, PowerSystemState, PowerType,
 };
 use crate::error_handler::ErrorHandler;
 use crate::event_queue::EventQueue;
@@ -789,6 +792,75 @@ impl Controller {
             }
         }
     }
+
+    /// Transition to the safe mode.
+    pub fn transition_to_safe_mode(&mut self) {
+        // Reset the ILC modes
+        self.status.reset_ilc_modes();
+
+        // Commands to the control loop
+        let mut commands_control_loop = Vec::new();
+
+        // Stop the current movement
+        if self.status.mode == ClosedLoopControlMode::OpenLoop {
+            commands_control_loop.push(json!(
+                {
+                    "id": CommandMoveActuators.name(),
+                    "actuatorCommand": CommandActuator::Stop as u8,
+                }
+            ));
+        }
+
+        commands_control_loop.append(&mut vec![
+            json!(
+                {
+                    "id": CommandResetForceOffsets.name(),
+                }
+            ),
+            json!(
+                {
+                    "id": CommandResetActuatorSteps.name(),
+                }
+            ),
+            json!(
+                {
+                    "id": CommandSetClosedLoopControlMode.name(),
+                    "mode": ClosedLoopControlMode::Idle as u8,
+                }
+            ),
+        ]);
+
+        // Send the commands to the control loop
+        if let Some(sender) = self.sender_to_control_loop.as_ref() {
+            for command in commands_control_loop {
+                let _ = sender.try_send(command);
+            }
+        }
+
+        // Power off the motor and communication
+        let commands_power_system = vec![
+            json!(
+                {
+                    "id": CommandPower.name(),
+                    "powerType": PowerType::Motor as u8,
+                    "status": false,
+                }
+            ),
+            json!(
+                {
+                    "id": CommandPower.name(),
+                    "powerType": PowerType::Communication as u8,
+                    "status": false,
+                }
+            ),
+        ];
+
+        if let Some(sender) = self.sender_to_power_system.as_ref() {
+            for command in commands_power_system {
+                let _ = sender.try_send(command);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1333,6 +1405,53 @@ mod tests {
                 .config_control_loop
                 .disp_hardpoint_home,
             vec![0.001, 0.002, 0.003, 0.004, 0.005, 0.006]
+        );
+    }
+
+    #[test]
+    fn test_transition_to_safe_mode() {
+        let (mut controller, receiver_to_power_system, receiver_to_control_loop) =
+            create_controller();
+
+        controller.status.mode = ClosedLoopControlMode::OpenLoop;
+        controller.status.ilc_modes[1] = InnerLoopControlMode::Enabled;
+
+        controller.transition_to_safe_mode();
+
+        // Check the internal status
+        assert_eq!(
+            controller.status.ilc_modes[1],
+            InnerLoopControlMode::Unknown
+        );
+
+        // Check the commands to the control loop
+        let mut commands_control_loop = Vec::new();
+        for _ in 0..4 {
+            commands_control_loop.push(receiver_to_control_loop.recv().unwrap());
+        }
+
+        assert_eq!(
+            commands_control_loop,
+            vec![
+                json!({"id": "cmd_moveActuators", "actuatorCommand": 2}),
+                json!({"id": "cmd_resetForceOffsets"}),
+                json!({"id": "cmd_resetActuatorSteps"}),
+                json!({"id": "cmd_setClosedLoopControlMode", "mode": 1}),
+            ]
+        );
+
+        // Check the commands to the power system
+        let mut commands_power_system = Vec::new();
+        for _ in 0..2 {
+            commands_power_system.push(receiver_to_power_system.recv().unwrap());
+        }
+
+        assert_eq!(
+            commands_power_system,
+            vec![
+                json!({"id": "cmd_power", "powerType": 1, "status": false}),
+                json!({"id": "cmd_power", "powerType": 2, "status": false}),
+            ]
         );
     }
 }
