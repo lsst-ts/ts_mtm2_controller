@@ -19,6 +19,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use log::error;
 use serde_json::Value;
 
@@ -34,8 +36,6 @@ use crate::telemetry::telemetry_power::TelemetryPower;
 use crate::utility::acknowledge_command;
 
 pub struct PowerCommandStatus {
-    // Power type
-    pub power_type: PowerType,
     // Sequence ID of the command, put -1 for the internal command.
     pub sequence_id: i64,
     // The final power status is expected to be on or off
@@ -45,10 +45,8 @@ pub struct PowerCommandStatus {
 pub struct PowerSystem {
     // Configuration of the power system
     pub config: ConfigPower,
-    // Motor power system
-    pub system_motor: SubPowerSystem,
-    // Communication power system
-    pub system_communication: SubPowerSystem,
+    // Sub-power system
+    pub subsystem: HashMap<PowerType, SubPowerSystem>,
     // System is under the closed-loop control or not
     pub is_closed_loop_control: bool,
     // Events to publish
@@ -58,9 +56,9 @@ pub struct PowerSystem {
     // Has the interlock fault or not.
     _has_fault_interlock: bool,
     // Power command status
-    _command_status: Option<PowerCommandStatus>,
+    _command_status: HashMap<PowerType, Option<PowerCommandStatus>>,
     // Power command result
-    _command_result: Option<Value>,
+    _command_result: HashMap<PowerType, Option<Value>>,
     // Plant model
     _plant: Option<MockPlant>,
 }
@@ -76,27 +74,33 @@ impl PowerSystem {
     pub fn new(plant: Option<MockPlant>) -> Self {
         let config_power = ConfigPower::new();
 
+        let subsystem_motor = SubPowerSystem::new(
+            PowerType::Motor,
+            config_power.output_voltage_off_level,
+            config_power.breaker_operating_voltage,
+            config_power.loop_time as i32,
+            config_power.get_time_power_on(PowerType::Motor),
+            config_power.get_time_power_off(PowerType::Motor),
+            config_power.get_time_breaker_on(PowerType::Motor),
+            config_power.get_time_breaker_off(PowerType::Motor),
+        );
+        let subsystem_communication = SubPowerSystem::new(
+            PowerType::Communication,
+            config_power.output_voltage_off_level,
+            config_power.breaker_operating_voltage,
+            config_power.loop_time as i32,
+            config_power.get_time_power_on(PowerType::Communication),
+            config_power.get_time_power_off(PowerType::Communication),
+            config_power.get_time_breaker_on(PowerType::Communication),
+            config_power.get_time_breaker_off(PowerType::Communication),
+        );
+        let subsystem = HashMap::from([
+            (PowerType::Motor, subsystem_motor),
+            (PowerType::Communication, subsystem_communication),
+        ]);
+
         Self {
-            system_motor: SubPowerSystem::new(
-                PowerType::Motor,
-                config_power.output_voltage_off_level,
-                config_power.breaker_operating_voltage,
-                config_power.loop_time as i32,
-                config_power.get_time_power_on(PowerType::Motor),
-                config_power.get_time_power_off(PowerType::Motor),
-                config_power.get_time_breaker_on(PowerType::Motor),
-                config_power.get_time_breaker_off(PowerType::Motor),
-            ),
-            system_communication: SubPowerSystem::new(
-                PowerType::Communication,
-                config_power.output_voltage_off_level,
-                config_power.breaker_operating_voltage,
-                config_power.loop_time as i32,
-                config_power.get_time_power_on(PowerType::Communication),
-                config_power.get_time_power_off(PowerType::Communication),
-                config_power.get_time_breaker_on(PowerType::Communication),
-                config_power.get_time_breaker_off(PowerType::Communication),
-            ),
+            subsystem: subsystem,
 
             config: config_power,
 
@@ -107,8 +111,14 @@ impl PowerSystem {
             _has_fault_power_supply: false,
             _has_fault_interlock: false,
 
-            _command_status: None,
-            _command_result: None,
+            _command_status: HashMap::from([
+                (PowerType::Motor, None),
+                (PowerType::Communication, None),
+            ]),
+            _command_result: HashMap::from([
+                (PowerType::Motor, None),
+                (PowerType::Communication, None),
+            ]),
 
             _plant: plant,
         }
@@ -139,7 +149,7 @@ impl PowerSystem {
 
         // If there is the ongoing power command, reject the new power
         // command.
-        if self._command_status.is_some() {
+        if self._command_status[&power_type].is_some() {
             error!(
                 "Cannot power on the {:?} power system if there is the ongoing power command.",
                 power_type
@@ -154,21 +164,24 @@ impl PowerSystem {
         }
 
         // Track the power command status
-        self._command_status = Some(PowerCommandStatus {
-            power_type: power_type,
-            sequence_id: sequence_id,
-            is_power_on: true,
-        });
+        self._command_status.insert(
+            power_type,
+            Some(PowerCommandStatus {
+                sequence_id: sequence_id,
+                is_power_on: true,
+            }),
+        );
 
         // Power on the system and track the status
         let actions;
         let state;
-        if power_type == PowerType::Motor {
-            actions = self.system_motor.power_on();
-            state = self.system_motor.state;
+        if let Some(sub_power_system) = self.subsystem.get_mut(&power_type) {
+            actions = sub_power_system.power_on();
+            state = sub_power_system.state;
         } else {
-            actions = self.system_communication.power_on();
-            state = self.system_communication.state;
+            error!("Invalid power type: {:?}.", power_type);
+
+            return None;
         }
 
         self.apply_actions_to_hardware(&actions);
@@ -190,27 +203,15 @@ impl PowerSystem {
     /// # Returns
     /// True if the power system is powered on, false otherwise.
     fn is_powered_on(&mut self, power_type: PowerType) -> bool {
-        let power_system = self.get_system_mut(power_type);
-        if power_system.is_power_on && (power_system.state == PowerSystemState::PoweredOn) {
-            return true;
+        if let Some(sub_power_system) = self.subsystem.get_mut(&power_type) {
+            if sub_power_system.is_power_on
+                && (sub_power_system.state == PowerSystemState::PoweredOn)
+            {
+                return true;
+            }
         }
 
         false
-    }
-
-    /// Get the mutable power system.
-    ///
-    /// # Arguments
-    /// * `power_type` - Power type.
-    ///
-    /// # Returns
-    /// Mutable power system.
-    fn get_system_mut(&mut self, power_type: PowerType) -> &mut SubPowerSystem {
-        if power_type == PowerType::Motor {
-            &mut self.system_motor
-        } else {
-            &mut self.system_communication
-        }
     }
 
     /// Apply the actions to the hardware.
@@ -246,12 +247,11 @@ impl PowerSystem {
         sequence_id: i64,
     ) -> Option<PowerSystemState> {
         // If there is the ongoing power-off command, reject the new power-off
-        // command. The same thing if we are powering on/off the another power
-        // system.
-        if let Some(command_status) = &self._command_status {
-            if (!command_status.is_power_on) || (command_status.power_type != power_type) {
+        // command.
+        if let Some(command_status) = &self._command_status[&power_type] {
+            if !command_status.is_power_on {
                 error!(
-                    "Cannot power off the {:?} power system if there is the ongoing power command.",
+                    "Cannot power off the {:?} power system if there is the ongoing power-off command.",
                     power_type
                 );
 
@@ -269,21 +269,24 @@ impl PowerSystem {
 
         // Track the power command status. Note we can power off the system even
         // there is an ongoing power-on command for the same power type.
-        self._command_status = Some(PowerCommandStatus {
-            power_type: power_type,
-            sequence_id: sequence_id,
-            is_power_on: false,
-        });
+        self._command_status.insert(
+            power_type,
+            Some(PowerCommandStatus {
+                sequence_id: sequence_id,
+                is_power_on: false,
+            }),
+        );
 
         // Power off the system
         let actions;
         let state;
-        if power_type == PowerType::Motor {
-            actions = self.system_motor.power_off();
-            state = self.system_motor.state;
+        if let Some(sub_power_system) = self.subsystem.get_mut(&power_type) {
+            actions = sub_power_system.power_off();
+            state = sub_power_system.state;
         } else {
-            actions = self.system_communication.power_off();
-            state = self.system_communication.state;
+            error!("Invalid power type: {:?}.", power_type);
+
+            return None;
         }
 
         self.apply_actions_to_hardware(&actions);
@@ -305,9 +308,12 @@ impl PowerSystem {
     /// # Returns
     /// True if the power system is powered off, false otherwise.
     fn is_powered_off(&mut self, power_type: PowerType) -> bool {
-        let power_system = self.get_system_mut(power_type);
-        if (!power_system.is_power_on) && (power_system.state == PowerSystemState::PoweredOff) {
-            return true;
+        if let Some(sub_power_system) = self.subsystem.get_mut(&power_type) {
+            if (!sub_power_system.is_power_on)
+                && (sub_power_system.state == PowerSystemState::PoweredOff)
+            {
+                return true;
+            }
         }
 
         false
@@ -328,7 +334,7 @@ impl PowerSystem {
     ) -> Option<PowerSystemState> {
         // If there is the ongoing power command, reject the new power
         // command.
-        if self._command_status.is_some() {
+        if self._command_status[&power_type].is_some() {
             error!(
                 "Cannot reset breakers for {:?} power system if there is the ongoing power command.",
                 power_type
@@ -348,25 +354,24 @@ impl PowerSystem {
         }
 
         // Track the power command status
-        self._command_status = Some(PowerCommandStatus {
-            power_type: power_type,
-            sequence_id: sequence_id,
-            is_power_on: true,
-        });
+        self._command_status.insert(
+            power_type,
+            Some(PowerCommandStatus {
+                sequence_id: sequence_id,
+                is_power_on: true,
+            }),
+        );
 
         // Reset the breakers
         let actions;
         let state;
-        if power_type == PowerType::Motor {
-            actions = self
-                .system_motor
-                .reset_breakers(DigitalOutputStatus::BinaryLowLevel);
-            state = self.system_motor.state;
+        if let Some(sub_power_system) = self.subsystem.get_mut(&power_type) {
+            actions = sub_power_system.reset_breakers(DigitalOutputStatus::BinaryLowLevel);
+            state = sub_power_system.state;
         } else {
-            actions = self
-                .system_communication
-                .reset_breakers(DigitalOutputStatus::BinaryLowLevel);
-            state = self.system_communication.state;
+            error!("Invalid power type: {:?}.", power_type);
+
+            return None;
         }
 
         self.apply_actions_to_hardware(&actions);
@@ -418,32 +423,22 @@ impl PowerSystem {
         digital_input: u32,
     ) -> (bool, bool) {
         // Transition the state of the power system
-        let is_state_changed;
-        let has_error;
-        let actions;
+        let mut is_state_changed = false;
+        let mut has_error = false;
+        let mut actions = Vec::new();
 
-        let is_power_on;
-        let state;
-        if power_type == PowerType::Motor {
-            (is_state_changed, has_error, actions) = self.system_motor.transition_state(
+        let mut is_power_on = false;
+        let mut state = PowerSystemState::Init;
+        if let Some(sub_power_system) = self.subsystem.get_mut(&power_type) {
+            (is_state_changed, has_error, actions) = sub_power_system.transition_state(
                 voltage,
                 digital_output,
                 digital_input,
                 self._has_fault_interlock,
             );
 
-            is_power_on = self.system_motor.is_power_on;
-            state = self.system_motor.state;
-        } else {
-            (is_state_changed, has_error, actions) = self.system_communication.transition_state(
-                voltage,
-                digital_output,
-                digital_input,
-                self._has_fault_interlock,
-            );
-
-            is_power_on = self.system_communication.is_power_on;
-            state = self.system_communication.state;
+            is_power_on = sub_power_system.is_power_on;
+            state = sub_power_system.state;
         }
 
         // Apply the actions to the hardware
@@ -462,46 +457,62 @@ impl PowerSystem {
             // final result, update the related command result.
             let mut command_result = Value::Null;
             if (state == PowerSystemState::PoweredOn) || (state == PowerSystemState::PoweredOff) {
-                if let Some(command_final_status) = &mut self._command_status {
-                    if command_final_status.power_type == power_type {
-                        // We only need to check the power command status with
-                        // is_power_on=true here. If this field is false, it
-                        // will always work.
-                        let mut command_status = CommandStatus::Success;
-                        if command_final_status.is_power_on {
-                            command_status = if is_power_on {
-                                CommandStatus::Success
-                            } else {
-                                CommandStatus::Fail
-                            };
-                        }
-
-                        command_result =
-                            acknowledge_command(command_status, command_final_status.sequence_id);
+                if let Some(current_command_status) = &self._command_status[&power_type] {
+                    // We only need to check the power command status with
+                    // is_power_on=true here. If this field is false, it
+                    // will always work.
+                    let mut command_status = CommandStatus::Success;
+                    if current_command_status.is_power_on {
+                        command_status = if is_power_on {
+                            CommandStatus::Success
+                        } else {
+                            CommandStatus::Fail
+                        };
                     }
+
+                    command_result =
+                        acknowledge_command(command_status, current_command_status.sequence_id);
                 }
             }
 
             if !command_result.is_null() {
-                self._command_result = Some(command_result);
-                self._command_status = None;
+                self._command_result
+                    .insert(power_type, Some(command_result));
+                self._command_status.insert(power_type, None);
             }
         }
 
         (is_state_changed, has_error)
     }
 
+    /// Get any command result.
+    ///
+    /// # Returns
+    /// Any command result.
+    pub fn get_any_command_result(&mut self) -> Option<Value> {
+        if self._command_result[&PowerType::Motor].is_some() {
+            return self.get_command_result(PowerType::Motor);
+        } else if self._command_result[&PowerType::Communication].is_some() {
+            return self.get_command_result(PowerType::Communication);
+        }
+
+        None
+    }
+
     /// Get the command result.
+    ///
+    /// # Arguments
+    /// * `power_type` - Power type.
     ///
     /// # Returns
     /// The command result.
-    pub fn get_command_result(&mut self) -> Option<Value> {
-        if self._command_result.is_none() {
+    fn get_command_result(&mut self, power_type: PowerType) -> Option<Value> {
+        if self._command_result[&power_type].is_none() {
             return None;
         }
 
-        let command_result = self._command_result.clone();
-        self._command_result = None;
+        let command_result = self._command_result[&power_type].clone();
+        self._command_result.insert(power_type, None);
 
         command_result
     }
@@ -511,7 +522,7 @@ impl PowerSystem {
     /// # Returns
     /// True if there is a command result, false otherwise.
     pub fn has_command_result(&self) -> bool {
-        self._command_result.is_some()
+        self._command_result.values().any(|result| result.is_some())
     }
 
     /// Get the telemetry data.
@@ -738,21 +749,26 @@ mod tests {
             }
         }
 
-        power_system.get_command_result()
+        power_system.get_command_result(power_type)
     }
 
     #[test]
     fn test_power_on_success() {
         let mut power_system = create_power_system();
-        assert!(!power_system.system_motor.is_power_on);
+        assert!(!power_system.subsystem[&PowerType::Motor].is_power_on);
 
         assert_eq!(
             power_system.power_on(PowerType::Motor, 1),
             Some(PowerSystemState::PoweringOn)
         );
-        assert!(power_system.system_motor.is_power_on);
-        assert!(power_system._command_status.is_some());
-        assert!(power_system._command_status.as_ref().unwrap().is_power_on);
+        assert!(power_system.subsystem[&PowerType::Motor].is_power_on);
+        assert!(power_system._command_status[&PowerType::Motor].is_some());
+        assert!(
+            power_system._command_status[&PowerType::Motor]
+                .as_ref()
+                .unwrap()
+                .is_power_on
+        );
 
         assert_eq!(
             run_until_done(PowerType::Motor, &mut power_system),
@@ -802,21 +818,53 @@ mod tests {
     }
 
     #[test]
+    fn test_get_any_command_result() {
+        let mut power_system = create_power_system();
+
+        // No command result
+        assert_eq!(power_system.get_any_command_result(), None);
+
+        // Has the command results
+        power_system._command_result.insert(
+            PowerType::Motor,
+            Some(acknowledge_command(CommandStatus::Success, 1)),
+        );
+        power_system._command_result.insert(
+            PowerType::Communication,
+            Some(acknowledge_command(CommandStatus::Success, 2)),
+        );
+
+        assert_eq!(
+            power_system.get_any_command_result(),
+            Some(acknowledge_command(CommandStatus::Success, 1))
+        );
+        assert_eq!(
+            power_system.get_any_command_result(),
+            Some(acknowledge_command(CommandStatus::Success, 2))
+        );
+
+        assert_eq!(power_system.get_any_command_result(), None);
+    }
+
+    #[test]
     fn test_get_command_result() {
         let mut power_system = create_power_system();
 
         // No command result
-        assert_eq!(power_system.get_command_result(), None);
+        assert_eq!(power_system.get_any_command_result(), None);
 
         // Has the command result
-        power_system._command_result = Some(acknowledge_command(CommandStatus::Success, 1));
+        power_system._command_result.insert(
+            PowerType::Communication,
+            Some(acknowledge_command(CommandStatus::Success, 1)),
+        );
 
         assert_eq!(
-            power_system.get_command_result(),
+            power_system.get_command_result(PowerType::Communication),
             Some(acknowledge_command(CommandStatus::Success, 1))
         );
 
-        assert!(power_system._command_result.is_none());
+        assert!(power_system._command_result[&PowerType::Communication].is_none());
     }
 
     #[test]
@@ -827,7 +875,10 @@ mod tests {
         assert!(!power_system.has_command_result());
 
         // Has the command result
-        power_system._command_result = Some(acknowledge_command(CommandStatus::Success, 1));
+        power_system._command_result.insert(
+            PowerType::Communication,
+            Some(acknowledge_command(CommandStatus::Success, 1)),
+        );
 
         assert!(power_system.has_command_result());
     }
@@ -839,16 +890,21 @@ mod tests {
         // Motor
         assert!(!power_system.is_powered_on(PowerType::Motor));
 
-        power_system.system_motor.is_power_on = true;
-        power_system.system_motor.state = PowerSystemState::PoweredOn;
+        let sub_power_system_motor = power_system.subsystem.get_mut(&PowerType::Motor).unwrap();
+        sub_power_system_motor.is_power_on = true;
+        sub_power_system_motor.state = PowerSystemState::PoweredOn;
 
         assert!(power_system.is_powered_on(PowerType::Motor));
 
         // Communication
         assert!(!power_system.is_powered_on(PowerType::Communication));
 
-        power_system.system_communication.is_power_on = true;
-        power_system.system_communication.state = PowerSystemState::PoweredOn;
+        let sub_power_system_communication = power_system
+            .subsystem
+            .get_mut(&PowerType::Communication)
+            .unwrap();
+        sub_power_system_communication.is_power_on = true;
+        sub_power_system_communication.state = PowerSystemState::PoweredOn;
 
         assert!(power_system.is_powered_on(PowerType::Communication));
     }
@@ -859,19 +915,20 @@ mod tests {
         power_system.is_closed_loop_control = true;
 
         power_system.power_on(PowerType::Motor, 1);
-        assert!(power_system._command_status.is_some());
-
-        assert!(power_system
-            .power_off(PowerType::Communication, -1)
-            .is_none());
+        assert!(power_system._command_status[&PowerType::Motor].is_some());
 
         assert_eq!(
             power_system.power_off(PowerType::Motor, 2),
             Some(PowerSystemState::PoweringOff)
         );
-        assert!(!power_system.system_motor.is_power_on);
-        assert!(power_system._command_status.is_some());
-        assert!(!power_system._command_status.as_ref().unwrap().is_power_on);
+        assert!(!power_system.subsystem[&PowerType::Motor].is_power_on);
+        assert!(power_system._command_status[&PowerType::Motor].is_some());
+        assert!(
+            !power_system._command_status[&PowerType::Motor]
+                .as_ref()
+                .unwrap()
+                .is_power_on
+        );
         assert!(!power_system.is_closed_loop_control);
 
         assert_eq!(
@@ -908,16 +965,21 @@ mod tests {
         // Motor
         assert!(!power_system.is_powered_off(PowerType::Motor));
 
-        power_system.system_motor.is_power_on = false;
-        power_system.system_motor.state = PowerSystemState::PoweredOff;
+        let sub_power_system_motor = power_system.subsystem.get_mut(&PowerType::Motor).unwrap();
+        sub_power_system_motor.is_power_on = false;
+        sub_power_system_motor.state = PowerSystemState::PoweredOff;
 
         assert!(power_system.is_powered_off(PowerType::Motor));
 
         // Communication
         assert!(!power_system.is_powered_off(PowerType::Communication));
 
-        power_system.system_communication.is_power_on = false;
-        power_system.system_communication.state = PowerSystemState::PoweredOff;
+        let sub_power_system_communication = power_system
+            .subsystem
+            .get_mut(&PowerType::Communication)
+            .unwrap();
+        sub_power_system_communication.is_power_on = false;
+        sub_power_system_communication.state = PowerSystemState::PoweredOff;
 
         assert!(power_system.is_powered_off(PowerType::Communication));
     }
@@ -1202,7 +1264,7 @@ mod tests {
             DigitalOutputStatus::BinaryLowLevel,
         );
 
-        assert!(!power_system.system_communication.is_power_on);
+        assert!(!power_system.subsystem[&PowerType::Communication].is_power_on);
         assert!(
             !power_system
                 ._plant
