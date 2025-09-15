@@ -189,7 +189,7 @@ mod tests {
             )
             .is_some());
 
-        assert!(power_system.system_motor.is_power_on);
+        assert!(power_system.subsystem[&PowerType::Motor].is_power_on);
 
         // Second time to power on should fail
         assert!(command
@@ -213,7 +213,7 @@ mod tests {
             )
             .is_some());
 
-        assert!(!power_system.system_motor.is_power_on);
+        assert!(!power_system.subsystem[&PowerType::Motor].is_power_on);
         assert!(!power_system.is_closed_loop_control);
     }
 
@@ -244,7 +244,7 @@ mod tests {
             .is_some());
 
         assert_eq!(
-            power_system.system_communication.state,
+            power_system.subsystem[&PowerType::Communication].state,
             PowerSystemState::ResettingBreakers,
         );
 
