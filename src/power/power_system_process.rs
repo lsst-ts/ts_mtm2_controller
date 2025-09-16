@@ -190,7 +190,7 @@ impl PowerSystemProcess {
                 if command_result.is_none() && self._power_system.has_command_result() {
                     // Only publish the command result if the command is
                     // external.
-                    let result = self._power_system.get_command_result();
+                    let result = self._power_system.get_any_command_result();
                     let mut is_external_command_result = false;
                     if let Some(message) = &result {
                         is_external_command_result = get_message_sequence_id(message) != -1;
