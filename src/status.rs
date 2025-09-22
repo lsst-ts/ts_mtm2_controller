@@ -21,35 +21,17 @@
 
 use std::collections::{HashMap, HashSet};
 
+use log::info;
+
 use crate::constants::NUM_INNER_LOOP_CONTROLLER;
 use crate::enums::{
     ClosedLoopControlMode, Commander, InnerLoopControlMode, PowerSystemState, PowerType,
 };
 use crate::power::sub_power_system::SubPowerSystem;
 
-struct ConnectionStatus {
-    // Is connected or not.
-    is_connected: bool,
-    // Sent welcome message or not.
-    sent_welcome_message: bool,
-}
-
-impl ConnectionStatus {
-    /// Create a new connection status.
-    ///
-    /// # Returns
-    /// A new connection status.
-    fn new() -> Self {
-        Self {
-            is_connected: false,
-            sent_welcome_message: false,
-        }
-    }
-}
-
 pub struct Status {
-    // Connection status.
-    _connections: HashMap<Commander, ConnectionStatus>,
+    // Connection status. True if connected. Otherwise, false.
+    _connections: HashMap<Commander, bool>,
     // Mirror is in position or not.
     pub is_in_position: bool,
     // Cell temperature is high or not
@@ -80,7 +62,7 @@ impl Status {
     pub fn new() -> Self {
         let mut connections = HashMap::new();
         [Commander::CSC, Commander::GUI].iter().for_each(|key| {
-            connections.insert(*key, ConnectionStatus::new());
+            connections.insert(*key, false);
         });
 
         // We only use the SubPowerSystem to hold the current power status
@@ -127,7 +109,7 @@ impl Status {
     /// # Returns
     /// True if the source was connected. Otherwise, false.
     pub fn is_connected(&self, source: Commander) -> bool {
-        self._connections[&source].is_connected
+        self._connections[&source]
     }
 
     /// Update the connection status.
@@ -136,35 +118,17 @@ impl Status {
     /// `source` - Source of the connection.
     /// `is_connected` - Is connected or not.
     pub fn update_connection_status(&mut self, source: Commander, is_connected: bool) {
-        if let Some(connection_status) = self._connections.get_mut(&source) {
-            connection_status.is_connected = is_connected;
-        }
-
-        if !is_connected {
-            self.update_welcome_message_status(source, false);
+        if let Some(connection) = self._connections.get_mut(&source) {
+            *connection = is_connected;
         }
     }
 
-    /// Update the welcome message status.
-    ///
-    /// # Arguments
-    /// `source` - Source of the connection.
-    /// `is_sent` - Welcome message is sent or not.
-    pub fn update_welcome_message_status(&mut self, source: Commander, is_sent: bool) {
-        if let Some(connection_status) = self._connections.get_mut(&source) {
-            connection_status.sent_welcome_message = is_sent;
-        }
-    }
-
-    /// Has the welcome message been sent?
-    ///
-    /// # Arguments
-    /// `source` - Source of the connection.
+    /// Has any connection?
     ///
     /// # Returns
-    /// True if the welcome message has been sent. Otherwise, false.
-    pub fn has_sent_welcome_message(&self, source: Commander) -> bool {
-        self._connections[&source].sent_welcome_message
+    /// True if any connection exists. Otherwise, false.
+    pub fn has_connection(&self) -> bool {
+        self._connections.values().any(|connection| *connection)
     }
 
     /// Check if all the inner loop controllers (ILCs) are enabled.
@@ -182,6 +146,13 @@ impl Status {
         }
 
         true
+    }
+
+    /// Reset the inner loop controller (ILC) modes to unknown.
+    pub fn reset_ilc_modes(&mut self) {
+        info!("Resetting all ILC modes to unknown.");
+
+        self.ilc_modes = vec![InnerLoopControlMode::Unknown; NUM_INNER_LOOP_CONTROLLER];
     }
 
     /// Update the power system.
@@ -230,35 +201,28 @@ mod tests {
         assert!(status.is_connected(Commander::GUI));
 
         // Disconnected.
-        status.update_welcome_message_status(Commander::CSC, true);
-
         status.update_connection_status(Commander::CSC, false);
 
         assert!(!status.is_connected(Commander::CSC));
-        assert!(!status.has_sent_welcome_message(Commander::CSC));
     }
 
     #[test]
-    fn test_update_welcome_message_status() {
+    fn test_has_connection() {
         let mut status = create_status();
 
-        // Sent.
-        status.update_welcome_message_status(Commander::CSC, true);
+        assert!(!status.has_connection());
 
-        assert!(status.has_sent_welcome_message(Commander::CSC));
+        status.update_connection_status(Commander::CSC, true);
+        assert!(status.has_connection());
 
-        status.update_welcome_message_status(Commander::GUI, true);
+        status.update_connection_status(Commander::GUI, true);
+        assert!(status.has_connection());
 
-        assert!(status.has_sent_welcome_message(Commander::GUI));
+        status.update_connection_status(Commander::CSC, false);
+        assert!(status.has_connection());
 
-        // Not sent.
-        status.update_welcome_message_status(Commander::CSC, false);
-
-        assert!(!status.has_sent_welcome_message(Commander::CSC));
-
-        status.update_welcome_message_status(Commander::GUI, false);
-
-        assert!(!status.has_sent_welcome_message(Commander::GUI));
+        status.update_connection_status(Commander::GUI, false);
+        assert!(!status.has_connection());
     }
 
     #[test]
@@ -279,6 +243,21 @@ mod tests {
 
         assert_eq!(status.are_ilc_enabled(&vec![]), false);
         assert_eq!(status.are_ilc_enabled(&vec![3]), true);
+    }
+
+    #[test]
+    fn test_reset_ilc_modes() {
+        let mut status = create_status();
+
+        for idx in 0..NUM_INNER_LOOP_CONTROLLER {
+            status.ilc_modes[idx] = InnerLoopControlMode::Enabled;
+        }
+
+        status.reset_ilc_modes();
+
+        for mode in status.ilc_modes.iter() {
+            assert_eq!(*mode, InnerLoopControlMode::Unknown);
+        }
     }
 
     #[test]
