@@ -1,5 +1,11 @@
 # Version Histroy
 
+0.2.8
+
+- Add the chrono dependency.
+- Add the generate_log_file_name() in `main.rs`.
+- Add the `m2` init file.
+
 0.2.7
 
 - Update the packages.
