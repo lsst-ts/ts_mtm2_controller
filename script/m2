@@ -1,0 +1,57 @@
+#!/bin/sh
+
+CONTROL_SYSTEM_DIR=/home/admin/github/ts_mtm2_controller
+EXECUTABLE=${CONTROL_SYSTEM_DIR}/target/release/run_m2
+
+# Define functions
+start() {
+  echo "Starting M2 control system. Sleep 30 seconds to allow it to boot up."
+  ulimit -s unlimited
+  nohup ${EXECUTABLE} -s > /dev/null 2>&1 &
+  sleep 30
+}
+
+stop() {
+  echo "Stopping M2 control system..."
+  pkill -x run_m2
+  echo "Sleeping for 10 seconds to allow the M2 control system to stop."
+  sleep 10
+}
+
+restart() {
+  stop
+  sleep 10
+  start
+}
+
+status() {
+  process_id=$(pgrep -x run_m2)
+
+  if [[ ! -z "$process_id" ]]; then
+    echo "M2 control system is running."
+  else
+    echo "M2 control system is not running."
+  fi
+}
+
+# Handle control commands
+case "$1" in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart)
+    restart
+    ;;
+  status)
+    status
+    ;;
+  *)
+    echo "Usage: /etc/init.d/m2 {start|stop|restart|status}"
+    exit 1
+    ;;
+esac
+
+exit 0
