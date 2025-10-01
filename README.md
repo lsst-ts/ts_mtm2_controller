@@ -26,6 +26,20 @@ To get more information, do:
 cargo run -- -h
 ```
 
+## Build the Executable
+
+Do the following to build the executable:
+
+```bash
+cargo build --release
+```
+
+This will generate an optimized executable in the `target/release/` directory, which is suitable for distribution.
+
+## Deployment
+
+The details can follow [deployment](doc/deployment.md).
+
 ## Configuration Files
 
 See the [config/](config) directory for the configuration files:
@@ -43,6 +57,12 @@ See the [config/](config) directory for the configuration files:
 - [disp_ims.yaml](config/disp_ims.yaml) has the information of displacement sensors used in the independent measurement system (IMS).
 - [stiff_matrix_m2.yaml](config/stiff_matrix_m2.yaml) is the stiffness matrix of M2 mirror.
 - [stiff_matrix_surrogate.yaml](config/stiff_matrix_surrogate.yaml) is the stiffness matrix of surrogate.
+
+## Script
+
+Some useful scripts are in `script/` directory.
+
+1. `m2`: Initialization file in the Linux system.
 
 ## Log Data
 
