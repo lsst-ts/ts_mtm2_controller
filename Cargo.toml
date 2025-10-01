@@ -1,5 +1,5 @@
 [package]
-name = "run_m2_controller"
+name = "run_m2"
 version = "0.1.0"
 edition = "2021"
 
