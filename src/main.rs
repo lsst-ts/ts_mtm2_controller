@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use chrono::Local;
 use clap::{value_parser, Arg, ArgAction, Command};
 use log::info;
 use simplelog::{
@@ -28,7 +29,7 @@ use simplelog::{
 use std::fs::File;
 use std::path::Path;
 
-use run_m2_controller::application;
+use run_m2::application;
 
 fn main() {
     // Parse the command line arguments
@@ -77,7 +78,7 @@ fn main() {
     // Initiate the logger
     initiate_logger(
         log_filter,
-        Path::new("log/application.log")
+        Path::new(&format!("log/{}", generate_log_file_name()))
             .to_str()
             .expect("Should be a valid path of the log file."),
     );
@@ -148,6 +149,18 @@ fn initiate_logger(level: LevelFilter, filepath: &str) {
     }
 }
 
+/// Generate a log file name with the current timestamp.
+///
+/// Returns
+/// * A string representing the log file name.
+fn generate_log_file_name() -> String {
+    let now = Local::now();
+    format!(
+        "application_{}.log",
+        now.format("%Y%m%d_%H%M%S").to_string()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +177,15 @@ mod tests {
         assert_eq!(get_log_filter(Some(&6)), LevelFilter::Info);
 
         assert_eq!(get_log_filter(None), LevelFilter::Info);
+    }
+
+    #[test]
+    fn test_generate_log_file_name() {
+        let filename = generate_log_file_name();
+
+        assert!(filename.starts_with("application_"));
+        assert!(filename.ends_with(".log"));
+        // The length of "application_YYYYMMDD_HHMMSS.log" is 31
+        assert_eq!(filename.len(), 31);
     }
 }
