@@ -704,11 +704,9 @@ mod tests {
 
     use crate::enums::{BitEnum, DigitalInput};
     use crate::mock::mock_constants::{
-        TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_NO_POWER,
-        TEST_DIGITAL_OUTPUT_POWER_COMM,
-    };
-    use crate::mock::mock_constants::{
-        TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+        TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
+        TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_NO_POWER,
+        TEST_DIGITAL_OUTPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
     use crate::mock::mock_power_system::MockPowerSystem;
     use crate::utility::read_file_stiffness;
