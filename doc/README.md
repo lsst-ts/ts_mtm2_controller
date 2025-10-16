@@ -15,11 +15,12 @@ This assures the engineer's ability to support and debug the system in night.
 ## Command Factory Pattern
 
 The [command factory pattern](../src/command/command_schema.rs) is applied in the system.
-There are three categories:
+There are four categories:
 
 - [controller](#command-of-the-controller)
 - [power system](#command-of-the-power-system)
 - [control loop](#command-of-the-control-loop)
+- [data acquisition](#command-of-the-data-acquisition)
 
 ### Command of the Controller
 
@@ -72,6 +73,17 @@ The followings are the commands:
 - CommandSetInnerLoopControlMode
 
 See [here](../src/command/command_control_loop.rs) for the details.
+
+### Command of the Data Acquisition
+
+The followings are the commands:
+
+- CommandSwitchDigitalOutput
+- CommandGetInnerLoopControlMode
+- CommandSetInnerLoopControlMode
+- CommandMoveActuatorSteps
+
+See [here](../src/command/command_data_acquisition.rs) for the details.
 
 ## Communication Diagram
 

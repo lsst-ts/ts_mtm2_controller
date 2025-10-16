@@ -1,5 +1,10 @@
 # Version Histroy
 
+0.2.9
+
+- Add the `data_acquisition.rs` and `command_data_acquisition.rs`.
+- Update the `class_diagram.md`.
+
 0.2.8
 
 - Add the chrono dependency.
