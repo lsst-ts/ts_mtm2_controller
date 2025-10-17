@@ -144,6 +144,7 @@ impl PowerSystemProcess {
                         || (command_name == CommandResetBreakers.name());
                     command_result = Some(self._command_schema.execute(
                         &message,
+                        None,
                         Some(&mut self._power_system),
                         None,
                         None,

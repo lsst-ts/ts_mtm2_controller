@@ -27,6 +27,7 @@ use crate::command::command_schema::Command;
 use crate::constants::{DEFAULT_POSITION_FILENAME, NUM_HARDPOINTS, NUM_TEMPERATURE_RING};
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
+use crate::daq::data_acquisition::DataAcquisition;
 use crate::enums::Commander;
 use crate::power::power_system::PowerSystem;
 
@@ -40,6 +41,7 @@ impl Command for CommandClearErrors {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -61,6 +63,7 @@ impl Command for CommandSwitchForceBalanceSystem {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -82,6 +85,7 @@ impl Command for CommandSetTemperatureOffset {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -119,6 +123,7 @@ impl Command for CommandSwitchCommandSource {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -144,6 +149,7 @@ impl Command for CommandEnableOpenLoopMaxLimit {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -165,6 +171,7 @@ impl Command for CommandSaveMirrorPosition {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -189,6 +196,7 @@ impl Command for CommandSetMirrorHome {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -208,6 +216,7 @@ impl Command for CommandLoadConfiguration {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -227,6 +236,7 @@ impl Command for CommandSetControlParameters {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -252,6 +262,7 @@ impl Command for CommandSetEnabledFaultsMask {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -273,6 +284,7 @@ impl Command for CommandSetConfigurationFile {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -294,6 +306,7 @@ impl Command for CommandSetHardpointList {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -329,6 +342,7 @@ impl Command for CommandRunScript {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -372,7 +386,7 @@ mod tests {
         assert_eq!(command.name(), "cmd_clearErrors");
 
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_some());
 
         assert!(!controller.error_handler.has_fault());
@@ -388,7 +402,13 @@ mod tests {
 
         // Should fail because the power system states are not powered on.
         assert!(command
-            .execute(&json!({"status": true}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"status": true}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_none());
 
         // Set the power system states to powered on.
@@ -403,7 +423,13 @@ mod tests {
 
         // Switch on the force balance system.
         assert!(command
-            .execute(&json!({"status": true}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"status": true}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_some());
     }
 
@@ -417,7 +443,13 @@ mod tests {
 
         // Should fail because the number of temperature rings is not correct.
         assert!(command
-            .execute(&json!({"ring": [1.0]}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"ring": [1.0]}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_none());
 
         // Set the correct number of temperature rings.
@@ -425,6 +457,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"ring": ref_temperature}),
+                None,
                 None,
                 None,
                 Some(&mut controller)
@@ -450,6 +483,7 @@ mod tests {
                 &json!({"isRemote": false}),
                 None,
                 None,
+                None,
                 Some(&mut controller)
             )
             .is_some());
@@ -459,6 +493,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"isRemote": true}),
+                None,
                 None,
                 None,
                 Some(&mut controller)
@@ -478,14 +513,26 @@ mod tests {
 
         // Should fail because the control loop is in closed-loop mode.
         assert!(command
-            .execute(&json!({"status": true}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"status": true}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_none());
 
         // Should succeed.
         controller.status.mode = ClosedLoopControlMode::OpenLoop;
 
         assert!(command
-            .execute(&json!({"status": true}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"status": true}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_some());
         assert!(
             controller
@@ -505,13 +552,13 @@ mod tests {
 
         // Should fail because no telemetry is available.
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_none());
 
         // Set the last effective telemetry.
         controller.last_effective_telemetry.control_loop = Some(TelemetryControlLoop::new());
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_some());
 
         // Check if the file is created.
@@ -532,13 +579,13 @@ mod tests {
 
         // Should fail because no telemetry is available.
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_none());
 
         // Set the last effective telemetry.
         controller.last_effective_telemetry.control_loop = Some(TelemetryControlLoop::new());
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_some());
     }
 
@@ -552,7 +599,7 @@ mod tests {
 
         // Should fail because the message is not correct.
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_none());
 
         // Set the correct message.
@@ -564,6 +611,7 @@ mod tests {
                     "maxAngleDifference": 1.0,
                     "enableLutTemperature": true,
                 }),
+                None,
                 None,
                 None,
                 Some(&mut controller)
@@ -606,7 +654,13 @@ mod tests {
 
         // Set the enabled-faults mask.
         assert!(command
-            .execute(&json!({"mask": 20}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"mask": 20}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_some());
         assert_eq!(
             controller
@@ -627,13 +681,20 @@ mod tests {
 
         // Should fail because the file does not exist.
         assert!(command
-            .execute(&json!({"file": "wrong"}), None, None, Some(&mut controller))
+            .execute(
+                &json!({"file": "wrong"}),
+                None,
+                None,
+                None,
+                Some(&mut controller)
+            )
             .is_none());
 
         // Set the correct file.
         assert!(command
             .execute(
                 &json!({"file": "optical"}),
+                None,
                 None,
                 None,
                 Some(&mut controller)
@@ -659,6 +720,7 @@ mod tests {
                 &json!({"actuators": [1]}),
                 None,
                 None,
+                None,
                 Some(&mut controller)
             )
             .is_none());
@@ -669,6 +731,7 @@ mod tests {
                 &json!({"actuators": vec![6, 5, 4, 72, 71, 74]}),
                 None,
                 None,
+                None,
                 Some(&mut controller)
             )
             .is_none());
@@ -677,6 +740,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"actuators": vec![24, 14, 4, 74, 72, 76]}),
+                None,
                 None,
                 None,
                 Some(&mut controller)
@@ -698,7 +762,7 @@ mod tests {
         assert_eq!(command.name(), "cmd_runScript");
 
         assert!(command
-            .execute(&json!({}), None, None, Some(&mut controller))
+            .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_some());
     }
 }
