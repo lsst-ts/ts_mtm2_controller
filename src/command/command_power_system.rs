@@ -24,6 +24,7 @@ use serde_json::Value;
 use crate::command::command_schema::Command;
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
+use crate::daq::data_acquisition::DataAcquisition;
 use crate::enums::{DigitalOutput, DigitalOutputStatus, PowerType};
 use crate::power::power_system::PowerSystem;
 use crate::utility::get_message_sequence_id;
@@ -38,6 +39,7 @@ impl Command for CommandPower {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -67,6 +69,7 @@ impl Command for CommandResetBreakers {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -91,6 +94,7 @@ impl Command for CommandToggleBitClosedLoopControl {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -112,6 +116,7 @@ impl Command for CommandSwitchDigitalOutput {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         power_system: Option<&mut PowerSystem>,
         _control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -183,6 +188,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"powerType": 1, "status": true, "sequence_id": 1}),
+                None,
                 Some(&mut power_system),
                 None,
                 None
@@ -195,6 +201,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"powerType": 1, "status": true, "sequence_id": 2}),
+                None,
                 Some(&mut power_system),
                 None,
                 None
@@ -207,6 +214,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"powerType": 1, "status": false}),
+                None,
                 Some(&mut power_system),
                 None,
                 None
@@ -237,6 +245,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"powerType": 2, "sequence_id": 1}),
+                None,
                 Some(&mut power_system),
                 None,
                 None
@@ -252,6 +261,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"powerType": 2, "sequence_id": 2}),
+                None,
                 Some(&mut power_system),
                 None,
                 None
@@ -269,6 +279,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"status": true}),
+                None,
                 Some(&mut power_system),
                 None,
                 None
@@ -288,6 +299,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"bit": 1, "status": 2}),
+                None,
                 Some(&mut power_system),
                 None,
                 None

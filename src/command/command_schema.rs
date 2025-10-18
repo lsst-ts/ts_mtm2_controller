@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
+use crate::daq::data_acquisition::DataAcquisition;
 use crate::enums::CommandStatus;
 use crate::power::power_system::PowerSystem;
 use crate::utility::get_message_name;
@@ -40,6 +41,7 @@ pub trait Command {
     ///
     /// # Arguments
     /// * `message` - Command message to execute.
+    /// * `data_acquisition` - Data acquisition to execute the command.
     /// * `power_system` - Power system to execute the command.
     /// * `control_loop` - Control loop to execute the command.
     ///
@@ -48,6 +50,7 @@ pub trait Command {
     fn execute(
         &self,
         message: &Value,
+        data_acquisition: Option<&mut DataAcquisition>,
         power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -76,6 +79,7 @@ impl CommandSchema {
     ///
     /// # Arguments
     /// * `message` - Command message to execute.
+    /// * `data_acquisition` - Data acquisition to execute the command.
     /// * `power_system` - Power system to execute the command.
     /// * `control_loop` - Control loop to execute the command.
     /// * `controller` - Controller to execute the command.
@@ -85,6 +89,7 @@ impl CommandSchema {
     pub fn execute(
         &self,
         message: &Value,
+        data_acquisition: Option<&mut DataAcquisition>,
         power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         controller: Option<&mut Controller>,
@@ -95,7 +100,13 @@ impl CommandSchema {
         let command_status: CommandStatus;
         for cmd in &self.commands {
             if cmd.name() == name {
-                match cmd.execute(message, power_system, control_loop, controller) {
+                match cmd.execute(
+                    message,
+                    data_acquisition,
+                    power_system,
+                    control_loop,
+                    controller,
+                ) {
                     Some(_) => {
                         command_status = CommandStatus::Success;
                     }
@@ -138,6 +149,7 @@ mod tests {
         fn execute(
             &self,
             message: &Value,
+            _data_acquisition: Option<&mut DataAcquisition>,
             _power_system: Option<&mut PowerSystem>,
             _control_loop: Option<&mut ControlLoop>,
             _controller: Option<&mut Controller>,
@@ -174,6 +186,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert_eq!(result.to_string(), r#"{"id":"fail","sequence_id":1}"#);
@@ -184,6 +197,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert_eq!(result.to_string(), r#"{"id":"fail","sequence_id":2}"#);
@@ -191,6 +205,7 @@ mod tests {
         // Status is false.
         let result = schema.execute(
             &json!({"id": "cmd_test", "sequence_id": 3, "status": false}),
+            None,
             None,
             None,
             None,
@@ -209,12 +224,19 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert_eq!(result.to_string(), r#"{"id":"success","sequence_id":1}"#);
 
         // No sequence_id field.
-        let result = schema.execute(&json!({"id": "cmd_test", "status": true}), None, None, None);
+        let result = schema.execute(
+            &json!({"id": "cmd_test", "status": true}),
+            None,
+            None,
+            None,
+            None,
+        );
 
         assert_eq!(result.to_string(), r#"{"id":"success","sequence_id":-1}"#);
     }

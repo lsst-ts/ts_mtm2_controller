@@ -27,6 +27,7 @@ use crate::config::Config;
 use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_TANGENT_LINK};
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
+use crate::daq::data_acquisition::DataAcquisition;
 use crate::enums::{
     ActuatorDisplacementUnit, ClosedLoopControlMode, CommandActuator, InnerLoopControlMode,
 };
@@ -42,6 +43,7 @@ impl Command for CommandSetClosedLoopControlMode {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -101,6 +103,7 @@ impl Command for CommandApplyForces {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -129,6 +132,7 @@ impl Command for CommandResetForceOffsets {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -170,6 +174,7 @@ impl Command for CommandPositionMirror {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -205,6 +210,7 @@ impl Command for CommandResetActuatorSteps {
     fn execute(
         &self,
         _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -264,6 +270,7 @@ impl Command for CommandMoveActuators {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -293,6 +300,7 @@ impl Command for CommandSetConfig {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -321,6 +329,7 @@ impl Command for CommandSetExternalElevation {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -351,6 +360,7 @@ impl Command for CommandSetInnerLoopControlMode {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -382,6 +392,7 @@ impl Command for CommandGetInnerLoopControlMode {
     fn execute(
         &self,
         message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
         _power_system: Option<&mut PowerSystem>,
         control_loop: Option<&mut ControlLoop>,
         _controller: Option<&mut Controller>,
@@ -430,7 +441,13 @@ mod tests {
         assert_eq!(command.name(), "cmd_setClosedLoopControlMode");
 
         assert!(command
-            .execute(&json!({"mode": 3}), None, Some(&mut control_loop), None)
+            .execute(
+                &json!({"mode": 3}),
+                None,
+                None,
+                Some(&mut control_loop),
+                None
+            )
             .is_some());
 
         assert_eq!(
@@ -482,7 +499,7 @@ mod tests {
         assert_eq!(command.name(), "cmd_resetForceOffsets");
 
         assert!(command
-            .execute(&json!({}), None, Some(&mut control_loop), None)
+            .execute(&json!({}), None, None, Some(&mut control_loop), None)
             .is_some());
     }
 
@@ -526,7 +543,7 @@ mod tests {
         assert_eq!(command.name(), "cmd_resetActuatorSteps");
 
         assert!(command
-            .execute(&json!({}), None, Some(&mut control_loop), None)
+            .execute(&json!({}), None, None, Some(&mut control_loop), None)
             .is_some());
     }
 
@@ -576,6 +593,7 @@ mod tests {
             .execute(
                 &json!({"config": serde_json::to_string(&config).unwrap()}),
                 None,
+                None,
                 Some(&mut control_loop),
                 None
             )
@@ -594,6 +612,7 @@ mod tests {
             .execute(
                 &json!({"compName": "mtmount", "actualPosition": 1.0}),
                 None,
+                None,
                 Some(&mut control_loop),
                 None
             )
@@ -607,6 +626,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"compName": "MTMount", "actualPosition": 2.0}),
+                None,
                 None,
                 Some(&mut control_loop),
                 None
@@ -630,6 +650,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"addresses": [0, 1], "mode": 2}),
+                None,
                 None,
                 Some(&mut control_loop),
                 None
@@ -660,6 +681,7 @@ mod tests {
         assert!(command
             .execute(
                 &json!({"addresses": [0, 1]}),
+                None,
                 None,
                 Some(&mut control_loop),
                 None

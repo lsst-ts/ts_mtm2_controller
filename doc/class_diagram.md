@@ -3,6 +3,7 @@
 The [Model](../src/model.rs) holds the [Controller](../src/controller.rs) to do the main login in the application.
 There are the following modules in the control system:
 
+- [daq](#daq)
 - [power](#power)
 - [control](#control)
 - [interface](#interface)
@@ -85,6 +86,40 @@ ErrorHandler *-- Config
 ErrorHandler *-- ConfigPower
 ErrorHandler "1" *-- "78" Actuator
 ErrorHandler ..> TelemetryControlLoop
+```
+
+## Daq
+
+The [daq](../src/daq/) module implements the data acquisition process:
+
+```mermaid
+classDiagram
+
+namespace main {
+  class EventQueue
+}
+
+namespace mock {
+  class MockPlant
+}
+
+namespace telemetry {
+  class Event
+  class TelemetryPower
+  class TelemetryControlLoop
+}
+
+namespace command {
+  class CommandDataAcquisition
+}
+
+CommandDataAcquisition --> DataAcquisition
+
+DataAcquisition o-- MockPlant
+DataAcquisition *-- EventQueue
+DataAcquisition ..> Event
+DataAcquisition ..> TelemetryPower
+DataAcquisition ..> TelemetryControlLoop
 ```
 
 ## Power
@@ -254,15 +289,21 @@ namespace control {
   class ControlLoop
 }
 
+namespace daq {
+  class DataAcquisition
+}
+
 CommandSchema "1" *-- "n" Command
 
 Command ..> Config
 Command --> Controller
 Command --> PowerSystem
 Command --> ControlLoop
+Command --> DataAcquisition
 Command <|-- CommandController
 Command <|-- CommandPowerSystem
 Command <|-- CommandControlLoop
+Command <|-- CommandDataAcquisition
 ```
 
 ## Mock

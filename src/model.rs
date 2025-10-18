@@ -674,7 +674,7 @@ impl Model {
             // Command for the controller
             if all_commands["controller"].contains(&name) {
                 let result =
-                    controller_command_schema.execute(message, None, None, Some(controller));
+                    controller_command_schema.execute(message, None, None, None, Some(controller));
                 let _ = sender_to_tcp.try_send(vec![result]);
 
                 return true;

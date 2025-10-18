@@ -147,6 +147,7 @@ impl ControlLoopProcess {
                         command_result = Some(self._command_schema.execute(
                             &message,
                             None,
+                            None,
                             Some(&mut self.control_loop),
                             None,
                         ));
