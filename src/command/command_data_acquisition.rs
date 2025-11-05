@@ -25,7 +25,7 @@ use crate::command::command_schema::Command;
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
 use crate::daq::data_acquisition::DataAcquisition;
-use crate::enums::{DigitalOutput, DigitalOutputStatus, InnerLoopControlMode};
+use crate::enums::{DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode};
 use crate::power::power_system::PowerSystem;
 
 /// Command to switch the digital output.
@@ -140,6 +140,31 @@ impl Command for CommandMoveActuatorSteps {
     }
 }
 
+/// Command to set the data acquisition mode.
+pub struct CommandSetDataAcquisitionMode;
+impl Command for CommandSetDataAcquisitionMode {
+    fn name(&self) -> &str {
+        "cmd_setDataAcquisitionMode"
+    }
+
+    fn execute(
+        &self,
+        message: &Value,
+        data_acquisition: Option<&mut DataAcquisition>,
+        _power_system: Option<&mut PowerSystem>,
+        _control_loop: Option<&mut ControlLoop>,
+        _controller: Option<&mut Controller>,
+    ) -> Option<()> {
+        let discriminant = message["mode"].as_u64()?;
+        let mode = DataAcquisitionMode::from_repr(discriminant as u8)?;
+
+        let system = data_acquisition?;
+        system.set_mode(mode)?;
+
+        Some(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,8 +266,10 @@ mod tests {
             )
             .is_none());
 
-        // Valid number of steps
+        // Valid number of steps and mode
         let steps = vec![-10; NUM_ACTUATOR];
+
+        data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
         assert!(command
             .execute(
                 &json!({"steps": steps}),
@@ -253,5 +280,25 @@ mod tests {
             )
             .is_some());
         assert_eq!(data_acquisition.plant.unwrap().actuator_steps, steps);
+    }
+
+    #[test]
+    fn test_command_set_data_acquisition_mode() {
+        let mut data_acquisition = create_data_acquisition();
+
+        let command = CommandSetDataAcquisitionMode;
+
+        assert_eq!(command.name(), "cmd_setDataAcquisitionMode");
+        assert!(command
+            .execute(
+                &json!({"mode": 2}),
+                Some(&mut data_acquisition),
+                None,
+                None,
+                None
+            )
+            .is_some());
+
+        assert!(data_acquisition.mode == DataAcquisitionMode::Telemetry);
     }
 }
