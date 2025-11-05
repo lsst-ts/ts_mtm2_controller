@@ -1,5 +1,12 @@
 # Version Histroy
 
+0.3.0
+
+- Add the `config/parameters_daq.yaml`.
+- Add the `config_data_acquisition.rs` and `data_acquisition_process.rs`.
+- Run the data acquisition process in `model.rs.`
+- Update the `class_diagram.md` and `communication_diagram.md`.
+
 0.2.9
 
 - Add the `data_acquisition.rs` and `command_data_acquisition.rs`.
