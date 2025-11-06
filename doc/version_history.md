@@ -1,5 +1,10 @@
 # Version Histroy
 
+0.3.1
+
+- Remove the **MockPlant** from the **PowerSystem**.
+The related simulation goes to the **DataAcquisition** instead.
+
 0.3.0
 
 - Add the `config/parameters_daq.yaml`.
