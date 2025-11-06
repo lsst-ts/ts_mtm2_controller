@@ -19,8 +19,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::info;
-use serde_json::Value;
+use log::{error, info};
+use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{sync_channel, Receiver, SyncSender},
@@ -30,15 +30,12 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::command::{
-    command_power_system::{
-        CommandPower, CommandResetBreakers, CommandSwitchDigitalOutput,
-        CommandToggleBitClosedLoopControl,
-    },
+    command_data_acquisition::{CommandSetDataAcquisitionMode, CommandSwitchDigitalOutput},
+    command_power_system::{CommandPower, CommandResetBreakers},
     command_schema::{Command, CommandSchema},
 };
 use crate::constants::BOUND_SYNC_CHANNEL;
-use crate::enums::PowerType;
-use crate::mock::mock_plant::MockPlant;
+use crate::enums::{BitEnum, DataAcquisitionMode, PowerType};
 use crate::power::power_system::PowerSystem;
 use crate::telemetry::{telemetry::Telemetry, telemetry_power::TelemetryPower};
 use crate::utility::{get_message_name, get_message_sequence_id};
@@ -46,6 +43,11 @@ use crate::utility::{get_message_name, get_message_sequence_id};
 pub struct PowerSystemProcess {
     // Power system
     _power_system: PowerSystem,
+    // Is the simulation mode or not
+    _is_simulation_mode: bool,
+    // Latest received and processed power telemetry from the data acquisition
+    // process
+    _latest_telemetry: Option<TelemetryPower>,
     // Command schema
     _command_schema: CommandSchema,
     // Sender to the data acquisition
@@ -68,7 +70,7 @@ impl PowerSystemProcess {
     /// Create a new instance of the power system process.
     ///
     /// # Arguments
-    /// * `plant` - Plant model. Put None if the hardware mode is applied.
+    /// * `is_simulation_mode` - Is the simulation mode or not.
     /// * `sender_to_daq` - The sender to the data acquisition.
     /// * `sender_to_model` - The sender to the model.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
@@ -77,7 +79,7 @@ impl PowerSystemProcess {
     /// # Returns
     /// New instance of the power system process.
     pub fn new(
-        plant: Option<MockPlant>,
+        is_simulation_mode: bool,
         sender_to_daq: &SyncSender<Value>,
         sender_to_model: &SyncSender<Telemetry>,
         stop: &Arc<AtomicBool>,
@@ -90,7 +92,11 @@ impl PowerSystemProcess {
             sync_channel(BOUND_SYNC_CHANNEL);
 
         Self {
-            _power_system: PowerSystem::new(plant),
+            _power_system: PowerSystem::new(),
+
+            _is_simulation_mode: is_simulation_mode,
+
+            _latest_telemetry: None,
 
             _command_schema: Self::create_command_schema(),
 
@@ -115,8 +121,6 @@ impl PowerSystemProcess {
         let mut command_schema = CommandSchema::new();
         command_schema.add_command(Box::new(CommandPower));
         command_schema.add_command(Box::new(CommandResetBreakers));
-        command_schema.add_command(Box::new(CommandToggleBitClosedLoopControl));
-        command_schema.add_command(Box::new(CommandSwitchDigitalOutput));
 
         command_schema
     }
@@ -141,28 +145,84 @@ impl PowerSystemProcess {
     pub fn run(&mut self) {
         info!("Power system is running.");
 
-        self._power_system.init_default_digital_output();
-
         let loop_time = self._power_system.config.loop_time;
-
         let maximum_counter_telemetry = self._power_system.config.maximum_counter_telemetry;
-        let maximum_counter_toggle_bit = self
-            ._power_system
-            .config
-            .maximum_counter_closed_loop_control_bit;
-        let maximun_counter_common = self
-            .calculate_least_common_multiple(maximum_counter_telemetry, maximum_counter_toggle_bit);
 
         let mut counter = 0;
         while !self._stop.load(Ordering::Relaxed) {
             // Time the power loop.
             let now = Instant::now();
 
-            // Process the command and the telemetry.
+            // Try to receive the latest telemetry from the data acquisition
+            // process and process it.
+            if let Ok(mut telemetry) = self._receiver_telemetry_to_power_system.try_recv() {
+                self._power_system.process_telemetry_data(&mut telemetry);
+
+                // Check the power supply error.
+                let digital_output = telemetry.digital_output;
+                let digital_input = telemetry.digital_input;
+                self._power_system
+                    .check_power_supply_error(digital_output, digital_input);
+
+                // Transition the states based on the received telemetry data.
+                // In the simulation mode, we only do the state transition when
+                // receiving the new telemetry data. This is because the plant
+                // model in the DataAcquisition will simulate the change of
+                // the current and voltage values.
+                if self._is_simulation_mode {
+                    self._power_system.transition_state(
+                        PowerType::Communication,
+                        telemetry.power_raw["commVoltage"],
+                        digital_output,
+                        digital_input,
+                    );
+                    self._power_system.transition_state(
+                        PowerType::Motor,
+                        telemetry.power_raw["motorVoltage"],
+                        digital_output,
+                        digital_input,
+                    );
+                }
+
+                self._latest_telemetry = Some(telemetry);
+            }
+
+            // Transition the states based on the received telemetry data from
+            // hardware.
+            if !self._is_simulation_mode {
+                if let Some(telemetry) = self._latest_telemetry.as_mut() {
+                    let digital_output = telemetry.digital_output;
+                    let digital_input = telemetry.digital_input;
+
+                    self._power_system.transition_state(
+                        PowerType::Communication,
+                        telemetry.power_raw["commVoltage"],
+                        digital_output,
+                        digital_input,
+                    );
+                    self._power_system.transition_state(
+                        PowerType::Motor,
+                        telemetry.power_raw["motorVoltage"],
+                        digital_output,
+                        digital_input,
+                    );
+                };
+            }
+
+            // Process the command.
             if (counter % maximum_counter_telemetry) == 0 {
                 // Process the messages.
                 let mut command_result = None;
                 if let Ok(message) = self._receiver_to_power_system.try_recv() {
+                    if self
+                        .update_data_acquisition_mode_when_power_off(&message)
+                        .is_none()
+                    {
+                        error!(
+                            "Failed to update the data acquisition mode when power is turned off."
+                        );
+                    }
+
                     let command_name = get_message_name(&message);
                     let is_new_power_command = (command_name == CommandPower.name())
                         || (command_name == CommandResetBreakers.name());
@@ -181,28 +241,17 @@ impl PowerSystemProcess {
                     }
                 }
 
-                // Read the module and get the telemetry.
-                let telemetry = self._power_system.get_telemetry_data();
-
-                // Check the power supply error.
-                let digital_output = telemetry.digital_output;
-                let digital_input = telemetry.digital_input;
-                self._power_system
-                    .check_power_supply_error(digital_output, digital_input);
-
-                // Transition the states based on the telemetry data.
-                self._power_system.transition_state(
-                    PowerType::Communication,
-                    telemetry.power_raw["commVoltage"],
-                    digital_output,
-                    digital_input,
-                );
-                self._power_system.transition_state(
-                    PowerType::Motor,
-                    telemetry.power_raw["motorVoltage"],
-                    digital_output,
-                    digital_input,
-                );
+                // Apply the actions to the data acquisition process.
+                if self._power_system.has_actions() {
+                    let actions = self._power_system.get_actions_and_clear();
+                    for (digital_output, status) in actions {
+                        let _ = self._sender_to_daq.try_send(json!({
+                            "id": CommandSwitchDigitalOutput.name(),
+                            "bit": digital_output.bit_value() as u64,
+                            "status": status as u8,
+                        }));
+                    }
+                }
 
                 // Send the telemetry and event data to the model and ignore the
                 // error.
@@ -227,22 +276,16 @@ impl PowerSystemProcess {
                 }
 
                 let _ = self._sender_to_model.try_send(Telemetry::new(
-                    Some(telemetry),
+                    self._latest_telemetry.clone(),
                     None,
                     command_result,
                     events,
                 ));
             }
 
-            // Toggle the bit for the closed-loop control for the safety module
-            // to use.
-            if (counter % maximum_counter_toggle_bit) == 0 {
-                self._power_system.toggle_bit_closed_loop_control();
-            }
-
             // Update the counter.
             counter += 1;
-            if (counter % maximun_counter_common) == 0 {
+            if counter >= maximum_counter_telemetry {
                 counter = 0;
             }
 
@@ -256,21 +299,40 @@ impl PowerSystemProcess {
         info!("Power system is stopped.");
     }
 
-    /// Calculate the least common multiple of two numbers.
+    /// Update the data acquisition mode when the power is turned off.
     ///
     /// # Arguments
-    /// * `a` - First number.
-    /// * `b` - Second number.
+    /// * `message` - The message to process.
     ///
     /// # Returns
-    /// The least common multiple of the two numbers.
-    fn calculate_least_common_multiple(&self, a: i32, b: i32) -> i32 {
-        let mut lcm = a;
-        while (lcm % b) != 0 {
-            lcm += a;
+    /// Option indicating success or failure.
+    fn update_data_acquisition_mode_when_power_off(&self, message: &Value) -> Option<()> {
+        let command_name = get_message_name(&message);
+        let is_new_power_off_command =
+            (command_name == CommandPower.name()) && (message["status"] == false);
+        if is_new_power_off_command {
+            let discriminant = message["powerType"].as_u64()?;
+            let power_type = PowerType::from_repr(discriminant as u8)?;
+            let is_powered_on = self._power_system.is_powered_on(power_type);
+            if is_powered_on {
+                let mode = if (power_type == PowerType::Motor)
+                    && (self._power_system.is_powered_on(PowerType::Communication))
+                {
+                    DataAcquisitionMode::Telemetry
+                } else {
+                    DataAcquisitionMode::Idle
+                };
+
+                self._sender_to_daq
+                    .try_send(json!({
+                        "id": CommandSetDataAcquisitionMode.name(),
+                        "mode": mode as u8,
+                    }))
+                    .ok()?;
+            }
         }
 
-        lcm
+        Some(())
     }
 }
 
@@ -279,18 +341,17 @@ mod tests {
     use super::*;
 
     use serde_json::json;
-    use std::path::Path;
     use std::thread::spawn;
 
     use crate::daq::data_acquisition_process::DataAcquisitionProcess;
-    use crate::utility::read_file_stiffness;
+    use crate::telemetry::telemetry_control_loop::TelemetryControlLoop;
 
-    fn create_power_system_process() -> (PowerSystemProcess, Receiver<Telemetry>, Receiver<Value>) {
-        // Plant model
-        let filepath = Path::new("config/stiff_matrix_m2.yaml");
-        let stiffness = read_file_stiffness(filepath);
-        let plant = MockPlant::new(&stiffness, 0.0);
-
+    fn create_power_system_process() -> (
+        PowerSystemProcess,
+        Receiver<Telemetry>,
+        SyncSender<Value>,
+        Receiver<Value>,
+    ) {
         let stop = Arc::new(AtomicBool::new(false));
 
         let (sender_to_model, receiver_to_model) = sync_channel(BOUND_SYNC_CHANNEL);
@@ -298,9 +359,34 @@ mod tests {
             DataAcquisitionProcess::create_sender_and_receiver_to_data_acquisition();
 
         (
-            PowerSystemProcess::new(Some(plant), &sender_to_daq, &sender_to_model, &stop),
+            PowerSystemProcess::new(true, &sender_to_daq, &sender_to_model, &stop),
             receiver_to_model,
+            sender_to_daq,
             receiver_to_daq,
+        )
+    }
+
+    fn create_data_acquisition_process(
+        sender_telemetry_to_power: &SyncSender<TelemetryPower>,
+        sender_to_model: &SyncSender<Telemetry>,
+        sender_to_daq: SyncSender<Value>,
+        receiver_to_daq: Receiver<Value>,
+        stop: &Arc<AtomicBool>,
+    ) -> (DataAcquisitionProcess, Receiver<TelemetryControlLoop>) {
+        let (sender_telemetry_to_control_loop, receiver_telemetry_to_control_loop) =
+            sync_channel(BOUND_SYNC_CHANNEL);
+
+        (
+            DataAcquisitionProcess::new(
+                true,
+                &sender_telemetry_to_control_loop,
+                sender_telemetry_to_power,
+                sender_to_model,
+                sender_to_daq,
+                receiver_to_daq,
+                stop,
+            ),
+            receiver_telemetry_to_control_loop,
         )
     }
 
@@ -328,19 +414,31 @@ mod tests {
     fn test_new() {
         let power_system_process = create_power_system_process().0;
 
-        assert_eq!(power_system_process._command_schema.number_of_commands(), 4);
+        assert_eq!(power_system_process._command_schema.number_of_commands(), 2);
     }
 
     #[test]
     fn test_run() {
-        let (mut power_system_process, receiver_to_model, _receiver_to_daq) =
+        let (mut power_system_process, receiver_to_model, sender_to_daq, receiver_to_daq) =
             create_power_system_process();
         let stop = power_system_process._stop.clone();
 
+        let (mut data_acquisition_process, _receiver_telemetry_to_control_loop) =
+            create_data_acquisition_process(
+                &power_system_process._sender_telemetry_to_power_system,
+                &power_system_process._sender_to_model,
+                sender_to_daq,
+                receiver_to_daq,
+                &stop,
+            );
+
         let sender_to_power_system = power_system_process.get_sender_to_power_system();
 
-        let handle = spawn(move || {
+        let handle_power_system = spawn(move || {
             power_system_process.run();
+        });
+        let handle_data_acquisition = spawn(move || {
+            data_acquisition_process.run();
         });
 
         sleep(Duration::from_millis(500));
@@ -474,15 +572,7 @@ mod tests {
         // Close the server.
         stop.store(true, Ordering::Relaxed);
 
-        assert!(handle.join().is_ok());
-    }
-
-    #[test]
-    fn test_calculate_least_common_multiple() {
-        let power_system_process = create_power_system_process().0;
-
-        let lcm = power_system_process.calculate_least_common_multiple(3, 5);
-
-        assert_eq!(lcm, 15);
+        assert!(handle_power_system.join().is_ok());
+        assert!(handle_data_acquisition.join().is_ok());
     }
 }
