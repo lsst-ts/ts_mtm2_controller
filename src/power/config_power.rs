@@ -29,9 +29,6 @@ pub struct ConfigPower {
     pub loop_time: u64,
     // Maximum of the counter of telemetry used in the PowerSystemProcess.
     pub maximum_counter_telemetry: i32,
-    // Maximum of the counter of toggling the closed-loop control bit used in
-    // the PowerSystemProcess.
-    pub maximum_counter_closed_loop_control_bit: i32,
     // Output voltage off level in volt.
     pub output_voltage_off_level: f64,
     // Minimum of the warning voltage level.
@@ -109,10 +106,6 @@ impl ConfigPower {
             loop_time: loop_time as u64,
             maximum_counter_telemetry: get_parameter::<i32>(filepath, "period_telemetry")
                 / loop_time,
-            maximum_counter_closed_loop_control_bit: get_parameter::<i32>(
-                filepath,
-                "period_toggle_closed_loop_control_bit",
-            ) / loop_time,
             output_voltage_off_level: get_parameter(filepath, "output_voltage_off_level"),
 
             warning_voltage_min: warning_voltage_min,
