@@ -25,7 +25,8 @@ use log::info;
 
 use crate::constants::NUM_INNER_LOOP_CONTROLLER;
 use crate::enums::{
-    ClosedLoopControlMode, Commander, InnerLoopControlMode, PowerSystemState, PowerType,
+    ClosedLoopControlMode, Commander, DataAcquisitionMode, InnerLoopControlMode, PowerSystemState,
+    PowerType,
 };
 use crate::power::sub_power_system::SubPowerSystem;
 
@@ -45,7 +46,9 @@ pub struct Status {
     // Power system status.
     pub power_system: HashMap<PowerType, SubPowerSystem>,
     // Closed loop control mode.
-    pub mode: ClosedLoopControlMode,
+    pub mode_control_loop: ClosedLoopControlMode,
+    // Data acquisition mode.
+    pub mode_data_acquisition: DataAcquisitionMode,
     // Inner loop controller (ILC) modes.
     pub ilc_modes: Vec<InnerLoopControlMode>,
     // Triggered Limit switches.
@@ -92,7 +95,8 @@ impl Status {
 
             power_system: power_system,
 
-            mode: ClosedLoopControlMode::Idle,
+            mode_control_loop: ClosedLoopControlMode::Idle,
+            mode_data_acquisition: DataAcquisitionMode::Idle,
 
             ilc_modes: vec![InnerLoopControlMode::Unknown; NUM_INNER_LOOP_CONTROLLER],
             limit_switch: limit_switch,
