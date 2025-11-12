@@ -51,6 +51,7 @@ use crate::command::{
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::control::control_loop_process::ControlLoopProcess;
 use crate::controller::Controller;
+use crate::daq::data_acquisition_process::DataAcquisitionProcess;
 use crate::enums::{
     BitEnum, ClosedLoopControlMode, CommandStatus, Commander, DigitalInput, DigitalOutput,
     DigitalOutputStatus, ErrorCode, PowerType,
@@ -255,9 +256,20 @@ impl Model {
     pub fn run_processes(&mut self) {
         self.run_command_telemetry_server();
 
-        let plant = self.run_control_loop();
+        let (sender_to_daq, receiver_to_daq) =
+            DataAcquisitionProcess::create_sender_and_receiver_to_data_acquisition();
+        self._controller.sender_to_daq = Some(sender_to_daq.clone());
 
-        self.run_power_system(plant);
+        let (plant, sender_telemetry_to_control_loop) = self.run_control_loop(&sender_to_daq);
+
+        let sender_telemetry_to_power = self.run_power_system(plant, &sender_to_daq);
+
+        self.run_data_acquisition(
+            &sender_telemetry_to_control_loop,
+            &sender_telemetry_to_power,
+            sender_to_daq,
+            receiver_to_daq,
+        );
 
         // Drop the internal sender to the model. This is to let the self.step()
         // wakes up when all the senders are dropped once we stop the
@@ -413,9 +425,15 @@ impl Model {
 
     /// Run the control loop.
     ///
+    /// # Arguments
+    /// * `sender_to_daq` - The sender to the data acquisition.
+    ///
     /// # Returns
-    /// Plant model.
-    fn run_control_loop(&mut self) -> Option<MockPlant> {
+    /// The plant model and the telemetry sender.
+    fn run_control_loop(
+        &mut self,
+        sender_to_daq: &SyncSender<Value>,
+    ) -> (Option<MockPlant>, SyncSender<TelemetryControlLoop>) {
         // Read the configuration file
         let config_file = Path::new("config/parameters_app.yaml");
         let is_mirror = get_parameter(config_file, "is_mirror");
@@ -428,6 +446,7 @@ impl Model {
             &self._controller.error_handler.config_control_loop,
             is_mirror,
             self._is_simulation_mode,
+            sender_to_daq,
             &self
                 ._sender_to_model
                 .as_ref()
@@ -440,20 +459,31 @@ impl Model {
         self._controller.sender_to_control_loop =
             Some(control_loop_process.get_sender_to_control_loop());
 
+        let sender_telemetry_to_control_loop =
+            control_loop_process.get_sender_telemetry_to_control_loop();
+
         let handle = spawn(move || {
             control_loop_process.run();
         });
 
         self._handles.push(handle);
 
-        plant
+        (plant, sender_telemetry_to_control_loop)
     }
 
     /// Run the power system.
     ///
     /// # Arguments
     /// * `plant` - Plant model. Put None if the hardware mode is applied.
-    fn run_power_system(&mut self, mut plant: Option<MockPlant>) {
+    /// * `sender_to_daq` - The sender to the data acquisition.
+    ///
+    /// # Returns
+    /// The telemetry sender.
+    fn run_power_system(
+        &mut self,
+        mut plant: Option<MockPlant>,
+        sender_to_daq: &SyncSender<Value>,
+    ) -> SyncSender<TelemetryPower> {
         // Make sure the mock plant (if any) has no power
         if let Some(mock_plant) = plant.as_mut() {
             mock_plant.switch_digital_output(
@@ -468,6 +498,7 @@ impl Model {
 
         let mut power_system_process = PowerSystemProcess::new(
             plant,
+            sender_to_daq,
             &self
                 ._sender_to_model
                 .as_ref()
@@ -478,8 +509,47 @@ impl Model {
         self._controller.sender_to_power_system =
             Some(power_system_process.get_sender_to_power_system());
 
+        let sender_telemetry_to_power_system =
+            power_system_process.get_sender_telemetry_to_power_system();
+
         let handle = spawn(move || {
             power_system_process.run();
+        });
+
+        self._handles.push(handle);
+
+        sender_telemetry_to_power_system
+    }
+
+    /// Run the data acquisition process.
+    ///
+    /// # Arguments
+    /// * `sender_telemetry_to_control_loop` - Sender of the telemetry to the control loop.
+    /// * `sender_telemetry_to_power` - Sender of the telemetry to the power system.
+    /// * `sender_to_daq` - Sender to the data acquisition process.
+    /// * `receiver_to_daq` - Receiver to the data acquisition process.
+    fn run_data_acquisition(
+        &mut self,
+        sender_telemetry_to_control_loop: &SyncSender<TelemetryControlLoop>,
+        sender_telemetry_to_power: &SyncSender<TelemetryPower>,
+        sender_to_daq: SyncSender<Value>,
+        receiver_to_daq: Receiver<Value>,
+    ) {
+        let mut daq = DataAcquisitionProcess::new(
+            self._is_simulation_mode,
+            sender_telemetry_to_control_loop,
+            sender_telemetry_to_power,
+            &self
+                ._sender_to_model
+                .as_ref()
+                .expect("Should have a telemetry sender to the model."),
+            sender_to_daq,
+            receiver_to_daq,
+            &self.stop,
+        );
+
+        let handle = spawn(move || {
+            daq.run();
         });
 
         self._handles.push(handle);
@@ -553,8 +623,11 @@ impl Model {
                     let mut events_power = self.update_status_telemetry_power(&telemetry_power);
                     all_events.append(&mut events_power);
 
-                    // Publish the telemetry.
-                    self.publish_telemetry(telemetry_power.get_messages(self._telemetry_digit));
+                    // When the control loop mode is idle, only publish the
+                    // power telemetry.
+                    if self._controller.status.mode_control_loop == ClosedLoopControlMode::Idle {
+                        self.publish_telemetry(telemetry_power.get_messages(self._telemetry_digit));
+                    }
 
                     // Update the last effective telemetry.
                     self._controller.last_effective_telemetry.power = Some(telemetry_power);
@@ -573,10 +646,22 @@ impl Model {
                             self.update_status_telemetry_control_loop(&telemetry_control_loop);
                         all_events.append(&mut events_control_loop);
 
-                        // Publish the telemetry.
-                        self.publish_telemetry(
-                            telemetry_control_loop.get_messages(self._telemetry_digit),
-                        );
+                        // If the control loop mode is not idle, publish both
+                        // control loop and power telemetry.
+                        if self._controller.status.mode_control_loop != ClosedLoopControlMode::Idle
+                        {
+                            let mut messages =
+                                telemetry_control_loop.get_messages(self._telemetry_digit);
+                            if let Some(telemetry_power) =
+                                self._controller.last_effective_telemetry.power.as_ref()
+                            {
+                                messages.append(
+                                    &mut telemetry_power.get_messages(self._telemetry_digit),
+                                );
+                            }
+
+                            self.publish_telemetry(messages);
+                        }
 
                         // Update the last effective telemetry.
                         self._controller.last_effective_telemetry.control_loop =
@@ -764,7 +849,8 @@ impl Model {
     /// * `telemetry` - Telemetry of the control loop.
     fn check_condition_control_loop(&mut self, telemetry: &TelemetryControlLoop) {
         // Check the system condition.
-        let is_closed_loop = self._controller.status.mode == ClosedLoopControlMode::ClosedLoop;
+        let is_closed_loop =
+            self._controller.status.mode_control_loop == ClosedLoopControlMode::ClosedLoop;
         self._controller
             .error_handler
             .check_condition_control_loop(telemetry, is_closed_loop);
@@ -773,7 +859,7 @@ impl Model {
         // is a fault and there is still the connection. Note that if there is
         // no connection, the system will be put in the safe mode (idle)
         // instead.
-        let mode = self._controller.status.mode;
+        let mode = self._controller.status.mode_control_loop;
         if self._controller.error_handler.has_fault()
             && self._controller.status.has_connection()
             && ((mode == ClosedLoopControlMode::OpenLoop)
@@ -889,7 +975,7 @@ impl Model {
             } else if name == "closedLoopControlMode" {
                 if self
                     ._controller
-                    .update_internal_status_mode(event)
+                    .update_internal_status_mode_control_loop(event)
                     .is_none()
                 {
                     debug!("Failed to update the closed-loop control mode: {event}.");
@@ -901,6 +987,14 @@ impl Model {
                     .is_none()
                 {
                     debug!("Failed to update the inner-loop control mode: {event}.");
+                }
+            } else if name == "dataAcquisitionMode" {
+                if self
+                    ._controller
+                    .update_internal_status_mode_data_acquisition(event)
+                    .is_none()
+                {
+                    debug!("Failed to update the data acquisition mode: {event}.");
                 }
             }
         }
@@ -967,7 +1061,7 @@ impl Model {
             Event::get_message_digital_input(status.digital_input),
             Event::get_message_digital_output(status.digital_output),
             Event::get_message_config(config),
-            Event::get_message_closed_loop_control_mode(status.mode),
+            Event::get_message_closed_loop_control_mode(status.mode_control_loop),
             Event::get_message_enabled_faults_mask(config.enabled_faults_mask),
             Event::get_message_summary_faults_status(status.summary_faults_status),
             Event::get_message_configuration_files(&config.filename),
@@ -1140,7 +1234,8 @@ mod tests {
     fn test_run_control_loop() {
         let mut model = create_model();
 
-        model.run_control_loop();
+        let (sender, _receiver) = sync_channel(BOUND_SYNC_CHANNEL);
+        model.run_control_loop(&sender);
 
         model.stop();
     }
@@ -1149,10 +1244,34 @@ mod tests {
     fn test_run_power_system() {
         let mut model = create_model();
 
-        model.run_power_system(Some(MockPlant::new(
-            &read_file_stiffness(Path::new("config/stiff_matrix_m2.yaml")),
-            90.0,
-        )));
+        let (sender, _receiver) = sync_channel(BOUND_SYNC_CHANNEL);
+        model.run_power_system(
+            Some(MockPlant::new(
+                &read_file_stiffness(Path::new("config/stiff_matrix_m2.yaml")),
+                90.0,
+            )),
+            &sender,
+        );
+
+        model.stop();
+    }
+
+    #[test]
+    fn test_run_data_acquisition() {
+        let mut model = create_model();
+
+        let (sender_telemetry_to_control_loop, _receiver_telemetry_to_control_loop) =
+            sync_channel(BOUND_SYNC_CHANNEL);
+        let (sender_telemetry_to_power, _receiver_telemetry_to_power) =
+            sync_channel(BOUND_SYNC_CHANNEL);
+        let (sender_to_daq, receiver_to_daq) = sync_channel(BOUND_SYNC_CHANNEL);
+
+        model.run_data_acquisition(
+            &sender_telemetry_to_control_loop,
+            &sender_telemetry_to_power,
+            sender_to_daq,
+            receiver_to_daq,
+        );
 
         model.stop();
     }
@@ -1448,7 +1567,7 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         assert_eq!(
-            model._controller.status.mode,
+            model._controller.status.mode_control_loop,
             ClosedLoopControlMode::OpenLoop
         );
 
@@ -1462,7 +1581,7 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         assert_eq!(
-            model._controller.status.mode,
+            model._controller.status.mode_control_loop,
             ClosedLoopControlMode::ClosedLoop
         );
 
@@ -1548,7 +1667,7 @@ mod tests {
         wait_for_command_result_and_reset(&mut model);
 
         assert_eq!(
-            model._controller.status.mode,
+            model._controller.status.mode_control_loop,
             ClosedLoopControlMode::OpenLoop
         );
 
@@ -1565,7 +1684,7 @@ mod tests {
         for idx in 0..NUM_INNER_LOOP_CONTROLLER {
             assert_eq!(status.ilc_modes[idx], InnerLoopControlMode::Unknown);
         }
-        assert_eq!(status.mode, ClosedLoopControlMode::Idle);
+        assert_eq!(status.mode_control_loop, ClosedLoopControlMode::Idle);
 
         model.stop();
     }
