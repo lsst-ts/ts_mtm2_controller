@@ -40,7 +40,7 @@ use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::enums::PowerType;
 use crate::mock::mock_plant::MockPlant;
 use crate::power::power_system::PowerSystem;
-use crate::telemetry::telemetry::Telemetry;
+use crate::telemetry::{telemetry::Telemetry, telemetry_power::TelemetryPower};
 use crate::utility::{get_message_name, get_message_sequence_id};
 
 pub struct PowerSystemProcess {
@@ -48,13 +48,19 @@ pub struct PowerSystemProcess {
     _power_system: PowerSystem,
     // Command schema
     _command_schema: CommandSchema,
-    // Sender of the telemetry to the model.
+    // Sender to the data acquisition
+    _sender_to_daq: SyncSender<Value>,
+    // Sender of the telemetry to the model
     _sender_to_model: SyncSender<Telemetry>,
-    // Sender of the message to the power system.
+    // Sender of the message to the power system
     _sender_to_power_system: SyncSender<Value>,
-    // Receiver of the message to the power system.
+    // Receiver of the message to the power system
     _receiver_to_power_system: Receiver<Value>,
-    // Stop the loop.
+    // Sender of the telemetry to the power system
+    _sender_telemetry_to_power_system: SyncSender<TelemetryPower>,
+    // Receiver of the telemetry to the power system
+    _receiver_telemetry_to_power_system: Receiver<TelemetryPower>,
+    // Stop the loop
     _stop: Arc<AtomicBool>,
 }
 
@@ -63,6 +69,7 @@ impl PowerSystemProcess {
     ///
     /// # Arguments
     /// * `plant` - Plant model. Put None if the hardware mode is applied.
+    /// * `sender_to_daq` - The sender to the data acquisition.
     /// * `sender_to_model` - The sender to the model.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
     /// the loop.
@@ -71,21 +78,30 @@ impl PowerSystemProcess {
     /// New instance of the power system process.
     pub fn new(
         plant: Option<MockPlant>,
+        sender_to_daq: &SyncSender<Value>,
         sender_to_model: &SyncSender<Telemetry>,
         stop: &Arc<AtomicBool>,
     ) -> Self {
-        // Sender and receiver to the power system
+        // Sender and receiver to the power system (commands).
         let (sender_to_power_system, receiver_to_power_system) = sync_channel(BOUND_SYNC_CHANNEL);
+
+        // Sender and receiver of the telemetry to the power system.
+        let (sender_telemetry_to_power_system, receiver_telemetry_to_power_system) =
+            sync_channel(BOUND_SYNC_CHANNEL);
 
         Self {
             _power_system: PowerSystem::new(plant),
 
             _command_schema: Self::create_command_schema(),
 
+            _sender_to_daq: sender_to_daq.clone(),
             _sender_to_model: sender_to_model.clone(),
 
             _sender_to_power_system: sender_to_power_system,
             _receiver_to_power_system: receiver_to_power_system,
+
+            _sender_telemetry_to_power_system: sender_telemetry_to_power_system,
+            _receiver_telemetry_to_power_system: receiver_telemetry_to_power_system,
 
             _stop: stop.clone(),
         }
@@ -111,6 +127,14 @@ impl PowerSystemProcess {
     /// The sender to the power system.
     pub fn get_sender_to_power_system(&self) -> SyncSender<Value> {
         self._sender_to_power_system.clone()
+    }
+
+    /// Get the sender of the telemetry to the power system.
+    ///
+    /// # Returns
+    /// The sender of the telemetry to the power system.
+    pub fn get_sender_telemetry_to_power_system(&self) -> SyncSender<TelemetryPower> {
+        self._sender_telemetry_to_power_system.clone()
     }
 
     /// Run the power system.
@@ -253,13 +277,15 @@ impl PowerSystemProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use serde_json::json;
     use std::path::Path;
     use std::thread::spawn;
 
+    use crate::daq::data_acquisition_process::DataAcquisitionProcess;
     use crate::utility::read_file_stiffness;
 
-    fn create_power_system_process() -> (PowerSystemProcess, Receiver<Telemetry>) {
+    fn create_power_system_process() -> (PowerSystemProcess, Receiver<Telemetry>, Receiver<Value>) {
         // Plant model
         let filepath = Path::new("config/stiff_matrix_m2.yaml");
         let stiffness = read_file_stiffness(filepath);
@@ -268,10 +294,13 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
 
         let (sender_to_model, receiver_to_model) = sync_channel(BOUND_SYNC_CHANNEL);
+        let (sender_to_daq, receiver_to_daq) =
+            DataAcquisitionProcess::create_sender_and_receiver_to_data_acquisition();
 
         (
-            PowerSystemProcess::new(Some(plant), &sender_to_model, &stop),
+            PowerSystemProcess::new(Some(plant), &sender_to_daq, &sender_to_model, &stop),
             receiver_to_model,
+            receiver_to_daq,
         )
     }
 
@@ -304,7 +333,8 @@ mod tests {
 
     #[test]
     fn test_run() {
-        let (mut power_system_process, receiver_to_model) = create_power_system_process();
+        let (mut power_system_process, receiver_to_model, _receiver_to_daq) =
+            create_power_system_process();
         let stop = power_system_process._stop.clone();
 
         let sender_to_power_system = power_system_process.get_sender_to_power_system();
@@ -449,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_calculate_least_common_multiple() {
-        let (power_system_process, _) = create_power_system_process();
+        let power_system_process = create_power_system_process().0;
 
         let lcm = power_system_process.calculate_least_common_multiple(3, 5);
 

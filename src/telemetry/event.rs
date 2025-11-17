@@ -26,8 +26,8 @@ use std::path::Path;
 use crate::config::Config;
 use crate::constants::{NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE};
 use crate::enums::{
-    ClosedLoopControlMode, InclinationTelemetrySource, InnerLoopControlMode, PowerSystemState,
-    PowerType,
+    ClosedLoopControlMode, DataAcquisitionMode, InclinationTelemetrySource, InnerLoopControlMode,
+    PowerSystemState, PowerType,
 };
 use crate::utility::get_parameter;
 
@@ -349,6 +349,20 @@ impl Event {
         })
     }
 
+    /// Get the message of the data acquisition mode.
+    ///
+    /// # Arguments
+    /// * `mode` - Data acquisition mode.
+    ///
+    /// # Returns
+    /// The message of the data acquisition mode.
+    pub fn get_message_data_acquisition_mode(mode: DataAcquisitionMode) -> Value {
+        json!({
+            "id": "dataAcquisitionMode",
+            "mode": mode as u8,
+        })
+    }
+
     /// Get the message of the inner-loop control mode.
     ///
     /// # Arguments
@@ -661,6 +675,17 @@ mod tests {
             json!({
                 "id": "closedLoopControlMode",
                 "mode": ClosedLoopControlMode::OpenLoop as u8,
+            })
+        );
+    }
+
+    #[test]
+    fn test_get_message_data_acquisition_mode() {
+        assert_eq!(
+            Event::get_message_data_acquisition_mode(DataAcquisitionMode::Telemetry),
+            json!({
+                "id": "dataAcquisitionMode",
+                "mode": DataAcquisitionMode::Telemetry as u8,
             })
         );
     }

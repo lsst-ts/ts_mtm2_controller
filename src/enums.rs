@@ -116,6 +116,15 @@ pub enum ClosedLoopControlMode {
     ClosedLoop = 4,
 }
 
+/// Data acquisition mode.
+#[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+pub enum DataAcquisitionMode {
+    Idle = 1,
+    Telemetry = 2,
+    ClosedLoopControl = 3,
+}
+
 /// Inner-loop control mode.
 #[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]

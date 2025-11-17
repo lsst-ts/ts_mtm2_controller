@@ -19,6 +19,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-pub mod config_data_acquisition;
-pub mod data_acquisition;
-pub mod data_acquisition_process;
+use std::path::Path;
+
+use crate::utility::get_parameter;
+
+pub struct ConfigDataAcquisition {
+    // The frequency of data acquisition (DAQ) loop in Hz
+    pub frequency_loop: f64,
+    // The frequency to send the telemetry in Hz
+    pub frequency_send_telemetry: f64,
+    // The frequency to toggle the closed-loop control bit in Hz
+    pub frequency_toggle_bit: f64,
+}
+
+impl ConfigDataAcquisition {
+    /// Create a new ConfigDataAcquisition object.
+    ///
+    /// # Returns
+    /// A new ConfigDataAcquisition object.
+    pub fn new() -> Self {
+        let filepath = Path::new("config/parameters_daq.yaml");
+
+        Self {
+            frequency_loop: get_parameter(filepath, "frequency_loop"),
+            frequency_send_telemetry: get_parameter(filepath, "frequency_send_telemetry"),
+            frequency_toggle_bit: get_parameter(filepath, "frequency_toggle_bit"),
+        }
+    }
+}

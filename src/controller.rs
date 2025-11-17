@@ -41,8 +41,8 @@ use crate::config::Config;
 use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_HARDPOINTS, NUM_HARDPOINTS_AXIAL};
 use crate::control::{lut::Lut, math_tool::check_hardpoints};
 use crate::enums::{
-    BitEnum, ClosedLoopControlMode, CommandActuator, Commander, DigitalOutput, DigitalOutputStatus,
-    ErrorCode, InnerLoopControlMode, PowerSystemState, PowerType,
+    BitEnum, ClosedLoopControlMode, CommandActuator, Commander, DataAcquisitionMode, DigitalOutput,
+    DigitalOutputStatus, ErrorCode, InnerLoopControlMode, PowerSystemState, PowerType,
 };
 use crate::error_handler::ErrorHandler;
 use crate::event_queue::EventQueue;
@@ -55,16 +55,18 @@ pub struct Controller {
     pub status: Status,
     // The commander: CSC or GUI.
     pub commander: Commander,
-    // Error handler.
+    // Error handler
     pub error_handler: ErrorHandler,
     // Events to publish
     pub event_queue: EventQueue,
-    // Last effect telemetry.
+    // Last effect telemetry
     pub last_effective_telemetry: Telemetry,
-    // Sender to the power system.
+    // Sender to the power system
     pub sender_to_power_system: Option<SyncSender<Value>>,
-    // Sender to the control loop.
+    // Sender to the control loop
     pub sender_to_control_loop: Option<SyncSender<Value>>,
+    // Sender to the data acquisition
+    pub sender_to_daq: Option<SyncSender<Value>>,
 }
 
 impl Controller {
@@ -93,6 +95,7 @@ impl Controller {
 
             sender_to_power_system: None,
             sender_to_control_loop: None,
+            sender_to_daq: None,
         }
     }
 
@@ -173,7 +176,7 @@ impl Controller {
     /// # Returns
     /// Some if the configuration is sent. Otherwise, None.
     pub fn send_config_to_control_loop_and_update(&mut self, config: Config) -> Option<()> {
-        if self.status.mode == ClosedLoopControlMode::ClosedLoop {
+        if self.status.mode_control_loop == ClosedLoopControlMode::ClosedLoop {
             error!("Cannot send configuration to control loop when the mode is closed-loop mode.");
 
             return None;
@@ -259,7 +262,7 @@ impl Controller {
     pub fn set_enable_open_loop_max_limit(&mut self, enable: bool) -> Option<()> {
         // We can not enable the open-loop maximum limit when the control loop
         // is in closed-loop mode.
-        if enable && (self.status.mode == ClosedLoopControlMode::ClosedLoop) {
+        if enable && (self.status.mode_control_loop == ClosedLoopControlMode::ClosedLoop) {
             return None;
         }
 
@@ -622,6 +625,22 @@ impl Controller {
         update_result
     }
 
+    /// Update the internal status of data acquisition mode.
+    ///
+    /// # Arguments
+    /// * `event` - Event.
+    ///
+    /// # Returns
+    /// Some if the status is updated. Otherwise, None.
+    pub fn update_internal_status_mode_data_acquisition(&mut self, event: &Value) -> Option<()> {
+        let new_mode: DataAcquisitionMode =
+            DataAcquisitionMode::from_repr(event["mode"].as_u64()? as u8)?;
+
+        self.status.mode_data_acquisition = new_mode;
+
+        Some(())
+    }
+
     /// Update the internal status of closed-loop control mode.
     ///
     /// # Arguments
@@ -629,14 +648,14 @@ impl Controller {
     ///
     /// # Returns
     /// Some if the status is updated. Otherwise, None.
-    pub fn update_internal_status_mode(&mut self, event: &Value) -> Option<()> {
+    pub fn update_internal_status_mode_control_loop(&mut self, event: &Value) -> Option<()> {
         let new_mode: ClosedLoopControlMode =
             ClosedLoopControlMode::from_repr(event["mode"].as_u64()? as u8)?;
 
         // Turn on and toggle the closed-loop control bit in power system if
         // the system is in the closed-loop control.
         let mut do_toggle_bit = false;
-        if (self.status.mode != ClosedLoopControlMode::ClosedLoop)
+        if (self.status.mode_control_loop != ClosedLoopControlMode::ClosedLoop)
             && (new_mode == ClosedLoopControlMode::ClosedLoop)
         {
             do_toggle_bit = true;
@@ -674,7 +693,7 @@ impl Controller {
         }
 
         // Update the internal status
-        self.status.mode = new_mode;
+        self.status.mode_control_loop = new_mode;
 
         Some(())
     }
@@ -802,7 +821,7 @@ impl Controller {
         let mut commands_control_loop = Vec::new();
 
         // Stop the current movement
-        if self.status.mode == ClosedLoopControlMode::OpenLoop {
+        if self.status.mode_control_loop == ClosedLoopControlMode::OpenLoop {
             commands_control_loop.push(json!(
                 {
                     "id": CommandMoveActuators.name(),
@@ -963,7 +982,7 @@ mod tests {
         );
 
         // Should fail when the mode is closed-loop
-        controller.status.mode = ClosedLoopControlMode::ClosedLoop;
+        controller.status.mode_control_loop = ClosedLoopControlMode::ClosedLoop;
         assert!(controller
             .send_config_to_control_loop_and_update(config)
             .is_none());
@@ -1016,12 +1035,12 @@ mod tests {
         let (mut controller, _, _receiver_to_control_loop) = create_controller();
 
         // Invalid open-loop maximum limit
-        controller.status.mode = ClosedLoopControlMode::ClosedLoop;
+        controller.status.mode_control_loop = ClosedLoopControlMode::ClosedLoop;
 
         assert!(controller.set_enable_open_loop_max_limit(true).is_none());
 
         // Valid open-loop maximum limit
-        controller.status.mode = ClosedLoopControlMode::OpenLoop;
+        controller.status.mode_control_loop = ClosedLoopControlMode::OpenLoop;
 
         assert!(controller.set_enable_open_loop_max_limit(true).is_some());
         assert!(
@@ -1297,16 +1316,34 @@ mod tests {
     }
 
     #[test]
-    fn test_update_internal_status_mode() {
+    fn test_update_internal_status_mode_data_acquisition() {
+        let mut controller = create_controller().0;
+
+        assert!(controller
+            .update_internal_status_mode_data_acquisition(&json!({
+                "mode": 3,
+            }))
+            .is_some());
+        assert_eq!(
+            controller.status.mode_data_acquisition,
+            DataAcquisitionMode::ClosedLoopControl,
+        );
+    }
+
+    #[test]
+    fn test_update_internal_status_mode_control_loop() {
         let (mut controller, receiver_to_power_system, _) = create_controller();
 
         // Telemetry-only mode
         assert!(controller
-            .update_internal_status_mode(&json!({
+            .update_internal_status_mode_control_loop(&json!({
                 "mode": 2,
             }))
             .is_some());
-        assert_eq!(controller.status.mode, ClosedLoopControlMode::TelemetryOnly,);
+        assert_eq!(
+            controller.status.mode_control_loop,
+            ClosedLoopControlMode::TelemetryOnly,
+        );
 
         assert_eq!(
             receiver_to_power_system.recv().unwrap(),
@@ -1319,11 +1356,14 @@ mod tests {
 
         // Closed-loop mode
         assert!(controller
-            .update_internal_status_mode(&json!({
+            .update_internal_status_mode_control_loop(&json!({
                 "mode": 4,
             }))
             .is_some());
-        assert_eq!(controller.status.mode, ClosedLoopControlMode::ClosedLoop,);
+        assert_eq!(
+            controller.status.mode_control_loop,
+            ClosedLoopControlMode::ClosedLoop,
+        );
 
         assert_eq!(
             receiver_to_power_system.recv().unwrap(),
@@ -1413,7 +1453,7 @@ mod tests {
         let (mut controller, receiver_to_power_system, receiver_to_control_loop) =
             create_controller();
 
-        controller.status.mode = ClosedLoopControlMode::OpenLoop;
+        controller.status.mode_control_loop = ClosedLoopControlMode::OpenLoop;
         controller.status.ilc_modes[1] = InnerLoopControlMode::Enabled;
 
         controller.transition_to_safe_mode();

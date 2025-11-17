@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn test_command_enable_open_loop_max_limit() {
         let (mut controller, _receiver_to_control_loop) = create_controller();
-        controller.status.mode = ClosedLoopControlMode::ClosedLoop;
+        controller.status.mode_control_loop = ClosedLoopControlMode::ClosedLoop;
 
         let command = CommandEnableOpenLoopMaxLimit;
 
@@ -523,7 +523,7 @@ mod tests {
             .is_none());
 
         // Should succeed.
-        controller.status.mode = ClosedLoopControlMode::OpenLoop;
+        controller.status.mode_control_loop = ClosedLoopControlMode::OpenLoop;
 
         assert!(command
             .execute(

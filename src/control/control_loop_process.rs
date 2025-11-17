@@ -41,7 +41,7 @@ use crate::command::{
 use crate::config::Config;
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::control::control_loop::ControlLoop;
-use crate::telemetry::telemetry::Telemetry;
+use crate::telemetry::{telemetry::Telemetry, telemetry_control_loop::TelemetryControlLoop};
 use crate::utility::{get_message_name, get_message_sequence_id};
 
 pub struct ControlLoopProcess {
@@ -49,13 +49,19 @@ pub struct ControlLoopProcess {
     pub control_loop: ControlLoop,
     // Command schema
     _command_schema: CommandSchema,
-    // Sender of the telemetry to the model.
+    // Sender to the data acquisition
+    _sender_to_daq: SyncSender<Value>,
+    // Sender of the telemetry to the model
     _sender_to_model: SyncSender<Telemetry>,
-    // Sender of the message to the control loop.
+    // Sender of the message to the control loop
     _sender_to_control_loop: SyncSender<Value>,
-    // Receiver of the message to the control loop.
+    // Receiver of the message to the control loop
     _receiver_to_control_loop: Receiver<Value>,
-    // Stop the loop.
+    // Sender of the telemetry to the control loop
+    _sender_telemetry_to_control_loop: SyncSender<TelemetryControlLoop>,
+    // Receiver of the telemetry to the control loop
+    _receiver_telemetry_to_control_loop: Receiver<TelemetryControlLoop>,
+    // Stop the loop
     _stop: Arc<AtomicBool>,
 }
 
@@ -66,6 +72,7 @@ impl ControlLoopProcess {
     /// * `config` - The configuration.
     /// * `is_mirror` - Is the mirror or the surrogate.
     /// * `is_simulation_mode` - Is the simulation mode or not.
+    /// * `sender_to_daq` - The sender to the data acquisition.
     /// * `sender_to_model` - The sender to the model.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
     /// the loop.
@@ -76,21 +83,30 @@ impl ControlLoopProcess {
         config: &Config,
         is_mirror: bool,
         is_simulation_mode: bool,
+        sender_to_daq: &SyncSender<Value>,
         sender_to_model: &SyncSender<Telemetry>,
         stop: &Arc<AtomicBool>,
     ) -> Self {
-        // Sender and receiver to the control loop
+        // Sender and receiver to the control loop (commands).
         let (sender_to_control_loop, receiver_to_control_loop) = sync_channel(BOUND_SYNC_CHANNEL);
+
+        // Sender and receiver of the telemetry to the control loop.
+        let (sender_telemetry_to_control_loop, receiver_telemetry_to_control_loop) =
+            sync_channel(BOUND_SYNC_CHANNEL);
 
         Self {
             control_loop: ControlLoop::new(config, is_mirror, is_simulation_mode),
 
             _command_schema: Self::create_command_schema(),
 
+            _sender_to_daq: sender_to_daq.clone(),
             _sender_to_model: sender_to_model.clone(),
 
             _sender_to_control_loop: sender_to_control_loop,
             _receiver_to_control_loop: receiver_to_control_loop,
+
+            _sender_telemetry_to_control_loop: sender_telemetry_to_control_loop,
+            _receiver_telemetry_to_control_loop: receiver_telemetry_to_control_loop,
 
             _stop: stop.clone(),
         }
@@ -122,6 +138,14 @@ impl ControlLoopProcess {
     /// The sender to the control loop.
     pub fn get_sender_to_control_loop(&self) -> SyncSender<Value> {
         self._sender_to_control_loop.clone()
+    }
+
+    /// Get the sender of the telemetry to the control loop.
+    ///
+    /// # Returns
+    /// The sender of the telemetry to the control loop.
+    pub fn get_sender_telemetry_to_control_loop(&self) -> SyncSender<TelemetryControlLoop> {
+        self._sender_telemetry_to_control_loop.clone()
     }
 
     /// Run the control loop.
@@ -219,11 +243,14 @@ impl ControlLoopProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use serde_json::json;
     use std::path::Path;
     use std::thread::spawn;
 
-    fn create_control_loop_process() -> (ControlLoopProcess, Receiver<Telemetry>) {
+    use crate::daq::data_acquisition_process::DataAcquisitionProcess;
+
+    fn create_control_loop_process() -> (ControlLoopProcess, Receiver<Telemetry>, Receiver<Value>) {
         let config = Config::new(
             Path::new("config/parameters_control.yaml"),
             Path::new("config/lut/handling"),
@@ -232,10 +259,20 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
 
         let (sender_to_model, receiver_to_model) = sync_channel(BOUND_SYNC_CHANNEL);
+        let (sender_to_daq, receiver_to_daq) =
+            DataAcquisitionProcess::create_sender_and_receiver_to_data_acquisition();
 
         (
-            ControlLoopProcess::new(&config, false, true, &sender_to_model, &stop),
+            ControlLoopProcess::new(
+                &config,
+                false,
+                true,
+                &sender_to_daq,
+                &sender_to_model,
+                &stop,
+            ),
             receiver_to_model,
+            receiver_to_daq,
         )
     }
 
@@ -251,7 +288,8 @@ mod tests {
 
     #[test]
     fn test_run() {
-        let (mut control_loop_process, receiver_to_model) = create_control_loop_process();
+        let (mut control_loop_process, receiver_to_model, _receiver_to_daq) =
+            create_control_loop_process();
         let stop = control_loop_process._stop.clone();
 
         let sender_to_control_loop = control_loop_process.get_sender_to_control_loop();

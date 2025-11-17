@@ -47,6 +47,10 @@ namespace power {
   class PowerSystemProcess
 }
 
+namespace daq {
+  class DataAcquisitionProcess
+}
+
 namespace interface {
   class CommandTelemetryServer
 }
@@ -68,6 +72,7 @@ Model ..> MockPlant
 Model ..> ControlLoopProcess
 Model ..> PowerSystemProcess
 Model ..> CommandTelemetryServer
+Model ..> DataAcquisitionProcess
 
 Controller *-- Status
 Controller *-- ErrorHandler
@@ -109,12 +114,24 @@ namespace telemetry {
   class TelemetryControlLoop
 }
 
+Telemetry o-- TelemetryPower
+Telemetry o-- TelemetryControlLoop
+
 namespace command {
+  class CommandSchema
   class CommandDataAcquisition
 }
 
+CommandSchema "1" *-- "n" CommandDataAcquisition
+
+DataAcquisitionProcess *-- DataAcquisition
+DataAcquisitionProcess *-- CommandSchema
+DataAcquisitionProcess ..> CommandDataAcquisition
+DataAcquisitionProcess ..> Telemetry
+
 CommandDataAcquisition --> DataAcquisition
 
+DataAcquisition *-- ConfigDataAcquisition
 DataAcquisition o-- MockPlant
 DataAcquisition *-- EventQueue
 DataAcquisition ..> Event

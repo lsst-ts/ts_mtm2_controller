@@ -82,6 +82,7 @@ The followings are the commands:
 - CommandGetInnerLoopControlMode
 - CommandSetInnerLoopControlMode
 - CommandMoveActuatorSteps
+- CommandSetDataAcquisitionMode
 
 See [here](../src/command/command_data_acquisition.rs) for the details.
 

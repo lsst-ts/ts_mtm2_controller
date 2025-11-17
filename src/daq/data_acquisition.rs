@@ -19,11 +19,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::error;
+use log::{error, info};
 use std::path::Path;
 
 use crate::constants::{NUM_ACTUATOR, NUM_IMS};
-use crate::enums::{DigitalOutput, DigitalOutputStatus, InnerLoopControlMode, PowerType};
+use crate::daq::config_data_acquisition::ConfigDataAcquisition;
+use crate::enums::{
+    DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode, PowerType,
+};
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
 use crate::telemetry::{
@@ -32,17 +35,23 @@ use crate::telemetry::{
 use crate::utility::read_file_stiffness;
 
 pub struct DataAcquisition {
+    // Configuration of the data acquisition
+    pub config: ConfigDataAcquisition,
     // Events to publish
     pub event_queue: EventQueue,
+    // Data acquisition mode
+    pub mode: DataAcquisitionMode,
     // Plant model
     pub plant: Option<MockPlant>,
 }
 
 impl DataAcquisition {
-    /// Create a new Data Acquisition instance. This communicates with the hardwares.
+    /// Create a new Data Acquisition instance. This communicates with the
+    /// hardwares.
     ///
     /// # Arguments
-    /// * `is_simulation_mode` - A boolean indicating whether to run in simulation mode.
+    /// * `is_simulation_mode` - A boolean indicating whether to run in
+    /// simulation mode.
     ///
     /// # Returns
     /// A new instance of DataAcquisition.
@@ -63,7 +72,11 @@ impl DataAcquisition {
         };
 
         Self {
+            config: ConfigDataAcquisition::new(),
+
             event_queue: EventQueue::new(),
+
+            mode: DataAcquisitionMode::Idle,
 
             plant: plant,
         }
@@ -75,6 +88,47 @@ impl DataAcquisition {
     /// True if the simulation mode is enabled. Otherwise, false.
     pub fn is_simulation_mode(&self) -> bool {
         self.plant.is_some()
+    }
+
+    /// Set the data acquisition mode.
+    ///
+    /// # Arguments
+    /// * `mode` - Data acquisition mode.
+    ///
+    /// # Returns
+    /// Some if the mode is set successfully. Otherwise, None.
+    pub fn set_mode(&mut self, mode: DataAcquisitionMode) -> Option<()> {
+        // Do nothing if the mode is the same
+        if self.mode == mode {
+            return Some(());
+        }
+
+        // Idle -> Telemetry -> ClosedLoopControl
+        // ClosedLoopControl -> Telemetry or Idle
+        // Telemetry -> Idle
+        match (self.mode, mode) {
+            (DataAcquisitionMode::Idle, DataAcquisitionMode::Telemetry) => {}
+            (DataAcquisitionMode::Telemetry, DataAcquisitionMode::ClosedLoopControl) => {}
+            (DataAcquisitionMode::Telemetry, DataAcquisitionMode::Idle) => {}
+            (DataAcquisitionMode::ClosedLoopControl, DataAcquisitionMode::Telemetry) => {}
+            (DataAcquisitionMode::ClosedLoopControl, DataAcquisitionMode::Idle) => {}
+            _ => {
+                error!(
+                    "Invalid data acquisition mode transition from {:?} to {:?}.",
+                    self.mode, mode
+                );
+
+                return None;
+            }
+        }
+
+        self.mode = mode;
+        self.event_queue
+            .add_event(Event::get_message_data_acquisition_mode(mode));
+
+        info!("Setting data acquisition mode to {:?}", mode);
+
+        Some(())
     }
 
     /// Get the power telemetry data.
@@ -220,7 +274,8 @@ impl DataAcquisition {
     /// Get the temperature inner-loop controller (ILC) data.
     ///
     /// # Returns
-    /// A tuple containing the ring, intake, and exhaust temperatures in degree Celsius.
+    /// A tuple containing the ring, intake, and exhaust temperatures in degree
+    /// Celsius.
     ///
     /// # Panics
     /// If not in simulation mode.
@@ -240,7 +295,8 @@ impl DataAcquisition {
     /// Get the displacement inner-loop controller (ILC) data.
     ///
     /// # Returns
-    /// A tuple containing the theta-Z and delta-Z displacement sensor readings in micron.
+    /// A tuple containing the theta-Z and delta-Z displacement sensor readings
+    /// in micron.
     ///
     /// # Panics
     /// If not in simulation mode.
@@ -267,6 +323,19 @@ impl DataAcquisition {
             // Update the hardware.
             panic!("Not implemented yet.");
         }
+    }
+
+    /// Initialize the default digital output.
+    pub fn init_default_digital_output(&mut self) {
+        [
+            DigitalOutput::InterlockEnable,
+            DigitalOutput::ResetMotorBreakers,
+            DigitalOutput::ResetCommunicationBreakers,
+        ]
+        .iter()
+        .for_each(|digital_output| {
+            self.switch_digital_output(*digital_output, DigitalOutputStatus::BinaryHighLevel);
+        });
     }
 
     /// Switch the digital output.
@@ -368,6 +437,13 @@ impl DataAcquisition {
             return None;
         }
 
+        // Check the mode
+        if self.mode == DataAcquisitionMode::Idle {
+            error!("Cannot move actuator steps in {:?} mode.", self.mode);
+
+            return None;
+        }
+
         // Do the actuator movement.
         if let Some(plant) = &mut self.plant {
             plant.move_actuator_steps(&actuator_steps);
@@ -378,17 +454,30 @@ impl DataAcquisition {
             panic!("Not implemented yet.");
         }
     }
+
+    /// Toggle the bit for the closed-loop control. This signal is used by the
+    /// safety module to communicate with the global interlock system (GIS).
+    pub fn toggle_bit_closed_loop_control(&mut self) {
+        if self.mode == DataAcquisitionMode::ClosedLoopControl {
+            self.switch_digital_output(
+                DigitalOutput::ClosedLoopControl,
+                DigitalOutputStatus::ToggleBit,
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use approx::assert_relative_eq;
     use serde_json::json;
 
+    use crate::enums::BitEnum;
     use crate::mock::mock_constants::{
         PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
-        TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+        TEST_DIGITAL_OUTPUT_NO_POWER, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
     use crate::mock::mock_power_system::MockPowerSystem;
 
@@ -398,16 +487,7 @@ mod tests {
         let mut data_acquisition = DataAcquisition::new(is_simulation_mode);
 
         if is_simulation_mode {
-            [
-                DigitalOutput::InterlockEnable,
-                DigitalOutput::ResetMotorBreakers,
-                DigitalOutput::ResetCommunicationBreakers,
-            ]
-            .iter()
-            .for_each(|digital_output| {
-                data_acquisition
-                    .switch_digital_output(*digital_output, DigitalOutputStatus::BinaryHighLevel);
-            });
+            data_acquisition.init_default_digital_output();
         }
 
         data_acquisition
@@ -433,6 +513,77 @@ mod tests {
 
         let data_acquisition = create_data_acquisition(false);
         assert!(!data_acquisition.is_simulation_mode());
+    }
+
+    #[test]
+    fn test_set_mode() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        // Should not allow Idle -> ClosedLoopControl
+        assert!(data_acquisition
+            .set_mode(DataAcquisitionMode::ClosedLoopControl)
+            .is_none());
+
+        // Valid transitions
+        assert!(data_acquisition
+            .set_mode(DataAcquisitionMode::Telemetry)
+            .is_some());
+        assert_eq!(data_acquisition.mode, DataAcquisitionMode::Telemetry);
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "dataAcquisitionMode",
+                "mode": DataAcquisitionMode::Telemetry as u8,
+            })]
+        );
+
+        assert!(data_acquisition
+            .set_mode(DataAcquisitionMode::ClosedLoopControl)
+            .is_some());
+        assert_eq!(
+            data_acquisition.mode,
+            DataAcquisitionMode::ClosedLoopControl
+        );
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "dataAcquisitionMode",
+                "mode": DataAcquisitionMode::ClosedLoopControl as u8,
+            })]
+        );
+
+        assert!(data_acquisition
+            .set_mode(DataAcquisitionMode::Telemetry)
+            .is_some());
+        assert_eq!(data_acquisition.mode, DataAcquisitionMode::Telemetry);
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "dataAcquisitionMode",
+                "mode": DataAcquisitionMode::Telemetry as u8,
+            })]
+        );
+
+        assert!(data_acquisition
+            .set_mode(DataAcquisitionMode::Idle)
+            .is_some());
+        assert_eq!(data_acquisition.mode, DataAcquisitionMode::Idle);
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "dataAcquisitionMode",
+                "mode": DataAcquisitionMode::Idle as u8,
+            })]
+        );
+
+        // ClosedLoopControl -> Idle
+        data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
+        data_acquisition.set_mode(DataAcquisitionMode::ClosedLoopControl);
+
+        assert!(data_acquisition
+            .set_mode(DataAcquisitionMode::Idle)
+            .is_some());
+        assert_eq!(data_acquisition.mode, DataAcquisitionMode::Idle);
     }
 
     #[test]
@@ -527,6 +678,18 @@ mod tests {
     }
 
     #[test]
+    fn test_init_default_digital_output() {
+        let data_acquisition = create_data_acquisition(true);
+
+        // Note the create_data_acquisition() already called
+        // init_default_digital_output()
+        assert_eq!(
+            data_acquisition.get_digital_output(),
+            TEST_DIGITAL_OUTPUT_NO_POWER
+        );
+    }
+
+    #[test]
     fn test_set_ilc_mode() {
         let mut data_acquisition = create_data_acquisition(true);
 
@@ -568,14 +731,58 @@ mod tests {
 
         // Test with invalid actuator steps
         let actuator_steps_invalid = vec![100];
+
         assert!(data_acquisition
             .move_actuator_steps(&actuator_steps_invalid)
             .is_none());
 
-        // Test with valid actuator steps
+        // Test with invalid mode
         let actuator_steps_valid = vec![100; NUM_ACTUATOR];
+
+        assert!(data_acquisition
+            .move_actuator_steps(&actuator_steps_valid)
+            .is_none());
+
+        // Test with valid actuator steps and mode
+        data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
+
         assert!(data_acquisition
             .move_actuator_steps(&actuator_steps_valid)
             .is_some());
+    }
+
+    #[test]
+    fn test_toggle_bit_closed_loop_control() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        assert!(
+            data_acquisition.get_digital_output() & DigitalOutput::ClosedLoopControl.bit_value()
+                == 0
+        );
+
+        // Not in the closed-loop control mode
+        data_acquisition.toggle_bit_closed_loop_control();
+
+        assert!(
+            data_acquisition.get_digital_output() & DigitalOutput::ClosedLoopControl.bit_value()
+                == 0
+        );
+
+        // In the closed-loop control mode
+        data_acquisition.mode = DataAcquisitionMode::ClosedLoopControl;
+
+        data_acquisition.toggle_bit_closed_loop_control();
+
+        assert!(
+            data_acquisition.get_digital_output() & DigitalOutput::ClosedLoopControl.bit_value()
+                != 0
+        );
+
+        data_acquisition.toggle_bit_closed_loop_control();
+
+        assert!(
+            data_acquisition.get_digital_output() & DigitalOutput::ClosedLoopControl.bit_value()
+                == 0
+        );
     }
 }

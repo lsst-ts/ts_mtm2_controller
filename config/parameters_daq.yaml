@@ -1,0 +1,13 @@
+---
+# Data acquisition (DAQ) parameters
+
+# The frequency of DAQ loop in Hz.
+frequency_loop: 40.0
+
+# The frequency to send the telemetry in Hz. This frequency should be a divisor
+# of frequency_loop.
+frequency_send_telemetry: 20.0
+
+# The frequency to toggle the closed-loop control bit in Hz. This frequency
+# should be a divisor of frequency_loop.
+frequency_toggle_bit: 10.0
