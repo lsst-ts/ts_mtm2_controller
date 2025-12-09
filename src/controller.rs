@@ -32,17 +32,16 @@ use crate::command::{
         CommandMoveActuators, CommandResetActuatorSteps, CommandResetForceOffsets,
         CommandSetClosedLoopControlMode, CommandSetConfig, CommandSetExternalElevation,
     },
-    command_power_system::{
-        CommandPower, CommandSwitchDigitalOutput, CommandToggleBitClosedLoopControl,
-    },
+    command_data_acquisition::CommandSetDataAcquisitionMode,
+    command_power_system::CommandPower,
     command_schema::Command,
 };
 use crate::config::Config;
 use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_HARDPOINTS, NUM_HARDPOINTS_AXIAL};
 use crate::control::{lut::Lut, math_tool::check_hardpoints};
 use crate::enums::{
-    BitEnum, ClosedLoopControlMode, CommandActuator, Commander, DataAcquisitionMode, DigitalOutput,
-    DigitalOutputStatus, ErrorCode, InnerLoopControlMode, PowerSystemState, PowerType,
+    ClosedLoopControlMode, CommandActuator, Commander, DataAcquisitionMode, ErrorCode,
+    InnerLoopControlMode, PowerSystemState, PowerType,
 };
 use crate::error_handler::ErrorHandler;
 use crate::event_queue::EventQueue;
@@ -641,59 +640,54 @@ impl Controller {
         Some(())
     }
 
-    /// Update the internal status of closed-loop control mode.
+    /// Update the internal status of closed-loop control mode and set the
+    /// data acquisition (DAQ) mode.
+    ///
+    /// # Notes
+    /// If the system is in the closed-loop control, update the DAQ mode to
+    /// closed-loop control mode. This will toggle the closed-loop control bit
+    /// to let the global interlock system (GIS) knows the system is under the
+    /// closed-loop control.
     ///
     /// # Arguments
     /// * `event` - Event.
     ///
     /// # Returns
     /// Some if the status is updated. Otherwise, None.
-    pub fn update_internal_status_mode_control_loop(&mut self, event: &Value) -> Option<()> {
-        let new_mode: ClosedLoopControlMode =
+    pub fn update_internal_status_mode_control_loop_and_set_daq_mode(
+        &mut self,
+        event: &Value,
+    ) -> Option<()> {
+        let new_mode_control_loop: ClosedLoopControlMode =
             ClosedLoopControlMode::from_repr(event["mode"].as_u64()? as u8)?;
 
-        // Turn on and toggle the closed-loop control bit in power system if
-        // the system is in the closed-loop control.
-        let mut do_toggle_bit = false;
-        if (self.status.mode_control_loop != ClosedLoopControlMode::ClosedLoop)
-            && (new_mode == ClosedLoopControlMode::ClosedLoop)
-        {
-            do_toggle_bit = true;
-        }
+        let new_mode_daq = match new_mode_control_loop {
+            ClosedLoopControlMode::Idle => DataAcquisitionMode::Idle,
+            ClosedLoopControlMode::OpenLoop | ClosedLoopControlMode::TelemetryOnly => {
+                DataAcquisitionMode::Telemetry
+            }
+            ClosedLoopControlMode::ClosedLoop => DataAcquisitionMode::ClosedLoopControl,
+        };
 
-        if let Some(sender) = self.sender_to_power_system.as_ref() {
+        if let Some(sender) = self.sender_to_daq.as_ref() {
             if sender
                 .try_send(json!(
                     {
-                        "id": CommandToggleBitClosedLoopControl.name(),
-                        "status": do_toggle_bit,
+                        "id": CommandSetDataAcquisitionMode.name(),
+                        "mode": new_mode_daq as u8,
                     }
                 ))
                 .is_err()
             {
-                error!("Failed to toggle the closed-loop control bit in power system.");
-            }
-
-            // If the new mode is not the closed-loop control mode, this can
-            // make sure we turn off the bit of closed-loop control.
-            if !do_toggle_bit {
-                if sender
-                    .try_send(json!(
-                        {
-                            "id": CommandSwitchDigitalOutput.name(),
-                            "bit": DigitalOutput::ClosedLoopControl.bit_value() as u8,
-                            "status": DigitalOutputStatus::BinaryLowLevel as u8,
-                        }
-                    ))
-                    .is_err()
-                {
-                    error!("Failed to turn off the closed-loop control bit in power system.");
-                }
+                error!(
+                    "Failed to set the data acquisition mode to be {:?}.",
+                    new_mode_daq
+                );
             }
         }
 
         // Update the internal status
-        self.status.mode_control_loop = new_mode;
+        self.status.mode_control_loop = new_mode_control_loop;
 
         Some(())
     }
@@ -897,18 +891,26 @@ mod tests {
     use crate::telemetry::telemetry_control_loop::TelemetryControlLoop;
     use crate::telemetry::telemetry_power::TelemetryPower;
 
-    fn create_controller() -> (Controller, Receiver<Value>, Receiver<Value>) {
+    fn create_controller() -> (
+        Controller,
+        Receiver<Value>,
+        Receiver<Value>,
+        Receiver<Value>,
+    ) {
         let (sender_to_power_system, receiver_to_power_system) = sync_channel(BOUND_SYNC_CHANNEL);
         let (sender_to_control_loop, receiver_to_control_loop) = sync_channel(BOUND_SYNC_CHANNEL);
+        let (sender_to_daq, receiver_to_daq) = sync_channel(BOUND_SYNC_CHANNEL);
 
         let mut controller = Controller::new(Path::new("config/lut/handling"));
         controller.sender_to_power_system = Some(sender_to_power_system);
         controller.sender_to_control_loop = Some(sender_to_control_loop);
+        controller.sender_to_daq = Some(sender_to_daq);
 
         (
             controller,
             receiver_to_power_system,
             receiver_to_control_loop,
+            receiver_to_daq,
         )
     }
 
@@ -926,7 +928,7 @@ mod tests {
 
     #[test]
     fn test_set_hardpoints() {
-        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+        let (mut controller, _, _receiver_to_control_loop, _) = create_controller();
 
         // Invalid hardpoints
         assert!(controller.set_hardpoints(&vec![0, 1, 2, 3, 4, 6]).is_none());
@@ -943,7 +945,7 @@ mod tests {
 
     #[test]
     fn test_send_config_to_control_loop_and_update() {
-        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+        let (mut controller, _, _receiver_to_control_loop, _) = create_controller();
 
         // Should succeed when the mode is not closed-loop
         let mut config = controller.error_handler.config_control_loop.clone();
@@ -990,7 +992,7 @@ mod tests {
 
     #[test]
     fn test_set_config() {
-        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+        let (mut controller, _, _receiver_to_control_loop, _) = create_controller();
 
         // Invalid config file
         assert!(controller.set_config("invalid_file").is_none());
@@ -1032,7 +1034,7 @@ mod tests {
 
     #[test]
     fn test_set_enable_open_loop_max_limit() {
-        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+        let (mut controller, _, _receiver_to_control_loop, _) = create_controller();
 
         // Invalid open-loop maximum limit
         controller.status.mode_control_loop = ClosedLoopControlMode::ClosedLoop;
@@ -1053,7 +1055,7 @@ mod tests {
 
     #[test]
     fn test_set_enabled_faults_mask() {
-        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+        let (mut controller, _, _receiver_to_control_loop, _) = create_controller();
 
         assert!(controller.set_enabled_faults_mask(1).is_some());
         assert_eq!(
@@ -1067,7 +1069,7 @@ mod tests {
 
     #[test]
     fn test_update_external_elevation() {
-        let (controller, _, receiver_to_control_loop) = create_controller();
+        let (controller, _, receiver_to_control_loop, _) = create_controller();
 
         controller.update_external_elevation(&json!({
             "id": "tel_elevation",
@@ -1084,7 +1086,7 @@ mod tests {
 
     #[test]
     fn test_switch_force_balance_system() {
-        let (mut controller, _, receiver_to_control_loop) = create_controller();
+        let (mut controller, _, receiver_to_control_loop, _) = create_controller();
 
         // Should fail if the power systems are not powered on
         assert!(controller.switch_force_balance_system(true).is_none());
@@ -1122,7 +1124,7 @@ mod tests {
 
     #[test]
     fn test_update_closed_loop_control_mode() {
-        let (mut controller, _, receiver_to_control_loop) = create_controller();
+        let (mut controller, _, receiver_to_control_loop, _) = create_controller();
         controller
             .error_handler
             .config_control_loop
@@ -1331,12 +1333,28 @@ mod tests {
     }
 
     #[test]
-    fn test_update_internal_status_mode_control_loop() {
-        let (mut controller, receiver_to_power_system, _) = create_controller();
+    fn test_update_internal_status_mode_control_loop_and_set_daq_mode() {
+        let (mut controller, _, _, receiver_to_daq) = create_controller();
+
+        // Idle mode
+        assert!(controller
+            .update_internal_status_mode_control_loop_and_set_daq_mode(&json!({
+                "mode": 1,
+            }))
+            .is_some());
+        assert_eq!(
+            controller.status.mode_control_loop,
+            ClosedLoopControlMode::Idle,
+        );
+
+        assert_eq!(
+            receiver_to_daq.recv().unwrap(),
+            json!({"id": "cmd_setDataAcquisitionMode", "mode": 1})
+        );
 
         // Telemetry-only mode
         assert!(controller
-            .update_internal_status_mode_control_loop(&json!({
+            .update_internal_status_mode_control_loop_and_set_daq_mode(&json!({
                 "mode": 2,
             }))
             .is_some());
@@ -1346,17 +1364,13 @@ mod tests {
         );
 
         assert_eq!(
-            receiver_to_power_system.recv().unwrap(),
-            json!({"id": "cmd_toggleBitClosedLoopControl", "status": false})
-        );
-        assert_eq!(
-            receiver_to_power_system.recv().unwrap(),
-            json!({"id": "cmd_switchDigitalOutput", "bit": 32, "status": 1})
+            receiver_to_daq.recv().unwrap(),
+            json!({"id": "cmd_setDataAcquisitionMode", "mode": 2})
         );
 
         // Closed-loop mode
         assert!(controller
-            .update_internal_status_mode_control_loop(&json!({
+            .update_internal_status_mode_control_loop_and_set_daq_mode(&json!({
                 "mode": 4,
             }))
             .is_some());
@@ -1366,8 +1380,8 @@ mod tests {
         );
 
         assert_eq!(
-            receiver_to_power_system.recv().unwrap(),
-            json!({"id": "cmd_toggleBitClosedLoopControl", "status": true})
+            receiver_to_daq.recv().unwrap(),
+            json!({"id": "cmd_setDataAcquisitionMode", "mode": 3})
         );
     }
 
@@ -1418,7 +1432,7 @@ mod tests {
 
     #[test]
     fn test_set_mirror_home() {
-        let (mut controller, _, _receiver_to_control_loop) = create_controller();
+        let (mut controller, _, _receiver_to_control_loop, _) = create_controller();
 
         // Should fail if there is no effective telemetry
         assert!(controller.set_mirror_home().is_none());
@@ -1450,7 +1464,7 @@ mod tests {
 
     #[test]
     fn test_transition_to_safe_mode() {
-        let (mut controller, receiver_to_power_system, receiver_to_control_loop) =
+        let (mut controller, receiver_to_power_system, receiver_to_control_loop, _) =
             create_controller();
 
         controller.status.mode_control_loop = ClosedLoopControlMode::OpenLoop;
