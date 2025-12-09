@@ -45,7 +45,8 @@ use crate::command::{
         CommandSetMirrorHome, CommandSetTemperatureOffset, CommandSwitchCommandSource,
         CommandSwitchForceBalanceSystem,
     },
-    command_power_system::{CommandPower, CommandResetBreakers, CommandSwitchDigitalOutput},
+    command_data_acquisition::CommandSwitchDigitalOutput,
+    command_power_system::{CommandPower, CommandResetBreakers},
     command_schema::{Command, CommandSchema},
 };
 use crate::constants::BOUND_SYNC_CHANNEL;
@@ -54,10 +55,9 @@ use crate::controller::Controller;
 use crate::daq::data_acquisition_process::DataAcquisitionProcess;
 use crate::enums::{
     BitEnum, ClosedLoopControlMode, CommandStatus, Commander, DigitalInput, DigitalOutput,
-    DigitalOutputStatus, ErrorCode, PowerType,
+    ErrorCode, PowerType,
 };
 use crate::interface::command_telemetry_server::CommandTelemetryServer;
-use crate::mock::mock_plant::MockPlant;
 use crate::power::power_system_process::PowerSystemProcess;
 use crate::telemetry::{
     event::Event, telemetry::Telemetry, telemetry_control_loop::TelemetryControlLoop,
@@ -185,11 +185,14 @@ impl Model {
     /// Commands.
     fn create_commands() -> HashMap<String, Vec<String>> {
         // The commands here need to be in the
+        // DataAcquisitionProcess.create_command_schema()
+        let commands_data_acquisition = vec![CommandSwitchDigitalOutput.name().to_string()];
+
+        // The commands here need to be in the
         // PowerSystemProcess.create_command_schema()
         let commands_power = vec![
             CommandPower.name().to_string(),
             CommandResetBreakers.name().to_string(),
-            CommandSwitchDigitalOutput.name().to_string(),
         ];
 
         // The commands here need to be in the
@@ -213,6 +216,7 @@ impl Model {
             .collect();
 
         let mut commands = HashMap::new();
+        commands.insert("data_acquisition".to_string(), commands_data_acquisition);
         commands.insert("power".to_string(), commands_power);
         commands.insert("control_loop".to_string(), commands_control_loop);
         commands.insert("controller".to_string(), commands_controller);
@@ -260,9 +264,8 @@ impl Model {
             DataAcquisitionProcess::create_sender_and_receiver_to_data_acquisition();
         self._controller.sender_to_daq = Some(sender_to_daq.clone());
 
-        let (plant, sender_telemetry_to_control_loop) = self.run_control_loop(&sender_to_daq);
-
-        let sender_telemetry_to_power = self.run_power_system(plant, &sender_to_daq);
+        let sender_telemetry_to_control_loop = self.run_control_loop(&sender_to_daq);
+        let sender_telemetry_to_power = self.run_power_system(&sender_to_daq);
 
         self.run_data_acquisition(
             &sender_telemetry_to_control_loop,
@@ -429,11 +432,11 @@ impl Model {
     /// * `sender_to_daq` - The sender to the data acquisition.
     ///
     /// # Returns
-    /// The plant model and the telemetry sender.
+    /// The telemetry sender.
     fn run_control_loop(
         &mut self,
         sender_to_daq: &SyncSender<Value>,
-    ) -> (Option<MockPlant>, SyncSender<TelemetryControlLoop>) {
+    ) -> SyncSender<TelemetryControlLoop> {
         // Read the configuration file
         let config_file = Path::new("config/parameters_app.yaml");
         let is_mirror = get_parameter(config_file, "is_mirror");
@@ -454,8 +457,6 @@ impl Model {
             &self.stop,
         );
 
-        let plant = control_loop_process.control_loop.plant.clone();
-
         self._controller.sender_to_control_loop =
             Some(control_loop_process.get_sender_to_control_loop());
 
@@ -468,36 +469,22 @@ impl Model {
 
         self._handles.push(handle);
 
-        (plant, sender_telemetry_to_control_loop)
+        sender_telemetry_to_control_loop
     }
 
     /// Run the power system.
     ///
     /// # Arguments
-    /// * `plant` - Plant model. Put None if the hardware mode is applied.
     /// * `sender_to_daq` - The sender to the data acquisition.
     ///
     /// # Returns
     /// The telemetry sender.
     fn run_power_system(
         &mut self,
-        mut plant: Option<MockPlant>,
         sender_to_daq: &SyncSender<Value>,
     ) -> SyncSender<TelemetryPower> {
-        // Make sure the mock plant (if any) has no power
-        if let Some(mock_plant) = plant.as_mut() {
-            mock_plant.switch_digital_output(
-                DigitalOutput::MotorPower,
-                DigitalOutputStatus::BinaryLowLevel,
-            );
-            mock_plant.switch_digital_output(
-                DigitalOutput::CommunicationPower,
-                DigitalOutputStatus::BinaryLowLevel,
-            );
-        }
-
         let mut power_system_process = PowerSystemProcess::new(
-            plant,
+            self._is_simulation_mode,
             sender_to_daq,
             &self
                 ._sender_to_model
@@ -738,6 +725,15 @@ impl Model {
 
             // Process the command
 
+            // Pass the data acquisition command to the data acquisition
+            if all_commands["data_acquisition"].contains(&name) {
+                if let Some(sender) = controller.sender_to_daq.as_ref() {
+                    let _ = sender.try_send(message.clone());
+                }
+
+                return true;
+            }
+
             // Pass the power command to the power system
             if all_commands["power"].contains(&name) {
                 if let Some(sender) = controller.sender_to_power_system.as_ref() {
@@ -975,7 +971,7 @@ impl Model {
             } else if name == "closedLoopControlMode" {
                 if self
                     ._controller
-                    .update_internal_status_mode_control_loop(event)
+                    .update_internal_status_mode_control_loop_and_set_daq_mode(event)
                     .is_none()
                 {
                     debug!("Failed to update the closed-loop control mode: {event}.");
@@ -1101,15 +1097,14 @@ mod tests {
     use std::time::Duration;
 
     use crate::constants::{LOCAL_HOST, NUM_INNER_LOOP_CONTROLLER, TERMINATOR};
-    use crate::enums::{InnerLoopControlMode, PowerSystemState};
+    use crate::enums::{DataAcquisitionMode, InnerLoopControlMode, PowerSystemState};
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
         TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_NO_POWER,
         TEST_DIGITAL_OUTPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
     use crate::utility::{
-        client_read_and_assert, client_read_json, client_read_specific_json,
-        client_write_and_sleep, read_file_stiffness,
+        client_read_and_assert, client_read_json, client_read_specific_json, client_write_and_sleep,
     };
 
     const MAX_TIME_WAIT_FOR_COMMAND_RESULT: i32 = 500;
@@ -1180,6 +1175,15 @@ mod tests {
         }
     }
 
+    fn wait_for_data_acquisition_mode(model: &mut Model, expected_mode: DataAcquisitionMode) {
+        for _idx in 0..MAX_TIME_WAIT_FOR_COMMAND_RESULT {
+            model.step();
+            if model._controller.status.mode_data_acquisition == expected_mode {
+                break;
+            }
+        }
+    }
+
     fn run_until_powers_off(model: &mut Model) {
         loop {
             let controller = &model._controller;
@@ -1245,13 +1249,7 @@ mod tests {
         let mut model = create_model();
 
         let (sender, _receiver) = sync_channel(BOUND_SYNC_CHANNEL);
-        model.run_power_system(
-            Some(MockPlant::new(
-                &read_file_stiffness(Path::new("config/stiff_matrix_m2.yaml")),
-                90.0,
-            )),
-            &sender,
-        );
+        model.run_power_system(&sender);
 
         model.stop();
     }
@@ -1557,6 +1555,12 @@ mod tests {
             .bypassed_actuator_ilcs;
         assert!(model._controller.status.are_ilc_enabled(bypassed_ilcs));
 
+        // Check the current data acquisition mode
+        assert_eq!(
+            model._controller.status.mode_data_acquisition,
+            DataAcquisitionMode::Idle
+        );
+
         // Set the open-loop mode (skip the telemetry mode)
         client_write_and_sleep(
             &mut client_command_gui,
@@ -1569,6 +1573,13 @@ mod tests {
         assert_eq!(
             model._controller.status.mode_control_loop,
             ClosedLoopControlMode::OpenLoop
+        );
+
+        wait_for_data_acquisition_mode(&mut model, DataAcquisitionMode::Telemetry);
+
+        assert_eq!(
+            model._controller.status.mode_data_acquisition,
+            DataAcquisitionMode::Telemetry
         );
 
         // Turn on the force balance system
@@ -1585,6 +1596,13 @@ mod tests {
             ClosedLoopControlMode::ClosedLoop
         );
 
+        wait_for_data_acquisition_mode(&mut model, DataAcquisitionMode::ClosedLoopControl);
+
+        assert_eq!(
+            model._controller.status.mode_data_acquisition,
+            DataAcquisitionMode::ClosedLoopControl
+        );
+
         // Wait for the mirror to be in position
         loop {
             model.step();
@@ -1599,6 +1617,27 @@ mod tests {
         assert_eq!(
             client_read_specific_json(&mut client_command_gui, TERMINATOR, "m2AssemblyInPosition"),
             json!({"id": "m2AssemblyInPosition", "inPosition": true})
+        );
+
+        // Turn off the force balance system
+        client_write_and_sleep(
+            &mut client_command_gui,
+            "{\"id\":\"cmd_switchForceBalanceSystem\",\"sequence_id\":6,\"status\":false}\r\n",
+            SLEEP_TIME,
+        );
+
+        wait_for_command_result_and_reset(&mut model);
+
+        assert_eq!(
+            model._controller.status.mode_control_loop,
+            ClosedLoopControlMode::OpenLoop
+        );
+
+        wait_for_data_acquisition_mode(&mut model, DataAcquisitionMode::Telemetry);
+
+        assert_eq!(
+            model._controller.status.mode_data_acquisition,
+            DataAcquisitionMode::Telemetry
         );
 
         model.stop();
