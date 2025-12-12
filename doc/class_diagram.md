@@ -31,6 +31,7 @@ namespace command {
   class CommandController
   class CommandPowerSystem
   class CommandControlLoop
+  class CommandDataAcquisition
 }
 
 CommandSchema "1" *-- "n" CommandController
@@ -64,6 +65,7 @@ Model *-- CommandSchema
 Model ..> CommandController
 Model ..> CommandPowerSystem
 Model ..> CommandControlLoop
+Model ..> CommandDataAcquisition
 Model ..> Event
 Model ..> Telemetry
 Model ..> TelemetryPower
@@ -81,6 +83,9 @@ Controller *-- Telemetry
 Controller ..> Event
 Controller ..> Config
 Controller ..> Lut
+Controller ..> CommandPowerSystem
+Controller ..> CommandControlLoop
+Controller ..> CommandDataAcquisition
 
 Status *-- ConnectionStatus
 Status "1" *-- "2" SubPowerSystem
@@ -151,10 +156,6 @@ namespace main {
   class ErrorHandler
 }
 
-namespace mock {
-  class MockPlant
-}
-
 namespace telemetry {
   class Event
   class Telemetry
@@ -166,6 +167,7 @@ Telemetry o-- TelemetryPower
 namespace command {
   class CommandSchema
   class CommandPowerSystem
+  class CommandDataAcquisition
 }
 
 CommandSchema "1" *-- "n" CommandPowerSystem
@@ -173,13 +175,13 @@ CommandSchema "1" *-- "n" CommandPowerSystem
 PowerSystemProcess *-- PowerSystem
 PowerSystemProcess *-- CommandSchema
 PowerSystemProcess ..> CommandPowerSystem
+PowerSystemProcess ..> CommandDataAcquisition
 PowerSystemProcess ..> Telemetry
 
 CommandPowerSystem --> PowerSystem
 
 PowerSystem *-- ConfigPower
 PowerSystem "1" *-- "2" SubPowerSystem
-PowerSystem o-- MockPlant
 PowerSystem *-- EventQueue
 PowerSystem ..> Event
 PowerSystem --> TelemetryPower

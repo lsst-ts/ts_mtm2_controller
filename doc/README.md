@@ -52,8 +52,6 @@ The followings are the commands:
 
 - CommandPower
 - CommandResetBreakers
-- CommandToggleBitClosedLoopControl
-- CommandSwitchDigitalOutput
 
 See [here](../src/command/command_power_system.rs) for the details.
 

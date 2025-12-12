@@ -25,7 +25,7 @@ use crate::command::command_schema::Command;
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
 use crate::daq::data_acquisition::DataAcquisition;
-use crate::enums::{DigitalOutput, DigitalOutputStatus, PowerType};
+use crate::enums::PowerType;
 use crate::power::power_system::PowerSystem;
 use crate::utility::get_message_sequence_id;
 
@@ -84,91 +84,42 @@ impl Command for CommandResetBreakers {
     }
 }
 
-/// Command to toggle the bit of closed loop control.
-pub struct CommandToggleBitClosedLoopControl;
-impl Command for CommandToggleBitClosedLoopControl {
-    fn name(&self) -> &str {
-        "cmd_toggleBitClosedLoopControl"
-    }
-
-    fn execute(
-        &self,
-        message: &Value,
-        _data_acquisition: Option<&mut DataAcquisition>,
-        power_system: Option<&mut PowerSystem>,
-        _control_loop: Option<&mut ControlLoop>,
-        _controller: Option<&mut Controller>,
-    ) -> Option<()> {
-        let system = power_system?;
-        system.is_closed_loop_control = message["status"].as_bool()?;
-
-        Some(())
-    }
-}
-
-/// Command to switch the digital output.
-pub struct CommandSwitchDigitalOutput;
-impl Command for CommandSwitchDigitalOutput {
-    fn name(&self) -> &str {
-        "cmd_switchDigitalOutput"
-    }
-
-    fn execute(
-        &self,
-        message: &Value,
-        _data_acquisition: Option<&mut DataAcquisition>,
-        power_system: Option<&mut PowerSystem>,
-        _control_loop: Option<&mut ControlLoop>,
-        _controller: Option<&mut Controller>,
-    ) -> Option<()> {
-        let bit = message["bit"].as_u64()?;
-        let digital_output = DigitalOutput::from_repr(bit as u8)?;
-
-        let status = message["status"].as_u64()?;
-        let digital_output_status = DigitalOutputStatus::from_repr(status as u8)?;
-
-        let system = power_system?;
-        system.switch_digital_output(digital_output, digital_output_status);
-
-        Some(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use std::path::Path;
 
-    use crate::enums::{BitEnum, PowerSystemState};
+    use crate::enums::PowerSystemState;
     use crate::mock::mock_constants::{PLANT_VOLTAGE, TEST_DIGITAL_INPUT_POWER_COMM};
     use crate::mock::mock_plant::MockPlant;
     use crate::utility::read_file_stiffness;
 
-    fn create_power_system() -> PowerSystem {
+    fn create_power_system() -> (PowerSystem, MockPlant) {
         // Plant model
         let filepath = Path::new("config/stiff_matrix_m2.yaml");
         let stiffness = read_file_stiffness(filepath);
         let plant = MockPlant::new(&stiffness, 0.0);
 
-        PowerSystem::new(Some(plant))
+        (PowerSystem::new(), plant)
     }
 
     fn run_until_done(
         power_type: PowerType,
         power_system: &mut PowerSystem,
+        plant: &mut MockPlant,
         voltage: f64,
         digital_input: u32,
     ) {
         loop {
-            power_system
-                .transition_state(
-                    power_type,
-                    voltage,
-                    power_system.get_digital_output(),
-                    digital_input,
-                )
-                .0;
+            power_system.transition_state(power_type, voltage, plant.digital_output, digital_input);
+
+            if power_system.has_actions() {
+                let actions = power_system.get_actions_and_clear();
+                for (digital_output, status) in actions {
+                    plant.switch_digital_output(digital_output, status);
+                }
+            }
 
             if power_system.has_command_result() {
                 break;
@@ -178,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_command_power() {
-        let mut power_system = create_power_system();
+        let mut power_system = create_power_system().0;
 
         let command = CommandPower;
 
@@ -209,8 +160,6 @@ mod tests {
             .is_none());
 
         // Power off
-        power_system.is_closed_loop_control = true;
-
         assert!(command
             .execute(
                 &json!({"powerType": 1, "status": false}),
@@ -222,12 +171,11 @@ mod tests {
             .is_some());
 
         assert!(!power_system.subsystem[&PowerType::Motor].is_power_on);
-        assert!(!power_system.is_closed_loop_control);
     }
 
     #[test]
     fn test_command_reset_breakers() {
-        let mut power_system = create_power_system();
+        let (mut power_system, mut plant) = create_power_system();
         power_system.power_on(PowerType::Communication, 1);
 
         // Note we put the final voltage and digital input values here to get
@@ -235,6 +183,7 @@ mod tests {
         run_until_done(
             PowerType::Communication,
             &mut power_system,
+            &mut plant,
             PLANT_VOLTAGE,
             TEST_DIGITAL_INPUT_POWER_COMM,
         );
@@ -267,45 +216,5 @@ mod tests {
                 None
             )
             .is_none());
-    }
-
-    #[test]
-    fn test_command_toggle_bit_closed_loop_control() {
-        let mut power_system = create_power_system();
-
-        let command = CommandToggleBitClosedLoopControl;
-
-        assert_eq!(command.name(), "cmd_toggleBitClosedLoopControl");
-        assert!(command
-            .execute(
-                &json!({"status": true}),
-                None,
-                Some(&mut power_system),
-                None,
-                None
-            )
-            .is_some());
-
-        assert!(power_system.is_closed_loop_control);
-    }
-
-    #[test]
-    fn test_command_switch_digital_output() {
-        let mut power_system = create_power_system();
-
-        let command = CommandSwitchDigitalOutput;
-
-        assert_eq!(command.name(), "cmd_switchDigitalOutput");
-        assert!(command
-            .execute(
-                &json!({"bit": 1, "status": 2}),
-                None,
-                Some(&mut power_system),
-                None,
-                None
-            )
-            .is_some());
-
-        assert!(power_system.get_digital_output() & DigitalOutput::MotorPower.bit_value() != 0);
     }
 }
