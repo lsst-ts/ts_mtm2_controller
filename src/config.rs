@@ -100,7 +100,7 @@ impl Config {
     ///
     /// # Arguments
     /// * `filepath_parameters_control` - The path to the control parameters
-    /// file.
+    ///   file.
     /// * `lut_dir` - The path to the directory that contains the look-up table.
     ///
     /// # Returns
@@ -226,7 +226,7 @@ impl Config {
     ///
     /// # Arguments
     /// * `filepath_parameters_control` - The path to the control parameters
-    /// file.
+    ///   file.
     ///
     /// # Returns
     /// Six 0-based hardpoints. The order is from low to high.

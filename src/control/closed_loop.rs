@@ -63,82 +63,83 @@ impl ClosedLoop {
     ///
     /// # Arguments
     /// * `gain_prefilter_axial` - Gain of the prefilter for the axial
-    /// actuators.
+    ///   actuators.
     /// * `params_prefilter_axial` - Parameters of the prefilter for the axial
-    /// actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N b2N].
+    ///   actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N b2N].
     /// * `gain_prefilter_tangent` - Gain of the prefilter for the tangent
-    /// actuators.
+    ///   actuators.
     /// * `params_prefilter_tangent` - Parameters of the prefilter for the
-    /// tangent actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N
-    /// b2N].
+    ///   tangent actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N
+    ///   b2N].
     /// * `params_cmd_delay_axial` - Parameters of the command delay filter for
-    /// the axial actuators: [b0, b1, b2, ..., bN].
+    ///   the axial actuators: [b0, b1, b2, ..., bN].
     /// * `params_cmd_delay_tangent` - Parameters of the command delay filter
-    /// for the tangent actuators: [b0, b1, b2, ..., bN].
-    /// * `gain_control_filter_axial` - Gain of the control filter for the axial
-    /// actuators.
+    ///   for the tangent actuators: [b0, b1, b2, ..., bN].
+    /// * `gain_control_filter_axial` - Gain of the control filter for the
+    ///   axial actuators.
     /// * `params_control_filter_axial` - Parameters of the control filter for
-    /// the axial actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N
-    /// b2N].
+    ///   the axial actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N
+    ///   b2N].
     /// * `gain_control_filter_tangent` - Gain of the control filter for the
-    /// tangent actuators.
-    /// * `params_control_filter_tangent` - Parameters of the control filter for
-    /// the tangent actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N a2N b1N
-    /// b2N].
+    ///   tangent actuators.
+    /// * `params_control_filter_tangent` - Parameters of the control filter
+    ///   for the tangent actuators: [a11 a21 b11 b21 a12 a22 b12 b22 ... a1N
+    ///   a2N b1N b2N].
     /// * `kdc` - Decoupling matrix.
     /// * `kinfl` - Influence matrix.
     /// * `hd_comp` - Hardpoint compensation matrix.
     /// * `thresholds_deadzone_axial` - The [lower, upper] thresholds of the
-    /// axial hardpoint error in deadzone. The unit is Newton.
+    ///   axial hardpoint error in deadzone. The unit is Newton.
     /// * `thresholds_deadzone_tangent` - The [lower, upper] thresholds of the
-    /// tangent hardpoint error in deadzone. The unit is Newton.
+    ///   tangent hardpoint error in deadzone. The unit is Newton.
     /// * `min_gain_schedular_axial` - Minimum gain for the axial actuators in
-    /// the gain schedular. The value should be in (0.0, 1.0).
+    ///   the gain schedular. The value should be in (0.0, 1.0).
     /// * `min_gain_schedular_tangent` - Minimum gain for the tangent actuators
-    /// in the gain schedular. The value should be in (0.0, 1.0).
+    ///   in the gain schedular. The value should be in (0.0, 1.0).
     /// * `num_sample_ramp_up` - Number of samples in the ramping up process in
-    /// the gain schedular. This value can not be 0.
-    /// * `num_sample_ramp_down` - Number of samples in the ramping down process
-    /// in the gain schedular. This value can not be 0.
+    ///   the gain schedular. This value can not be 0.
+    /// * `num_sample_ramp_down` - Number of samples in the ramping down
+    ///   process in the gain schedular. This value can not be 0.
     /// * `max_sample_settle` - Maximum number of samples in the settling
-    /// process in the gain schedular. This value can not be 0.
+    ///   process in the gain schedular. This value can not be 0.
     /// * `step_limit_axial` - Step limit of the axial actuator in each control
-    /// cycle.
+    ///   cycle.
     /// * `step_limit_tangent` - Step limit of the tangent actuator in each
-    /// control cycle.
+    ///   control cycle.
     /// * `in_position_window_size` - Window size in second to judge the mirror
-    /// is in position or not.
+    ///   is in position or not.
     /// * `in_position_control_frequency` - Control frequency in Hz to judge
-    /// the mirror is in position or not.
+    ///   the mirror is in position or not.
     /// * `in_position_threshold_axial` - Threshold of the force error of axial
-    /// actuator in Newton to judge the mirror is in position or not.
+    ///   actuator in Newton to judge the mirror is in position or not.
     /// * `in_position_threshold_tangent` - Threshold of the force error of
-    /// tangent actuator in Newton to judge the mirror is in position or not.
+    ///   tangent actuator in Newton to judge the mirror is in position or not.
     /// * `is_feedforward` - The feedforward is on or not.
     /// * `is_feedback` - The feedback is on or not.
-    /// * `is_deadzone_enabled_axial` - Deadzone is enabled or not for the axial
-    /// hardpoints.
+    /// * `is_deadzone_enabled_axial` - Deadzone is enabled or not for the
+    ///   axial hardpoints.
     /// * `is_deadzone_enabled_tangent` - Deadzone is enabled or not for the
-    /// tangent hardpoints.
+    ///   tangent hardpoints.
     ///
     /// # Returns
     /// A new instance of the closed-loop.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         gain_prefilter_axial: f64,
-        params_prefilter_axial: &Vec<Vec<f64>>,
+        params_prefilter_axial: &[Vec<f64>],
         gain_prefilter_tangent: f64,
-        params_prefilter_tangent: &Vec<Vec<f64>>,
-        params_cmd_delay_axial: &Vec<f64>,
-        params_cmd_delay_tangent: &Vec<f64>,
+        params_prefilter_tangent: &[Vec<f64>],
+        params_cmd_delay_axial: &[f64],
+        params_cmd_delay_tangent: &[f64],
         gain_control_filter_axial: f64,
-        params_control_filter_axial: &Vec<Vec<f64>>,
+        params_control_filter_axial: &[Vec<f64>],
         gain_control_filter_tangent: f64,
-        params_control_filter_tangent: &Vec<Vec<f64>>,
+        params_control_filter_tangent: &[Vec<f64>],
         kdc: &SMatrix<f64, NUM_ACTIVE_ACTUATOR, NUM_ACTIVE_ACTUATOR>,
         kinfl: &SMatrix<f64, NUM_ACTIVE_ACTUATOR, NUM_ACTIVE_ACTUATOR>,
         hd_comp: &SMatrix<f64, NUM_ACTIVE_ACTUATOR, NUM_HARDPOINTS>,
-        thresholds_deadzone_axial: &Vec<f64>,
-        thresholds_deadzone_tangent: &Vec<f64>,
+        thresholds_deadzone_axial: &[f64],
+        thresholds_deadzone_tangent: &[f64],
         min_gain_schedular_axial: f64,
         min_gain_schedular_tangent: f64,
         num_sample_ramp_up: i32,
@@ -444,9 +445,9 @@ impl ClosedLoop {
     /// # Arguments
     /// * `force_measured` - Measured force in Newton.
     /// * `demand_hardpoint_axial` - Demanded force of the axial hardpoints in
-    /// Newton.
+    ///   Newton.
     /// * `demand_hardpoint_tangent` - Demanded force of the tangent hardpoints
-    /// in Newton.
+    ///   in Newton.
     /// * `hardpoints` - Six 0-based hardpoints. The order is from low to high.
     ///
     /// # Returns
@@ -533,7 +534,7 @@ impl ClosedLoop {
     ///
     /// # Arguments
     /// * `actuator_steps` - The 78 actuator steps to move in each control
-    /// cycle.
+    ///   cycle.
     ///
     /// # Returns
     /// The saturated 78 actuator steps to move in each control cycle.

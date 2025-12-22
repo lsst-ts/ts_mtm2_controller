@@ -81,14 +81,14 @@ impl SingleBiquadraticFilter {
     ///
     /// # Arguments
     /// * `value` - Input value with the same number of elements (aka.
-    /// "num_element") when initializing this class.
+    ///   "num_element") when initializing this class.
     ///
     /// # Returns
     /// Filtered value.
     ///
     /// # Panics
     /// * If the size of the input value is not the same as the number of
-    /// elements.
+    ///   elements.
     fn filter(&mut self, value: &[f64]) -> Vec<f64> {
         // Check the size of the input value
         assert!(
@@ -149,13 +149,13 @@ impl BiquadraticFilter {
     /// # Arguments
     /// * `gain` - Gain of the filter.
     /// * `coefficients` - Coefficients of the biquadratic filters. This should
-    /// be a 2D array. Each row is the [a1n, a2n, b1n, b2n] for the nth
-    /// biquadratic filter.
+    ///   be a 2D array. Each row is the [a1n, a2n, b1n, b2n] for the nth
+    ///   biquadratic filter.
     /// * `num_element` - Number of the elements when calling the "filter()".
     ///
     /// # Returns
     /// A new BiquadraticFilter object.
-    pub fn new(gain: f64, coefficients: &Vec<Vec<f64>>, num_element: usize) -> Self {
+    pub fn new(gain: f64, coefficients: &[Vec<f64>], num_element: usize) -> Self {
         let mut bqd_filters = Vec::new();
         coefficients.iter().for_each(|coefficient| {
             let bqd_filter = SingleBiquadraticFilter::new(
@@ -185,7 +185,7 @@ impl BiquadraticFilter {
     ///
     /// # Arguments
     /// * `value` - Input value with the same number of elements (aka.
-    /// "num_element") when initializing this class.
+    ///   "num_element") when initializing this class.
     ///
     /// # Returns
     /// Filtered value.

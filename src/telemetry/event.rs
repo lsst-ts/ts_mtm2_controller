@@ -37,7 +37,7 @@ impl Event {
     ///
     /// # Arguments
     /// * `in_position` - True if the M2 assembly is in position, false
-    /// otherwise.
+    ///   otherwise.
     ///
     /// # Returns
     /// The message of the M2 is in position or not.
@@ -111,7 +111,7 @@ impl Event {
     ///
     /// # Returns
     /// The message of the hardpoint list (1-based).
-    pub fn get_message_hardpoint_list(hardpoints: &Vec<usize>) -> Value {
+    pub fn get_message_hardpoint_list(hardpoints: &[usize]) -> Value {
         let hardpoint_list: Vec<usize> = hardpoints.iter().map(|hardpoint| hardpoint + 1).collect();
 
         json!({

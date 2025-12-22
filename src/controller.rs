@@ -121,19 +121,19 @@ impl Controller {
     ///
     /// # Arguments
     /// * `hardpoints` - Six 0-based hardpoints to set (order is from low to
-    /// high).
+    ///   high).
     ///
     /// # Returns
     /// Some if the hardpoints are set. Otherwise, None.
     pub fn set_hardpoints(&mut self, hardpoints: &Vec<usize>) -> Option<()> {
         // The first 3 should be the axial actuators. The last 3 should be the
         // tangent links.
-        for idx in 0..NUM_HARDPOINTS {
+        for (idx, hardpoint) in hardpoints.iter().enumerate().take(NUM_HARDPOINTS) {
             if idx < NUM_HARDPOINTS_AXIAL {
-                if hardpoints[idx] >= NUM_AXIAL_ACTUATOR {
+                if *hardpoint >= NUM_AXIAL_ACTUATOR {
                     return None;
                 }
-            } else if hardpoints[idx] < NUM_AXIAL_ACTUATOR {
+            } else if *hardpoint < NUM_AXIAL_ACTUATOR {
                 return None;
             }
         }
@@ -307,7 +307,7 @@ impl Controller {
     ///
     /// # Arguments
     /// * `balance_on` - True to switch on the force balance system, false to
-    /// switch it off.
+    ///   switch it off.
     ///
     /// # Returns
     /// Some if the force balance system is switched on or off. Otherwise, None.
@@ -710,9 +710,9 @@ impl Controller {
     ///
     /// # Arguments
     /// * `filepath` - An optional path to the file where the mirror position
-    /// will be saved.
-    /// * `file` - An optional file handle to write the mirror position. This is
-    /// useful for the testing purpose.
+    ///   will be saved.
+    /// * `file` - An optional file handle to write the mirror position. This
+    ///   is useful for the testing purpose.
     ///
     /// # Returns
     /// A result containing the content written to the file or an error if
@@ -726,10 +726,13 @@ impl Controller {
             Some(telemetry) => {
                 // Create the file
                 let mut position_file;
-                if filepath.is_some() {
-                    position_file = File::create(filepath.unwrap())?;
-                } else {
-                    position_file = file.unwrap();
+                match filepath {
+                    Some(path) => {
+                        position_file = File::create(path)?;
+                    }
+                    None => {
+                        position_file = file.unwrap();
+                    }
                 }
 
                 // Write the header and hardpoints
@@ -748,13 +751,13 @@ impl Controller {
 
                 let positions = &telemetry.actuator_positions;
                 content.push_str("\n# 78 actuator positions in meter.\n");
-                for idx in 0..NUM_ACTUATOR {
+                for (idx, position) in positions.iter().enumerate().take(NUM_ACTUATOR) {
                     if idx == 0 {
-                        content.push_str(&format!("positions: [{},\n", positions[idx]));
+                        content.push_str(&format!("positions: [{},\n", *position));
                     } else if idx == (NUM_ACTUATOR - 1) {
-                        content.push_str(&format!("            {}]\n", positions[idx]));
+                        content.push_str(&format!("            {}]\n", *position));
                     } else {
-                        content.push_str(&format!("            {},\n", positions[idx]));
+                        content.push_str(&format!("            {},\n", *position));
                     }
                 }
 

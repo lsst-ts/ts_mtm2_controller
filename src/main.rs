@@ -142,11 +142,14 @@ fn initiate_logger(level: LevelFilter, filepath: &str) {
         }
     }
 
-    if logger_file.is_some() {
-        let _ = CombinedLogger::init(vec![logger_terminal, logger_file.unwrap()]);
-    } else {
-        let _ = CombinedLogger::init(vec![logger_terminal]);
-    }
+    match logger_file {
+        Some(file) => {
+            let _ = CombinedLogger::init(vec![logger_terminal, file]);
+        }
+        None => {
+            let _ = CombinedLogger::init(vec![logger_terminal]);
+        }
+    };
 }
 
 /// Generate a log file name with the current timestamp.

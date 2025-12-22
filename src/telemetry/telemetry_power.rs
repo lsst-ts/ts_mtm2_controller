@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 use crate::telemetry::telemetry_default::TelemetryDefault;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TelemetryPower {
     // Motor and communication power (raw) in volt and ampere.
     pub power_raw: HashMap<String, f64>,
@@ -38,17 +38,10 @@ pub struct TelemetryPower {
 
 impl TelemetryDefault for TelemetryPower {
     fn get_messages(&self, digit: i32) -> Vec<Value> {
-        let mut messages = Vec::new();
-        messages.push(self.get_message_power_status_raw(digit));
-        messages.push(self.get_message_power_status(digit));
-
-        messages
-    }
-}
-
-impl Default for TelemetryPower {
-    fn default() -> Self {
-        Self::new()
+        vec![
+            self.get_message_power_status_raw(digit),
+            self.get_message_power_status(digit),
+        ]
     }
 }
 

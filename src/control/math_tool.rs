@@ -67,16 +67,10 @@ pub fn correct_inclinometer_angle(angle: f64, offset: f64) -> f64 {
         0.0
     };
 
-    let mut angle_correct = 180.0 - angle_offset - origin;
+    let angle_correct = 180.0 - angle_offset - origin;
 
     // Make sure the calculated angle value is limited to this range
-    if angle_correct > 90.0 {
-        angle_correct = 90.0;
-    } else if angle_correct < -270.0 {
-        angle_correct = -270.0;
-    }
-
-    angle_correct
+    angle_correct.clamp(-270.0, 90.0)
 }
 
 /// Calculate the hardpoint compensation matrix.
@@ -124,17 +118,17 @@ pub fn correct_inclinometer_angle(angle: f64, offset: f64) -> f64 {
 ///
 /// # Arguments
 /// * `loc_act_axial` - Location of the axial actuators: (x, y). This should be
-/// a 72 x 2 matrix.
+///   a 72 x 2 matrix.
 /// * `hardpoints_axial` - Three axial hardpoints. The order is from low to
-/// high, e.g. [5, 15, 25].
+///   high, e.g. [5, 15, 25].
 /// * `hardpoints_tangent` - Three tangential hardpoints. This can only be [72,
-/// 74, 76] or [73, 75, 77]. The order is from low to high.
+///   74, 76] or [73, 75, 77]. The order is from low to high.
 ///
 /// # Returns
 /// A tuple of two matrices: axial hardpoint compensation matrix and tangential
 /// hardpoint compensation matrix.
 pub fn calc_hp_comp_matrix(
-    loc_act_axial: &Vec<Vec<f64>>,
+    loc_act_axial: &[Vec<f64>],
     hardpoints_axial: &[usize],
     hardpoints_tangent: &[usize],
 ) -> (
@@ -182,9 +176,9 @@ pub fn calc_hp_comp_matrix(
 ///
 /// # Arguments
 /// * `hardpoints_axial` - Three axial hardpoints. The order is from low to
-/// high, e.g. [5, 15, 25].
+///   high, e.g. [5, 15, 25].
 /// * `hardpoints_tangent` - Three tangential hardpoints. This can only be [72,
-/// 74, 76] or [73, 75, 77]. The order is from low to high.
+///   74, 76] or [73, 75, 77]. The order is from low to high.
 ///
 /// # Returns
 /// A tuple of two vectors: active axial actuators and active tangent actuators.
@@ -231,20 +225,20 @@ fn get_active_actuators(
 ///
 /// # Arguments
 /// * `loc_act_axial` - Location of the axial actuators: (x, y). This should be
-/// a 72 x 2 matrix.
+///   a 72 x 2 matrix.
 /// * `hardpoints_axial` - Three axial hardpoints. The order is from low to
-/// high, e.g. [5, 15, 25].
+///   high, e.g. [5, 15, 25].
 /// * `hardpoints_tangent` - Three tangential hardpoints. This can only be [72,
-/// 74, 76] or [73, 75, 77]. The order is from low to high.
+///   74, 76] or [73, 75, 77]. The order is from low to high.
 /// * `stiffness` - Stiffness matrix of the actuators.
 ///
 /// # Returns
 /// Kinetic decoupling matrix.
 pub fn calc_kinetic_decoupling_matrix(
-    loc_act_axial: &Vec<Vec<f64>>,
+    loc_act_axial: &[Vec<f64>],
     hardpoints_axial: &[usize],
     hardpoints_tangent: &[usize],
-    stiffness: &Vec<Vec<f64>>,
+    stiffness: &[Vec<f64>],
 ) -> SMatrix<f64, NUM_ACTIVE_ACTUATOR, NUM_ACTIVE_ACTUATOR> {
     // Calculate the hardpoint force error
     let (active_actuators_axial, active_actuators_tangent) =
@@ -337,9 +331,7 @@ pub fn calc_cmd_delay_filter_params(
     coeff_delay[num_sample_delay + 1] = time_left / time_sample;
 
     // 1 is for the constant part in the numerator coefficients
-    for _ in 0..(num_degree + 1 - coeff_delay.len()) {
-        coeff_delay.push(0.0);
-    }
+    coeff_delay.append(&mut vec![0.0; num_degree + 1 - coeff_delay.len()]);
 
     coeff_delay
 }
@@ -348,16 +340,16 @@ pub fn calc_cmd_delay_filter_params(
 ///
 /// # Arguments
 /// * `loc_act_axial` - Location of the axial actuators: (x, y). This should be
-/// a 72 x 2 matrix.
+///   a 72 x 2 matrix.
 /// * `hardpoints_axial` - Three axial hardpoints. The order is from low to
-/// high, e.g. [5, 15, 25].
+///   high, e.g. [5, 15, 25].
 /// * `hardpoints_tangent` - Three tangential hardpoints. This can only be [72,
-/// 74, 76] or [73, 75, 77]. The order is from low to high.
+///   74, 76] or [73, 75, 77]. The order is from low to high.
 ///
 /// # Returns
 /// Result of the check.
 pub fn check_hardpoints(
-    loc_act_axial: &Vec<Vec<f64>>,
+    loc_act_axial: &[Vec<f64>],
     hardpoints_axial: &[usize],
     hardpoints_tangent: &[usize],
 ) -> Result<(), &'static str> {
@@ -382,19 +374,19 @@ pub fn check_hardpoints(
 /// Select the axial hardpoints based on the specific axial hardpoint.
 ///
 /// # Notes
-/// The idea is to maximize the triangle constructed by 3 axial actuators, which
-/// means it should be closed to the equilateral triangle.
+/// The idea is to maximize the triangle constructed by 3 axial actuators,
+/// which means it should be closed to the equilateral triangle.
 ///
 /// # Arguments
 /// * `loc_act_axial` - Location of the axial actuators: (x, y). This should be
-/// a 72 x 2 matrix.
+///   a 72 x 2 matrix.
 /// * `specific_axial_hardpoint` - Specific axial hardpoint.
 ///
 /// # Returns
 /// Selected 3 axial hardpoints that contains the specific axial hardpoint. The
 /// order is from low to high.
 fn select_axial_hardpoints(
-    loc_act_axial: &Vec<Vec<f64>>,
+    loc_act_axial: &[Vec<f64>],
     specific_axial_hardpoint: usize,
 ) -> Vec<usize> {
     // Get the polar coordinate of specific hardpoint
@@ -441,7 +433,7 @@ fn select_axial_hardpoints(
 ///
 /// # Arguments
 /// * `loc_act_axial` - Location of the axial actuators: (x, y) in meter. This
-/// should be a 72 x 2 matrix.
+///   should be a 72 x 2 matrix.
 /// * `loc_tangent_link` - Location of the tangent links in degree.
 /// * `radius` - Radius of the cell in meter.
 /// * `dx` - Delta x position in meter.
@@ -453,8 +445,9 @@ fn select_axial_hardpoints(
 ///
 /// # Returns
 /// All actuator displacements in meter.
+#[allow(clippy::too_many_arguments)]
 pub fn rigid_body_to_actuator_displacement(
-    loc_act_axial: &Vec<Vec<f64>>,
+    loc_act_axial: &[Vec<f64>],
     loc_act_tangent: &[f64],
     radius: f64,
     dx: f64,
@@ -508,8 +501,8 @@ pub fn rigid_body_to_actuator_displacement(
         disp[idx] += val;
     });
 
-    for idx in NUM_AXIAL_ACTUATOR..NUM_ACTUATOR {
-        disp[idx] += disp_drz_tangent;
+    for disp_tangent in disp.iter_mut().take(NUM_ACTUATOR).skip(NUM_AXIAL_ACTUATOR) {
+        *disp_tangent += disp_drz_tangent;
     }
 
     disp
@@ -519,19 +512,20 @@ pub fn rigid_body_to_actuator_displacement(
 ///
 /// # Arguments
 /// * `loc_act_axial` - Location of the axial actuators: (x, y) in meter. This
-/// should be a 72 x 2 matrix.
+///   should be a 72 x 2 matrix.
 /// * `loc_tangent_link` - Location of the tangent links in degree.
 /// * `radius` - Radius of the cell in meter.
 /// * `hardpoints` - Six hardpoints. The order is from low to high.
 /// * `disp_hardpoint_current` - Six current hardpoint displacements. The unit
-/// is meter.
+///   is meter.
 /// * `disp_hardpoint_home` - Six hardpoint displacements at the home position.
-/// The unit is meter.
+///   The unit is meter.
 ///
 /// # Returns
-/// Result of the rigid body position (x, y, z, rx, ry, rz) in meter and radian.
+/// Result of the rigid body position (x, y, z, rx, ry, rz) in meter and
+/// radian.
 pub fn hardpoint_to_rigid_body(
-    loc_act_axial: &Vec<Vec<f64>>,
+    loc_act_axial: &[Vec<f64>],
     loc_act_tangent: &[f64],
     radius: f64,
     hardpoints: &[usize],
@@ -655,12 +649,12 @@ pub fn hardpoint_to_rigid_body(
 /// # Arguments
 /// * `radius` - Radius of the cell in meter.
 /// * `tangent_hardpoint_disp` - Displacement of the 3 tangent hardpoints in
-/// meter.
+///   meter.
 /// * `tangent_hardpoint_loc` - Location of the 3 tangent hardpoints in radian.
 ///
 /// # Returns
-/// A tuple of 3 elements: x, y posintion in meter and the delta (x, y) position
-/// compared with the mean (x, y) in meter.
+/// A tuple of 3 elements: x, y posintion in meter and the delta (x, y)
+/// position compared with the mean (x, y) in meter.
 fn calculate_rigid_body_xy(
     radius: f64,
     tangent_hardpoint_disp: &[f64],
@@ -700,9 +694,9 @@ fn calculate_rigid_body_xy(
 ///
 /// # Arguments
 /// * `disp_matrix` - Displacement sensor matrix to calculate the rigid body
-/// position.
+///   position.
 /// * `disp_offset` - Displacement sensor offset to calculate the rigid body
-/// position.
+///   position.
 /// * `theta_z` - IMS theta z readings in micron.
 /// * `delta_z` - IMS delta z readings in micron.
 ///

@@ -74,7 +74,7 @@ impl PowerSystemProcess {
     /// * `sender_to_daq` - The sender to the data acquisition.
     /// * `sender_to_model` - The sender to the model.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
-    /// the loop.
+    ///   the loop.
     ///
     /// # Returns
     /// New instance of the power system process.

@@ -80,9 +80,9 @@ impl CommandServer {
     ///
     /// # Arguments
     /// * `commands` - A vector of strings that holds the commands. The command
-    /// name should begin with "cmd_"
-    pub fn register_commands(&mut self, commands: &Vec<String>) {
-        self._commands = commands.clone();
+    ///   name should begin with "cmd_"
+    pub fn register_commands(&mut self, commands: &[String]) {
+        self._commands = commands.to_owned();
     }
 
     /// Check if the command is registered or not.

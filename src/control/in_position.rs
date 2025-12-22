@@ -40,9 +40,9 @@ impl InPosition {
     /// * `window_size` - Window size in second.
     /// * `control_frequency` - Control frequency in Hz.
     /// * `threshold_axial` - Threshold of the force error of axial actuator in
-    /// Newton.
-    /// * `threshold_tangent` - Threshold of the force error of tangent actuator
-    /// in Newton.
+    ///   Newton.
+    /// * `threshold_tangent` - Threshold of the force error of tangent
+    ///   actuator in Newton.
     ///
     /// # Returns
     /// A new InPosition object.
@@ -80,7 +80,7 @@ impl InPosition {
     ///
     /// # Panics
     /// If the size of force error is not 72.
-    pub fn is_in_position(&mut self, force_error: &Vec<f64>) -> bool {
+    pub fn is_in_position(&mut self, force_error: &[f64]) -> bool {
         // Check the size of force error
         assert!(
             force_error.len() == NUM_ACTIVE_ACTUATOR,

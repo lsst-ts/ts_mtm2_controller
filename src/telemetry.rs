@@ -20,6 +20,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 pub mod event;
+#[allow(clippy::module_inception)]
 pub mod telemetry;
 pub mod telemetry_control_loop;
 pub mod telemetry_default;

@@ -68,6 +68,7 @@ use crate::utility::{
     is_event, is_telemetry,
 };
 
+#[allow(clippy::type_complexity)]
 pub struct Model {
     // Controller
     _controller: Controller,
@@ -357,6 +358,7 @@ impl Model {
     /// * `CommandTelemetryServer` - CSC server.
     /// * `Receiver<Value>` - Receiver from the GUI.
     /// * `Receiver<Value>` - Receiver from the CSC.
+    #[allow(clippy::too_many_arguments)]
     fn create_servers(
         config_file: &Path,
         commands: &HashMap<String, Vec<String>>,

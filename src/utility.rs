@@ -425,11 +425,10 @@ pub fn client_write_and_sleep(client: &mut TcpStream, message: &str, sleep_time:
 /// If the TCP stream of the client cannot read.
 pub fn client_read_and_assert(client: &mut TcpStream, expected: &str) {
     let mut buffer = vec![0; expected.len()];
-    client
-        .read(&mut buffer)
-        .expect("Tcp stream of the client should read.");
-
-    assert_eq!(std::str::from_utf8(&buffer).unwrap(), expected);
+    match client.read(&mut buffer) {
+        Ok(_) => assert_eq!(std::str::from_utf8(&buffer).unwrap(), expected),
+        Err(error) => panic!("{error}"),
+    }
 }
 
 /// TCP/IP client reads the JSON message.

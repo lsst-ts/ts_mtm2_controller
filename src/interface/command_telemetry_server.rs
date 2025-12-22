@@ -67,12 +67,12 @@ impl CommandTelemetryServer {
     /// * `name` - Name of the server.
     /// * `host` - A string slice that holds the hostname or IP address.
     /// * `port_command` - An integer that holds the port number of command
-    /// server. Put 0 to let the OS choose a port.
+    ///   server. Put 0 to let the OS choose a port.
     /// * `port_telemetry` - An integer that holds the port number of telemetry
-    /// server. Put 0 to let the OS choose a port.
+    ///   server. Put 0 to let the OS choose a port.
     /// * `timeout` - Timeout in milliseconds.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
-    /// the server.
+    ///   the server.
     /// * `sender` - Sender of the messages from the TCP/IP.
     ///
     /// # Returns
@@ -122,7 +122,7 @@ impl CommandTelemetryServer {
     ///
     /// # Arguments
     /// * `command_name` - Name of the command that begins with "cmd_".
-    /// Otherwise, it is ignored.
+    ///   Otherwise, it is ignored.
     pub fn register_command(&mut self, command_name: &str) {
         if !command_name.starts_with("cmd_") {
             return;
@@ -164,7 +164,7 @@ impl CommandTelemetryServer {
             &self._host,
             self._ports["command"],
             self.timeout,
-            &TERMINATOR.to_vec(),
+            TERMINATOR.as_ref(),
             &self._stop,
         );
 
@@ -174,7 +174,7 @@ impl CommandTelemetryServer {
             &self._host,
             self._ports["telemetry"],
             self.timeout,
-            &TERMINATOR.to_vec(),
+            TERMINATOR.as_ref(),
             &self._stop,
         );
 

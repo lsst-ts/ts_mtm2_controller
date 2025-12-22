@@ -24,6 +24,7 @@ use std::path::Path;
 use crate::enums::PowerType;
 use crate::utility::get_parameter;
 
+#[derive(Default)]
 pub struct ConfigPower {
     // Loop time in milliseconds used in the PowerSystemProcess.
     pub loop_time: u64,
@@ -81,12 +82,6 @@ pub struct ConfigPower {
     // on/off the motor power relay. This value is dependent on the interlock's
     // device programming.
     pub interlock_output_delay: i32,
-}
-
-impl Default for ConfigPower {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ConfigPower {

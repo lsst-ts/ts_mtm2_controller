@@ -78,14 +78,14 @@ impl MockPlant {
     ///
     /// # Arguments
     /// * `static_transfer_matrix` - Static transfer matrix used to simulate the
-    /// delta force from the change of steps. This is a (NUM_ACTUATOR x
-    /// NUM_ACTUATOR) matrix. The unit of row is the Newton and the unit of
-    /// column is the actuator's step.
+    ///   delta force from the change of steps. This is a (NUM_ACTUATOR x
+    ///   NUM_ACTUATOR) matrix. The unit of row is the Newton and the unit of
+    ///   column is the actuator's step.
     /// * `inclinometer_angle` - The inclinometer angle in degree.
     ///
     /// # Returns
     /// A new mock plant.
-    pub fn new(static_transfer_matrix: &Vec<Vec<f64>>, inclinometer_angle: f64) -> Self {
+    pub fn new(static_transfer_matrix: &[Vec<f64>], inclinometer_angle: f64) -> Self {
         let matrix = SMatrix::from_row_iterator(
             static_transfer_matrix
                 .iter()
@@ -383,7 +383,7 @@ impl MockPlant {
     /// # Panics
     /// If the length of the actuator steps is not equal to the number of
     /// actuators.
-    pub fn move_actuator_steps(&mut self, actuator_steps: &Vec<i32>) {
+    pub fn move_actuator_steps(&mut self, actuator_steps: &[i32]) {
         assert!(
             actuator_steps.len() == NUM_ACTUATOR,
             "The length of the actuator steps is not equal to the number of actuators."

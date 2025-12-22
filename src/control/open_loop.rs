@@ -169,11 +169,11 @@ impl OpenLoop {
     ///
     /// # Arguments
     /// * `steps_axial` - Absolute axial steps (>=0) to move. The internal
-    /// calculation will consider the direction of target displacement by
-    /// itself.
+    ///   calculation will consider the direction of target displacement by
+    ///   itself.
     /// * `steps_tangent` - Absolute tangent steps (>=0) to move. The internal
-    /// calculation will consider the direction of target displacement by
-    /// itself.
+    ///   calculation will consider the direction of target displacement by
+    ///   itself.
     ///
     /// # Returns
     /// Steps to move for each actuator.

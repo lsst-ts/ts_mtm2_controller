@@ -41,6 +41,7 @@ pub struct PowerCommandStatus {
     pub is_power_on: bool,
 }
 
+#[derive(Default)]
 pub struct PowerSystem {
     // Configuration of the power system
     pub config: ConfigPower,
@@ -58,12 +59,6 @@ pub struct PowerSystem {
     _command_status: HashMap<PowerType, Option<PowerCommandStatus>>,
     // Power command result
     _command_result: HashMap<PowerType, Option<Value>>,
-}
-
-impl Default for PowerSystem {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl PowerSystem {
@@ -410,7 +405,7 @@ impl PowerSystem {
     /// Tuple containing two values:
     /// 1. True if the state is changed. Otherwise, false.
     /// 2. True if there is the error and need to power off the system.
-    /// Otherwise, false.
+    ///    Otherwise, false.
     pub fn transition_state(
         &mut self,
         power_type: PowerType,
@@ -503,12 +498,9 @@ impl PowerSystem {
     /// # Returns
     /// The command result.
     fn get_command_result(&mut self, power_type: PowerType) -> Option<Value> {
-        self._command_result[&power_type].as_ref()?;
-
-        let command_result = self._command_result[&power_type].clone();
-        self._command_result.insert(power_type, None);
-
-        command_result
+        self._command_result
+            .get_mut(&power_type)
+            .and_then(|result| result.take())
     }
 
     /// Check if there is a command result.

@@ -54,11 +54,11 @@ impl TcpServer {
     /// * `name` - Name of ther server.
     /// * `host` - A string slice that holds the hostname or IP address.
     /// * `port` - An integer that holds the port number. Put 0 to let the OS
-    /// choose the port number.
+    ///   choose the port number.
     /// * `timeout` - Timeout in milliseconds.
     /// * `terminator` - A vector that holds the terminator.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
-    /// the server.
+    ///   the server.
     ///
     /// # Returns
     /// A TcpServer instance.
@@ -67,7 +67,7 @@ impl TcpServer {
         host: &str,
         port: i32,
         timeout: u64,
-        terminator: &Vec<u8>,
+        terminator: &[u8],
         stop: &Arc<AtomicBool>,
     ) -> Self {
         let listener =
@@ -87,7 +87,7 @@ impl TcpServer {
             timeout,
 
             _buffer: Vec::with_capacity(DEFAULT_BUFFER_SIZE),
-            _terminator: terminator.clone(),
+            _terminator: terminator.to_owned(),
 
             _stop: stop.clone(),
             _is_connected: Arc::new(AtomicBool::new(false)),
@@ -317,13 +317,13 @@ impl TcpServer {
     ///
     /// # Arguments
     /// * `callback_periodic` - A periodic callback function that is called
-    /// once the server is connected. It takes two mutable references to the
-    /// TcpServer and other data.
+    ///   once the server is connected. It takes two mutable references to the
+    ///   TcpServer and other data.
     /// * `callback_first_time` - An optional callback function that is called
-    /// once the server is connected for the first time. It takes two mutable
-    /// references to the TcpServer and other data.
+    ///   once the server is connected for the first time. It takes two mutable
+    ///   references to the TcpServer and other data.
     /// * `other` - A mutable reference to the other data that is used in
-    /// callback function.
+    ///   callback function.
     pub fn run<F1, F2, T>(
         &mut self,
         mut callback_periodic: F1,

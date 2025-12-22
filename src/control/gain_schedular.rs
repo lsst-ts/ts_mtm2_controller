@@ -43,15 +43,15 @@ impl GainSchedular {
     ///
     /// # Arguments
     /// * `min_gain_axial` - Minimum gain for the axial actuators. The value
-    /// should be in (0.0, 1.0).
-    /// * `min_gain_tangent` - Minimum gain for the tangent actuators. The value
-    /// should be in (0.0, 1.0).
+    ///   should be in (0.0, 1.0).
+    /// * `min_gain_tangent` - Minimum gain for the tangent actuators. The
+    ///   value should be in (0.0, 1.0).
     /// * `num_sample_ramp_up` - Number of samples in the ramping up process.
-    /// This value can not be 0.
+    ///   This value can not be 0.
     /// * `num_sample_ramp_down` - Number of samples in the ramping down
-    /// process. This value can not be 0.
+    ///   process. This value can not be 0.
     /// * `max_sample_settle` - Maximum number of samples in the settling
-    /// process. This value can not be 0.
+    ///   process. This value can not be 0.
     ///
     /// # Returns
     /// A new GainSchedular object.

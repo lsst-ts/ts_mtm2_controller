@@ -23,6 +23,7 @@ use std::path::Path;
 
 use crate::utility::get_parameter;
 
+#[derive(Default)]
 pub struct ConfigDataAcquisition {
     // The frequency of data acquisition (DAQ) loop in Hz
     pub frequency_loop: f64,
@@ -30,12 +31,6 @@ pub struct ConfigDataAcquisition {
     pub frequency_send_telemetry: f64,
     // The frequency to toggle the closed-loop control bit in Hz
     pub frequency_toggle_bit: f64,
-}
-
-impl Default for ConfigDataAcquisition {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ConfigDataAcquisition {
