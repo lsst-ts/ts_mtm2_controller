@@ -79,7 +79,7 @@ impl GainSchedular {
             _max_sample_settle: max_sample_settle,
             _sample_settle: max_sample_settle,
 
-            max_gain: max_gain,
+            max_gain,
         }
     }
 
@@ -151,11 +151,11 @@ impl GainSchedular {
     fn calc_next_gain(&self, gain_current: f64, rate: f64, min_gain: f64) -> f64 {
         let gain_new = gain_current + rate;
         if gain_new >= self.max_gain {
-            return self.max_gain;
+            self.max_gain
         } else if gain_new <= min_gain {
-            return min_gain;
+            min_gain
         } else {
-            return gain_new;
+            gain_new
         }
     }
 }

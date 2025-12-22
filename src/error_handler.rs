@@ -82,13 +82,13 @@ impl ErrorHandler {
 
         Self {
             config_control_loop: config_control_loop.clone(),
-            config_power: config_power,
+            config_power,
             actuators: Actuator::from_cell_mapping_file(Path::new(
                 "config/cell/cell_actuator_mapping.yaml",
             )),
             summary_faults_status: 0,
             _faults_mask: Self::get_faults_mask(),
-            ilc: ilc,
+            ilc,
             _count_out_max_cycle_time: 0,
 
             _count_voltage_communication: 0,
@@ -217,12 +217,12 @@ impl ErrorHandler {
         is_closed_loop: bool,
     ) {
         self.check_ilc_status(&telemetry.ilc_status);
-        if self.ilc["fault"].len() > 0 {
+        if !self.ilc["fault"].is_empty() {
             self.add_error(ErrorCode::FaultActuatorIlcRead);
         }
 
-        if (self.ilc["limit_switch_retract"].len() > 0)
-            || (self.ilc["limit_switch_extend"].len() > 0)
+        if (!self.ilc["limit_switch_retract"].is_empty())
+            || (!self.ilc["limit_switch_extend"].is_empty())
         {
             let error_code_limit_switch = if is_closed_loop {
                 ErrorCode::FaultActuatorLimitCL
@@ -620,14 +620,14 @@ impl ErrorHandler {
         }
 
         // Only check the warning level if there is no fault.
-        if !self.has_error(error_code_fault) {
-            if self.is_out_range(
+        if !self.has_error(error_code_fault)
+            && self.is_out_range(
                 voltage,
                 self.config_power.warning_voltage_min,
                 self.config_power.warning_voltage_max,
-            ) {
-                self.add_error(error_code_warning);
-            }
+            )
+        {
+            self.add_error(error_code_warning);
         }
     }
 

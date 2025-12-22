@@ -58,7 +58,7 @@ impl CommandServer {
 
         Self {
             _sender_to_tcp: sender_to_tcp,
-            receiver_to_tcp: receiver_to_tcp,
+            receiver_to_tcp,
 
             sender_from_tcp: sender.clone(),
 
@@ -123,7 +123,7 @@ impl CommandServer {
 
         self._last_sequence_id = sequence_id;
 
-        return lost_sequence_ids;
+        lost_sequence_ids
     }
 
     /// Process the command.

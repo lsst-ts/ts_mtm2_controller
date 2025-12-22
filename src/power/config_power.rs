@@ -83,6 +83,12 @@ pub struct ConfigPower {
     pub interlock_output_delay: i32,
 }
 
+impl Default for ConfigPower {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigPower {
     /// Create a new ConfigPower object.
     ///
@@ -108,11 +114,11 @@ impl ConfigPower {
                 / loop_time,
             output_voltage_off_level: get_parameter(filepath, "output_voltage_off_level"),
 
-            warning_voltage_min: warning_voltage_min,
-            warning_voltage_max: warning_voltage_max,
+            warning_voltage_min,
+            warning_voltage_max,
 
-            fault_voltage_min: fault_voltage_min,
-            fault_voltage_max: fault_voltage_max,
+            fault_voltage_min,
+            fault_voltage_max,
 
             excessive_current_communication: get_parameter(
                 filepath,
@@ -193,13 +199,13 @@ impl ConfigPower {
     /// The time in milliseconds required to power on the system.
     pub fn get_time_power_on(&self, power_type: PowerType) -> i32 {
         if power_type == PowerType::Motor {
-            return self.telemetry_stable_time
+            self.telemetry_stable_time
                 + self.breaker_voltage_rise_time_motor
-                + self.output_voltage_settling_time_motor;
+                + self.output_voltage_settling_time_motor
         } else {
-            return self.telemetry_stable_time
+            self.telemetry_stable_time
                 + self.breaker_voltage_rise_time_communication
-                + self.output_voltage_settling_time_communication;
+                + self.output_voltage_settling_time_communication
         }
     }
 
@@ -212,9 +218,9 @@ impl ConfigPower {
     /// The time in milliseconds required to power off the system.
     pub fn get_time_power_off(&self, power_type: PowerType) -> i32 {
         if power_type == PowerType::Motor {
-            return self.output_voltage_fall_time_motor;
+            self.output_voltage_fall_time_motor
         } else {
-            return self.output_voltage_fall_time_communication;
+            self.output_voltage_fall_time_communication
         }
     }
 
@@ -227,12 +233,12 @@ impl ConfigPower {
     /// The time in milliseconds required to power on the breaker.
     pub fn get_time_breaker_on(&self, power_type: PowerType) -> i32 {
         if power_type == PowerType::Motor {
-            return self.reset_breaker_pulse_width
+            self.reset_breaker_pulse_width
                 + self.breaker_on_time
                 + self.relay_close_delay
-                + self.interlock_output_delay;
+                + self.interlock_output_delay
         } else {
-            return self.reset_breaker_pulse_width + self.breaker_on_time + self.relay_close_delay;
+            self.reset_breaker_pulse_width + self.breaker_on_time + self.relay_close_delay
         }
     }
 
@@ -245,9 +251,9 @@ impl ConfigPower {
     /// The time in milliseconds required to power off the breaker.
     pub fn get_time_breaker_off(&self, power_type: PowerType) -> i32 {
         if power_type == PowerType::Motor {
-            return self.relay_open_delay + self.interlock_output_delay;
+            self.relay_open_delay + self.interlock_output_delay
         } else {
-            return self.relay_open_delay;
+            self.relay_open_delay
         }
     }
 }

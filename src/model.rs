@@ -171,7 +171,7 @@ impl Model {
 
             _sender_to_model: Some(sender_to_model),
 
-            stop: stop,
+            stop,
 
             _handles: Vec::new(),
 
@@ -383,7 +383,7 @@ impl Model {
             port_command_gui,
             port_telemetry_gui,
             timeout as u64,
-            &stop,
+            stop,
             sender_from_tcp_gui,
         );
         let mut server_csc = CommandTelemetryServer::new(
@@ -450,8 +450,7 @@ impl Model {
             is_mirror,
             self._is_simulation_mode,
             sender_to_daq,
-            &self
-                ._sender_to_model
+            self._sender_to_model
                 .as_ref()
                 .expect("Should have a telemetry sender to the model."),
             &self.stop,
@@ -486,8 +485,7 @@ impl Model {
         let mut power_system_process = PowerSystemProcess::new(
             self._is_simulation_mode,
             sender_to_daq,
-            &self
-                ._sender_to_model
+            self._sender_to_model
                 .as_ref()
                 .expect("Should have a telemetry sender to the model."),
             &self.stop,
@@ -526,8 +524,7 @@ impl Model {
             self._is_simulation_mode,
             sender_telemetry_to_control_loop,
             sender_telemetry_to_power,
-            &self
-                ._sender_to_model
+            self._sender_to_model
                 .as_ref()
                 .expect("Should have a telemetry sender to the model."),
             sender_to_daq,
@@ -711,7 +708,7 @@ impl Model {
     ) -> bool {
         debug!("Process the message: {message}.");
 
-        let name = get_message_name(&message);
+        let name = get_message_name(message);
         if is_command(&name) {
             // Fail the command if the source is CSC but the commander is GUI
             if (controller.commander == Commander::GUI) && (source == Commander::CSC) {
@@ -791,7 +788,7 @@ impl Model {
             }
         }
 
-        return false;
+        false
     }
 
     /// Update the status according to the new telemetry of power system.
@@ -984,14 +981,13 @@ impl Model {
                 {
                     debug!("Failed to update the inner-loop control mode: {event}.");
                 }
-            } else if name == "dataAcquisitionMode" {
-                if self
+            } else if name == "dataAcquisitionMode"
+                && self
                     ._controller
                     .update_internal_status_mode_data_acquisition(event)
                     .is_none()
-                {
-                    debug!("Failed to update the data acquisition mode: {event}.");
-                }
+            {
+                debug!("Failed to update the data acquisition mode: {event}.");
             }
         }
     }

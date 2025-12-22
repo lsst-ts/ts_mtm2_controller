@@ -155,9 +155,9 @@ impl OpenLoop {
             && self._displacement_steps.iter().any(|step| *step != 0);
         if is_able_to_resume {
             self.is_running = true;
-            return Ok(());
+            Ok(())
         } else {
-            return Err("The movement is done.");
+            Err("The movement is done.")
         }
     }
 

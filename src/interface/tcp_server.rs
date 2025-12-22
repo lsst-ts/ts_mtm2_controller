@@ -84,7 +84,7 @@ impl TcpServer {
             _listener: listener,
             _reader: None,
             _writer: None,
-            timeout: timeout,
+            timeout,
 
             _buffer: Vec::with_capacity(DEFAULT_BUFFER_SIZE),
             _terminator: terminator.clone(),
@@ -243,7 +243,7 @@ impl TcpServer {
     /// * `items` - A vector of Value instances that holds the JSON data.
     pub fn write_jsons(&mut self, items: &Vec<Value>) {
         if let Some(stream) = self._writer.as_mut() {
-            if stream.buffer().len() != 0 {
+            if !stream.buffer().is_empty() {
                 self.flush();
                 return;
             }
@@ -337,14 +337,12 @@ impl TcpServer {
         while !self._stop.load(Ordering::Relaxed) {
             if self.is_connected() {
                 callback_periodic(self, other);
-            } else {
-                if self.accept() {
-                    if let Some(ref mut callback) = callback_first_time {
-                        callback(self, other);
-                    }
-                } else {
-                    sleep(Duration::from_millis(self.timeout));
+            } else if self.accept() {
+                if let Some(ref mut callback) = callback_first_time {
+                    callback(self, other);
                 }
+            } else {
+                sleep(Duration::from_millis(self.timeout));
             }
         }
 

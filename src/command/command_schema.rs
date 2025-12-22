@@ -62,6 +62,12 @@ pub struct CommandSchema {
     pub commands: Vec<Box<dyn Command + Send>>,
 }
 
+impl Default for CommandSchema {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandSchema {
     /// Create a new command schema.
     pub fn new() -> Self {

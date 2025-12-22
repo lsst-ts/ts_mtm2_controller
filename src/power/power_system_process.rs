@@ -307,7 +307,7 @@ impl PowerSystemProcess {
     /// # Returns
     /// Option indicating success or failure.
     fn update_data_acquisition_mode_when_power_off(&self, message: &Value) -> Option<()> {
-        let command_name = get_message_name(&message);
+        let command_name = get_message_name(message);
         let is_new_power_off_command =
             (command_name == CommandPower.name()) && (message["status"] == false);
         if is_new_power_off_command {

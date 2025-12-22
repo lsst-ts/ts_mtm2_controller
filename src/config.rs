@@ -163,10 +163,12 @@ impl Config {
         }
 
         Self {
-            filename: String::from(filepath_parameters_control.to_str().expect(&format!(
-                "Should be able to convert {:?} to a string",
-                filepath_parameters_control
-            ))),
+            filename: String::from(filepath_parameters_control.to_str().unwrap_or_else(|| {
+                panic!(
+                    "Should be able to convert {:?} to a string",
+                    filepath_parameters_control
+                )
+            })),
             lut: Lut::new(lut_dir),
 
             control_frequency: get_parameter(filepath_parameters_control, "control_frequency"),
@@ -177,11 +179,11 @@ impl Config {
             hardpoints: Self::read_hardpoints(filepath_parameters_control),
             disp_hardpoint_home: Self::read_home_position(Path::new("config/home_position.yaml")),
             cell_geometry: CellGeometry {
-                loc_act_axial: loc_act_axial,
-                loc_act_tangent: loc_act_tangent,
-                radius_act_tangent: radius_act_tangent,
+                loc_act_axial,
+                loc_act_tangent,
+                radius_act_tangent,
             },
-            step_limit: step_limit,
+            step_limit,
             inclinometer_offset: get_parameter(filepath_parameters_control, "inclinometer_offset"),
             enable_lut_temperature: get_parameter(
                 filepath_parameters_control,
@@ -203,15 +205,15 @@ impl Config {
                 filepath_parameters_control,
                 "max_cell_temperature_difference",
             ),
-            ref_temperature: ref_temperature,
+            ref_temperature,
             mirror_weight_kg: get_parameter(filepath_parameters_control, "mirror_weight_kg"),
 
-            disp_matrix: disp_matrix,
-            disp_offset: disp_offset,
+            disp_matrix,
+            disp_offset,
 
-            force_limit: force_limit,
+            force_limit,
 
-            tangent_force_error_threshold: tangent_force_error_threshold,
+            tangent_force_error_threshold,
 
             enable_open_loop_max_limit: false,
 

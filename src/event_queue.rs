@@ -26,6 +26,12 @@ pub struct EventQueue {
     _events: Vec<Value>,
 }
 
+impl Default for EventQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventQueue {
     /// Create a new instance of the event queue.
     ///

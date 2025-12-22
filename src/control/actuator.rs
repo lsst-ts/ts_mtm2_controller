@@ -135,7 +135,7 @@ impl Actuator {
         for (ring, num) in rings.iter().zip(nums.iter()) {
             for idx in 0..num.to_owned() {
                 let name = format!("{}{}", ring, idx + 1);
-                let actuator_file: String = get_parameter(&filepath, &name);
+                let actuator_file: String = get_parameter(filepath, &name);
                 actuators.push(Self::new(&dir_actuator.join(actuator_file)));
             }
         }

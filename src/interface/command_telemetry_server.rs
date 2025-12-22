@@ -103,12 +103,12 @@ impl CommandTelemetryServer {
 
             _host: String::from(host),
             _ports: ports,
-            timeout: timeout,
+            timeout,
 
             _stop: stop.clone(),
 
             _sender_from_tcp: sender,
-            senders_to_tcp: senders_to_tcp,
+            senders_to_tcp,
 
             _connections: connections,
 
@@ -227,9 +227,10 @@ impl CommandTelemetryServer {
             if self.are_connected() != are_connected {
                 are_connected = !are_connected;
 
-                if let Err(_) = self
+                if self
                     ._sender_from_tcp
                     .try_send(Event::get_message_tcp_ip_connected(are_connected))
+                    .is_err()
                 {
                     info!(
                         "{} command-telemetry server failed to send the connection status.",

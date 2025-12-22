@@ -91,6 +91,12 @@ impl TelemetryDefault for TelemetryControlLoop {
     }
 }
 
+impl Default for TelemetryControlLoop {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelemetryControlLoop {
     /// Create a new control-loop telemetry object.
     pub fn new() -> Self {
@@ -105,7 +111,7 @@ impl TelemetryControlLoop {
                 &["raw", "processed", "zenith", "external"],
                 0.0,
             ),
-            temperature: temperature,
+            temperature,
             actuator_steps: vec![0; NUM_ACTUATOR],
             actuator_positions: vec![0.0; NUM_ACTUATOR],
             forces: Self::initialize_dict_vector(

@@ -32,6 +32,12 @@ pub struct ConfigDataAcquisition {
     pub frequency_toggle_bit: f64,
 }
 
+impl Default for ConfigDataAcquisition {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigDataAcquisition {
     /// Create a new ConfigDataAcquisition object.
     ///

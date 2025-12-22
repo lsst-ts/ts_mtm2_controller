@@ -97,7 +97,7 @@ impl ControlLoop {
         };
 
         Self {
-            is_mirror: is_mirror,
+            is_mirror,
 
             _closed_loop: Self::create_closed_loop(
                 config.control_frequency,
@@ -112,7 +112,7 @@ impl ControlLoop {
 
             config: config.clone(),
 
-            telemetry: telemetry,
+            telemetry,
 
             is_in_position: false,
 
@@ -120,7 +120,7 @@ impl ControlLoop {
 
             event_queue: EventQueue::new(),
 
-            plant: plant,
+            plant,
         }
     }
 
@@ -255,7 +255,7 @@ impl ControlLoop {
 
         let stiffness = read_file_stiffness(Path::new(filepath_stiffness));
         let kdc = calc_kinetic_decoupling_matrix(
-            &loc_act_axial,
+            loc_act_axial,
             &hardpoints[..NUM_HARDPOINTS_AXIAL],
             &hardpoints[NUM_HARDPOINTS_AXIAL..],
             &stiffness,
@@ -263,7 +263,7 @@ impl ControlLoop {
 
         // Hardpoint compensation matrix
         let (hd_comp_axial, hd_comp_tangent) = calc_hp_comp_matrix(
-            &loc_act_axial,
+            loc_act_axial,
             &hardpoints[..NUM_HARDPOINTS_AXIAL],
             &hardpoints[NUM_HARDPOINTS_AXIAL..],
         );
@@ -310,7 +310,7 @@ impl ControlLoop {
             &self.config.cell_geometry.loc_act_axial,
         );
 
-        self._closed_loop.kinfl = kdc.clone();
+        self._closed_loop.kinfl = kdc;
         self._closed_loop.kdc = kdc;
 
         self._closed_loop.hd_comp = hd_comp;
@@ -767,7 +767,6 @@ impl ControlLoop {
     pub fn get_demanded_force(&self, applied_force: &[f64]) -> Vec<f64> {
         let forces = &self.telemetry.forces;
         (0..NUM_ACTUATOR)
-            .into_iter()
             .map(|idx| {
                 applied_force[idx] + forces["lutGravity"][idx] + forces["lutTemperature"][idx]
             })
@@ -916,16 +915,16 @@ impl ControlLoop {
         }
 
         match command {
-            CommandActuator::Start => return self._open_loop.start(actuators, displacement, unit),
+            CommandActuator::Start => self._open_loop.start(actuators, displacement, unit),
             CommandActuator::Stop => {
                 self._open_loop.stop();
-                return Ok(());
+                Ok(())
             }
             CommandActuator::Pause => {
                 self._open_loop.pause();
-                return Ok(());
+                Ok(())
             }
-            CommandActuator::Resume => return self._open_loop.resume(),
+            CommandActuator::Resume => self._open_loop.resume(),
         }
     }
 

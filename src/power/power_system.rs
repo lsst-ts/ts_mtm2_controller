@@ -60,6 +60,12 @@ pub struct PowerSystem {
     _command_result: HashMap<PowerType, Option<Value>>,
 }
 
+impl Default for PowerSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PowerSystem {
     /// Create a new instance of the power system.
     ///
@@ -94,7 +100,7 @@ impl PowerSystem {
         ]);
 
         Self {
-            subsystem: subsystem,
+            subsystem,
 
             config: config_power,
 
@@ -178,7 +184,7 @@ impl PowerSystem {
         self._command_status.insert(
             power_type,
             Some(PowerCommandStatus {
-                sequence_id: sequence_id,
+                sequence_id,
                 is_power_on: true,
             }),
         );
@@ -261,7 +267,7 @@ impl PowerSystem {
         self._command_status.insert(
             power_type,
             Some(PowerCommandStatus {
-                sequence_id: sequence_id,
+                sequence_id,
                 is_power_on: false,
             }),
         );
@@ -346,7 +352,7 @@ impl PowerSystem {
         self._command_status.insert(
             power_type,
             Some(PowerCommandStatus {
-                sequence_id: sequence_id,
+                sequence_id,
                 is_power_on: true,
             }),
         );
@@ -497,9 +503,7 @@ impl PowerSystem {
     /// # Returns
     /// The command result.
     fn get_command_result(&mut self, power_type: PowerType) -> Option<Value> {
-        if self._command_result[&power_type].is_none() {
-            return None;
-        }
+        self._command_result[&power_type].as_ref()?;
 
         let command_result = self._command_result[&power_type].clone();
         self._command_result.insert(power_type, None);

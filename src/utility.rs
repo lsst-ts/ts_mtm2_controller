@@ -64,7 +64,8 @@ impl ConfigValue for String {
 /// * `f64` - Type of the configuration value.
 impl ConfigValue for f64 {
     fn parse_value(s: &str) -> Self {
-        s.parse::<f64>().expect(&format!("{s} should parse as f64"))
+        s.parse::<f64>()
+            .unwrap_or_else(|_| panic!("{s} should parse as f64"))
     }
 }
 
@@ -75,7 +76,7 @@ impl ConfigValue for f64 {
 impl ConfigValue for usize {
     fn parse_value(s: &str) -> Self {
         s.parse::<usize>()
-            .expect(&format!("{s} should parse as usize"))
+            .unwrap_or_else(|_| panic!("{s} should parse as usize"))
     }
 }
 
@@ -85,7 +86,8 @@ impl ConfigValue for usize {
 /// * `i32` - Type of the configuration value.
 impl ConfigValue for i32 {
     fn parse_value(s: &str) -> Self {
-        s.parse::<i32>().expect(&format!("{s} should parse as i32"))
+        s.parse::<i32>()
+            .unwrap_or_else(|_| panic!("{s} should parse as i32"))
     }
 }
 
@@ -102,7 +104,8 @@ impl ConfigValue for u64 {
             panic!("Hex string {s} should start with 0x or 0X");
         }
 
-        u64::from_str_radix(&s[2..], 16).expect(&format!("Hex string {s} should parse as u64"))
+        u64::from_str_radix(&s[2..], 16)
+            .unwrap_or_else(|_| panic!("Hex string {s} should parse as u64"))
     }
 }
 
@@ -113,7 +116,7 @@ impl ConfigValue for u64 {
 impl ConfigValue for bool {
     fn parse_value(s: &str) -> Self {
         s.parse::<bool>()
-            .expect(&format!("{s} should parse as bool"))
+            .unwrap_or_else(|_| panic!("{s} should parse as bool"))
     }
 }
 
@@ -127,12 +130,12 @@ impl ConfigValue for bool {
 pub fn get_config(filepath: &Path) -> Config {
     let name = filepath
         .to_str()
-        .expect(&format!("Should have the file name in the {:?}", filepath));
+        .unwrap_or_else(|| panic!("Should have the file name in the {:?}", filepath));
 
     Config::builder()
         .add_source(config::File::with_name(name))
         .build()
-        .expect(&format!("Should be able to read the {name}"))
+        .unwrap_or_else(|_| panic!("Should be able to read the {name}"))
 }
 
 /// Get the parameter from the file.
@@ -149,7 +152,7 @@ pub fn get_parameter<T: ConfigValue>(filepath: &Path, key: &str) -> T {
     config
         .get_string(key)
         .map(|v| T::parse_value(&v))
-        .expect(&format!("Should find the {key} in the {:?}", filepath))
+        .unwrap_or_else(|_| panic!("Should find the {key} in the {:?}", filepath))
 }
 
 /// Get the array parameter from the file.
@@ -164,7 +167,7 @@ pub fn get_parameter_array<T: ConfigValue>(filepath: &Path, key: &str) -> Vec<T>
     let config = get_config(filepath);
     let config_array = config
         .get_array(key)
-        .expect(&format!("Should find the {key} in the {:?}", filepath));
+        .unwrap_or_else(|_| panic!("Should find the {key} in the {:?}", filepath));
 
     config_array
         .iter()
@@ -184,7 +187,7 @@ pub fn get_parameter_matrix<T: ConfigValue>(filepath: &Path, key: &str) -> Vec<V
     let config = get_config(filepath);
     let config_array = config
         .get_array(key)
-        .expect(&format!("Should find the {key} in the {:?}", filepath));
+        .unwrap_or_else(|_| panic!("Should find the {key} in the {:?}", filepath));
 
     let matrix = config_array
         .iter()
@@ -256,15 +259,14 @@ pub fn read_file_disp_ims(filepath: &Path) -> (Vec<Vec<f64>>, Vec<f64>) {
 /// # Panics
 /// If failed to read the LUT temperature file.
 pub fn read_file_lut_temperature(filepath: &Path) -> Vec<f64> {
-    let file = File::open(filepath).expect(&format!("Should be able to read the {:?}", filepath));
+    let file = File::open(filepath)
+        .unwrap_or_else(|_| panic!("Should be able to read the {:?}", filepath));
     let mut reader = ReaderBuilder::new().has_headers(false).from_reader(file);
 
     let mut vector: Vec<f64> = Vec::new();
-    for result in reader.records() {
-        if let Ok(record) = result {
-            if let Ok(num) = record[0].parse::<f64>() {
-                vector.push(num);
-            }
+    for record in reader.records().flatten() {
+        if let Ok(num) = record[0].parse::<f64>() {
+            vector.push(num);
         }
     }
 
@@ -287,15 +289,14 @@ pub fn read_file_lut_temperature(filepath: &Path) -> Vec<f64> {
 /// # Panics
 /// If failed to read the LUT gravity file.
 pub fn read_file_lut_gravity(filepath: &Path) -> Vec<Vec<f64>> {
-    let file = File::open(filepath).expect(&format!("Should be able to read the {:?}", filepath));
+    let file = File::open(filepath)
+        .unwrap_or_else(|_| panic!("Should be able to read the {:?}", filepath));
     let mut reader = ReaderBuilder::new().has_headers(false).from_reader(file);
 
     let mut matrix: Vec<Vec<f64>> = Vec::new();
-    for result in reader.records() {
-        if let Ok(record) = result {
-            let row: Vec<f64> = record.iter().map(|x| x.parse::<f64>().unwrap()).collect();
-            matrix.push(row);
-        }
+    for record in reader.records().flatten() {
+        let row: Vec<f64> = record.iter().map(|x| x.parse::<f64>().unwrap()).collect();
+        matrix.push(row);
     }
 
     // We will hold the first row as the header of the LUT. Therefore,
@@ -393,10 +394,7 @@ pub fn get_message_name(message: &Value) -> String {
 /// # Returns
 /// Message sequence ID. Return -1 if the sequence ID is not found.
 pub fn get_message_sequence_id(message: &Value) -> i64 {
-    match message["sequence_id"].as_i64() {
-        Some(sequence_id) => sequence_id,
-        None => -1,
-    }
+    message["sequence_id"].as_i64().unwrap_or(-1)
 }
 
 /// TCP/IP client writes the message and sleep.
@@ -600,9 +598,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Should be able to read the \"wrong.csv\": Os { code: 2, kind: NotFound, message: \"No such file or directory\" }"
-    )]
+    #[should_panic(expected = "Should be able to read the \"wrong.csv\"")]
     fn test_read_file_lut_temperature_panic() {
         read_file_lut_temperature(Path::new("wrong.csv"));
     }

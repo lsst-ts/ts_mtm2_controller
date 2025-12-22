@@ -51,7 +51,7 @@ impl TelemetryServer {
 
         Self {
             _sender_to_tcp: sender_to_tcp,
-            receiver_to_tcp: receiver_to_tcp,
+            receiver_to_tcp,
 
             sender_from_tcp: sender.clone(),
         }

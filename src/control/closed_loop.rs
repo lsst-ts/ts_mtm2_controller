@@ -187,15 +187,12 @@ impl ClosedLoop {
                 NUM_ACTIVE_ACTUATOR_TANGENT,
             ),
 
-            _feedforward_delay_filter: SimpleDelayFilter::new(
-                &vec![1.0, -1.0],
-                NUM_ACTIVE_ACTUATOR,
-            ),
+            _feedforward_delay_filter: SimpleDelayFilter::new(&[1.0, -1.0], NUM_ACTIVE_ACTUATOR),
 
-            kdc: kdc.clone(),
-            kinfl: kinfl.clone(),
+            kdc: *kdc,
+            kinfl: *kinfl,
 
-            hd_comp: hd_comp.clone(),
+            hd_comp: *hd_comp,
 
             _deadband_control_axial: DeadbandControl::new(
                 thresholds_deadzone_axial[0],
@@ -353,7 +350,7 @@ impl ClosedLoop {
         // I do not understand the reason for this inconsistency and the
         // original LabVIEW developer only commented this is just for the
         // temporary use in "Control Loop (FIFO).vi".
-        let steps_feedforward = self.calc_steps_feedforward(&force_demanded, hardpoints);
+        let steps_feedforward = self.calc_steps_feedforward(force_demanded, hardpoints);
         let steps = if self._is_feedforward {
             steps_active + SVector::<f64, NUM_ACTIVE_ACTUATOR>::from_iterator(steps_feedforward)
         } else {
@@ -529,7 +526,7 @@ impl ClosedLoop {
         let steps: SVector<f64, NUM_ACTIVE_ACTUATOR> = self.kinfl * force_demanded_active_diff;
 
         // Pass the delay filter
-        self._feedforward_delay_filter.filter(&steps.as_slice())
+        self._feedforward_delay_filter.filter(steps.as_slice())
     }
 
     /// Saturate the actuator steps in each control cycle.

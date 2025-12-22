@@ -57,6 +57,12 @@ pub struct Status {
     pub summary_faults_status: u64,
 }
 
+impl Default for Status {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Status {
     /// Create a new status.
     ///
@@ -93,13 +99,13 @@ impl Status {
             digital_output: 0,
             digital_input: 0,
 
-            power_system: power_system,
+            power_system,
 
             mode_control_loop: ClosedLoopControlMode::Idle,
             mode_data_acquisition: DataAcquisitionMode::Idle,
 
             ilc_modes: vec![InnerLoopControlMode::Unknown; NUM_INNER_LOOP_CONTROLLER],
-            limit_switch: limit_switch,
+            limit_switch,
 
             summary_faults_status: 0,
         }

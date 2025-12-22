@@ -56,10 +56,11 @@ impl Lut {
         let temperature = Self::get_lut_temperature(dir_path);
 
         Self {
-            dir_name: String::from(dir_path.to_str().expect(&format!(
-                "Should be able to convert {:?} to a string",
-                dir_path
-            ))),
+            dir_name: String::from(
+                dir_path.to_str().unwrap_or_else(|| {
+                    panic!("Should be able to convert {:?} to a string", dir_path)
+                }),
+            ),
             _ref_angles: ref_angles,
             _gravity: gravity,
             _temperature: temperature,
@@ -149,7 +150,7 @@ impl Lut {
                 .rows_mut(idx * len_sensors, len_sensors)
                 .copy_from(&r_sensors);
         }
-        r_normalized = r_normalized / r_sensors.max();
+        r_normalized /= r_sensors.max();
 
         let theta = theta_sensors.kronecker(&DVector::from_element(len_sensors, 1.0));
 

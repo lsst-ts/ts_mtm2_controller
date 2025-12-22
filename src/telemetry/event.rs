@@ -424,11 +424,9 @@ impl Event {
         let lut = Path::new(&config_dir).join("lut");
         let mut files = Vec::new();
         if let Ok(entries) = lut.read_dir() {
-            for entry in entries {
-                if let Ok(dir_entry) = entry {
-                    if let Some(name) = dir_entry.file_name().to_str() {
-                        files.push(name.to_string());
-                    }
+            for dir_entry in entries.flatten() {
+                if let Some(name) = dir_entry.file_name().to_str() {
+                    files.push(name.to_string());
                 }
             }
         }

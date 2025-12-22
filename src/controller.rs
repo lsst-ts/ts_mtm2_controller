@@ -133,15 +133,13 @@ impl Controller {
                 if hardpoints[idx] >= NUM_AXIAL_ACTUATOR {
                     return None;
                 }
-            } else {
-                if hardpoints[idx] < NUM_AXIAL_ACTUATOR {
-                    return None;
-                }
+            } else if hardpoints[idx] < NUM_AXIAL_ACTUATOR {
+                return None;
             }
         }
 
         // Check the geometry of the hardpoints.
-        if let Err(_) = check_hardpoints(
+        if check_hardpoints(
             &self
                 .error_handler
                 .config_control_loop
@@ -149,7 +147,9 @@ impl Controller {
                 .loc_act_axial,
             &hardpoints[..NUM_HARDPOINTS_AXIAL],
             &hardpoints[NUM_HARDPOINTS_AXIAL..],
-        ) {
+        )
+        .is_err()
+        {
             return None;
         }
 
@@ -348,9 +348,7 @@ impl Controller {
             .enable_open_loop_max_limit
             && mode == ClosedLoopControlMode::ClosedLoop
         {
-            if self.set_enable_open_loop_max_limit(false).is_none() {
-                return None;
-            }
+            self.set_enable_open_loop_max_limit(false)?;
         }
 
         if let Some(sender) = self.sender_to_control_loop.as_ref() {

@@ -61,7 +61,7 @@ where
 /// Corrected inclinometer angle in degree.
 pub fn correct_inclinometer_angle(angle: f64, offset: f64) -> f64 {
     let angle_offset = angle + offset;
-    let origin = if (angle_offset >= 0.0) && (angle_offset < 90.0) {
+    let origin = if (0.0..90.0).contains(&angle_offset) {
         360.0
     } else {
         0.0
@@ -165,7 +165,7 @@ pub fn calc_hp_comp_matrix(
     // Tangential hardpoints
     let mut hd_comp_tangent: SMatrix<f64, NUM_ACTIVE_ACTUATOR_TANGENT, NUM_HARDPOINTS_TANGENT> =
         SMatrix::repeat(2.0 / 3.0);
-    if hardpoints_tangent == &vec![72, 74, 76] {
+    if hardpoints_tangent == vec![72, 74, 76] {
         hd_comp_tangent[(0, 2)] = -1.0 / 3.0;
         hd_comp_tangent[(1, 0)] = -1.0 / 3.0;
         hd_comp_tangent[(2, 1)] = -1.0 / 3.0;
@@ -205,9 +205,9 @@ fn get_active_actuators(
     let option_two = vec![73, 75, 77];
 
     let active_actuators_tangent: Vec<usize>;
-    if hardpoints_tangent == &option_one {
+    if hardpoints_tangent == option_one {
         active_actuators_tangent = option_two;
-    } else if hardpoints_tangent == &option_two {
+    } else if hardpoints_tangent == option_two {
         active_actuators_tangent = option_one;
     } else {
         panic!(
@@ -364,7 +364,7 @@ pub fn check_hardpoints(
     // Axial hardpoints
 
     // Check the hardpoints by comparing with the expectation
-    if hardpoints_axial != &select_axial_hardpoints(loc_act_axial, hardpoints_axial[0]) {
+    if hardpoints_axial != select_axial_hardpoints(loc_act_axial, hardpoints_axial[0]) {
         return Err("Bad selection of axial hardpoints.");
     }
 
@@ -372,7 +372,7 @@ pub fn check_hardpoints(
     let option_one = vec![72, 74, 76];
     let option_two = vec![73, 75, 77];
 
-    if (hardpoints_tangent != &option_one) && (hardpoints_tangent != &option_two) {
+    if (hardpoints_tangent != option_one) && (hardpoints_tangent != option_two) {
         return Err("Tangential hardpoints can only be [72, 74, 76] or [73, 75, 77].");
     }
 
@@ -540,9 +540,7 @@ pub fn hardpoint_to_rigid_body(
 ) -> Result<(f64, f64, f64, f64, f64, f64), &'static str> {
     // Delta of the axial hardpoint displacements
     let disp_hardpoint_axial: SVector<f64, NUM_HARDPOINTS_AXIAL> = SVector::from_iterator(
-        (0..NUM_HARDPOINTS_AXIAL)
-            .into_iter()
-            .map(|idx| disp_hardpoint_current[idx] - disp_hardpoint_home[idx]),
+        (0..NUM_HARDPOINTS_AXIAL).map(|idx| disp_hardpoint_current[idx] - disp_hardpoint_home[idx]),
     );
 
     // Location of the axial hardpoints: (x_hp, y_hp, 1)
@@ -571,7 +569,7 @@ pub fn hardpoint_to_rigid_body(
 
     let z_axial_3_points = mat_axial_3_points * dof_axial;
 
-    let mut mat_axial_3_points_updated = mat_axial_3_points.clone();
+    let mut mat_axial_3_points_updated = mat_axial_3_points;
     mat_axial_3_points_updated.set_column(2, &z_axial_3_points);
 
     let r1c = mat_axial_3_points_updated.row(1) - mat_axial_3_points_updated.row(0);
@@ -720,7 +718,7 @@ pub fn calculate_position_ims(
     let mut readings = theta_z.to_vec();
     readings.extend(delta_z);
 
-    let index_array = vec![8, 10, 4, 6, 0, 2, 9, 11, 5, 7, 1, 3];
+    let index_array = [8, 10, 4, 6, 0, 2, 9, 11, 5, 7, 1, 3];
 
     // Create a vector of tuples (index, value)
     let mut indexed_readings: Vec<(usize, f64)> = index_array

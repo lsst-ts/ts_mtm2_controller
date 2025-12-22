@@ -46,6 +46,12 @@ impl TelemetryDefault for TelemetryPower {
     }
 }
 
+impl Default for TelemetryPower {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelemetryPower {
     /// Create a new power telemetry object.
     pub fn new() -> Self {

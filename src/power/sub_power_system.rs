@@ -326,10 +326,8 @@ impl SubPowerSystem {
                     self._count_breaker -= 1;
                 }
 
-                if self._count_breaker == 0 {
-                    if self._count_voltage > 0 {
-                        self._count_voltage -= 1;
-                    }
+                if self._count_breaker == 0 && self._count_voltage > 0 {
+                    self._count_voltage -= 1;
                 }
 
                 // Check if the voltage is below the output voltage off level.
@@ -379,16 +377,15 @@ impl SubPowerSystem {
                                 self.reset_breakers(DigitalOutputStatus::BinaryHighLevel),
                             );
                         }
-                    } else {
-                        if (digital_output & DigitalOutput::ResetCommunicationBreakers.bit_value())
-                            == 0
-                        {
-                            return (
-                                false,
-                                false,
-                                self.reset_breakers(DigitalOutputStatus::BinaryHighLevel),
-                            );
-                        }
+                    } else if (digital_output
+                        & DigitalOutput::ResetCommunicationBreakers.bit_value())
+                        == 0
+                    {
+                        return (
+                            false,
+                            false,
+                            self.reset_breakers(DigitalOutputStatus::BinaryHighLevel),
+                        );
                     }
 
                     // Check the interlock status.

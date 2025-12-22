@@ -29,6 +29,12 @@ pub struct MockInnerLoopController {
     _status: u8,
 }
 
+impl Default for MockInnerLoopController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockInnerLoopController {
     /// Create a new inner-loop controller (ILC).
     ///
