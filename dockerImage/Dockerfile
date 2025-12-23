@@ -11,7 +11,7 @@ ARG LSST_USER_HOME=/home/${LSST_USER}
 USER root
 
 # Install the dependencies
-RUN rustup component add llvm-tools \
+RUN rustup component add llvm-tools clippy \
     && cargo install cargo-nextest cargo-llvm-cov
 
 # Change the user mode
