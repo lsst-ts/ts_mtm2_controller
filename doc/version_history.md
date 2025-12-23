@@ -1,5 +1,12 @@
 # Version Histroy
 
+0.3.2
+
+- Update the dependencies.
+- Format the code with the `clippy`.
+- Add the `clippy` to the `pre-commit` and `Dockerfile`.
+- Add the linting code stage in `Jenkinsfile`.
+
 0.3.1
 
 - Remove the **MockPlant** from the **PowerSystem**.
