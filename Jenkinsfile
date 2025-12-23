@@ -4,7 +4,7 @@ pipeline {
 
     agent {
         docker {
-            image 'lsstts/rust:latest'
+            image 'lsstts/rust:develop'
         }
     }
 
@@ -22,6 +22,18 @@ pipeline {
     }
 
     stages {
+
+        stage('Linting Code') {
+            steps {
+                // 'PATH' can only be updated in a single shell block.
+                // We can not update PATH in 'environment' block.
+                withEnv(["HOME=${env.WORKSPACE}"]) {
+                    sh """
+                        cargo clippy
+                    """
+                }
+            }
+        }
 
         stage('Check Code') {
             steps {
