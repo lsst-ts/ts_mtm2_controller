@@ -41,6 +41,7 @@ pub struct PowerCommandStatus {
     pub is_power_on: bool,
 }
 
+#[derive(Default)]
 pub struct PowerSystem {
     // Configuration of the power system
     pub config: ConfigPower,
@@ -94,7 +95,7 @@ impl PowerSystem {
         ]);
 
         Self {
-            subsystem: subsystem,
+            subsystem,
 
             config: config_power,
 
@@ -178,7 +179,7 @@ impl PowerSystem {
         self._command_status.insert(
             power_type,
             Some(PowerCommandStatus {
-                sequence_id: sequence_id,
+                sequence_id,
                 is_power_on: true,
             }),
         );
@@ -261,7 +262,7 @@ impl PowerSystem {
         self._command_status.insert(
             power_type,
             Some(PowerCommandStatus {
-                sequence_id: sequence_id,
+                sequence_id,
                 is_power_on: false,
             }),
         );
@@ -346,7 +347,7 @@ impl PowerSystem {
         self._command_status.insert(
             power_type,
             Some(PowerCommandStatus {
-                sequence_id: sequence_id,
+                sequence_id,
                 is_power_on: true,
             }),
         );
@@ -404,7 +405,7 @@ impl PowerSystem {
     /// Tuple containing two values:
     /// 1. True if the state is changed. Otherwise, false.
     /// 2. True if there is the error and need to power off the system.
-    /// Otherwise, false.
+    ///    Otherwise, false.
     pub fn transition_state(
         &mut self,
         power_type: PowerType,
@@ -497,14 +498,9 @@ impl PowerSystem {
     /// # Returns
     /// The command result.
     fn get_command_result(&mut self, power_type: PowerType) -> Option<Value> {
-        if self._command_result[&power_type].is_none() {
-            return None;
-        }
-
-        let command_result = self._command_result[&power_type].clone();
-        self._command_result.insert(power_type, None);
-
-        command_result
+        self._command_result
+            .get_mut(&power_type)
+            .and_then(|result| result.take())
     }
 
     /// Check if there is a command result.

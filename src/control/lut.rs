@@ -56,10 +56,11 @@ impl Lut {
         let temperature = Self::get_lut_temperature(dir_path);
 
         Self {
-            dir_name: String::from(dir_path.to_str().expect(&format!(
-                "Should be able to convert {:?} to a string",
-                dir_path
-            ))),
+            dir_name: String::from(
+                dir_path.to_str().unwrap_or_else(|| {
+                    panic!("Should be able to convert {:?} to a string", dir_path)
+                }),
+            ),
             _ref_angles: ref_angles,
             _gravity: gravity,
             _temperature: temperature,
@@ -149,7 +150,7 @@ impl Lut {
                 .rows_mut(idx * len_sensors, len_sensors)
                 .copy_from(&r_sensors);
         }
-        r_normalized = r_normalized / r_sensors.max();
+        r_normalized /= r_sensors.max();
 
         let theta = theta_sensors.kronecker(&DVector::from_element(len_sensors, 1.0));
 
@@ -175,13 +176,13 @@ impl Lut {
     ///
     /// # Arguments
     /// * `lut_angle` - Angle used to calculate the LUT forces in degree.
-    /// * `ring_temperature` - Ring temperature in degree Celsius. The order is:
-    /// [LG2-1, LG2-2, LG2-3, LG2-4, LG3-1, LG3-2, LG3-3, LG3-4, LG4-1, LG4-2,
-    /// LG4-3, LG4-4].
+    /// * `ring_temperature` - Ring temperature in degree Celsius. The order
+    ///   is: [LG2-1, LG2-2, LG2-3, LG2-4, LG3-1, LG3-2, LG3-3, LG3-4, LG4-1,
+    ///   LG4-2, LG4-3, LG4-4].
     /// * `ref_temperature` - Reference temperature in degree Celsius. The order
-    /// is the same as the ring temperature.
+    ///   is the same as the ring temperature.
     /// * `enable_lut_temperature` - Enable the temperature LUT or not. If it is
-    /// false, the temperature-related forces will be zero.
+    ///   false, the temperature-related forces will be zero.
     ///
     /// # Returns
     /// A tuple of two vectors: gravity correction forces and temperature
@@ -210,26 +211,27 @@ impl Lut {
         (forces_gravity, forces_temperature)
     }
 
-    /// Calculate look-up table (LUT) forces using current system state (position
-    /// and temperature).
+    /// Calculate look-up table (LUT) forces using current system state
+    /// (position and temperature).
     ///
     /// # Arguments
     /// * `lut_angle` - Angle used to calculate the LUT forces in degree.
     /// * `ref_angles` - Reference angles of the elevation LUT.
     /// * `lut_gravity` - Gravity LUT.
-    /// * `ring_temperature` - Ring temperature in degree Celsius. The order is:
-    /// [LG2-1, LG2-2, LG2-3, LG2-4, LG3-1, LG3-2, LG3-3, LG3-4, LG4-1, LG4-2,
-    /// LG4-3, LG4-4].
-    /// * `ref_temperature` - Reference temperature in degree Celsius. The order is
-    /// the same as the ring temperature.
+    /// * `ring_temperature` - Ring temperature in degree Celsius. The order
+    ///   is: [LG2-1, LG2-2, LG2-3, LG2-4, LG3-1, LG3-2, LG3-3, LG3-4, LG4-1,
+    ///   LG4-2, LG4-3, LG4-4].
+    /// * `ref_temperature` - Reference temperature in degree Celsius. The
+    ///   order is the same as the ring temperature.
     /// * `temp_inv` - Temperature inversion matrix.
     /// * `lut_temperature` - Temperature LUT.
-    /// * `enable_lut_temperature` - Enable the temperature LUT or not. If it is
-    /// false, the temperature-related forces will be zero.
+    /// * `enable_lut_temperature` - Enable the temperature LUT or not. If it
+    ///   is false, the temperature-related forces will be zero.
     ///
     /// # Returns
-    /// A tuple of two vectors: gravity correction forces and temperature correction
-    /// forces in Newton.
+    /// A tuple of two vectors: gravity correction forces and temperature
+    /// correction forces in Newton.
+    #[allow(clippy::too_many_arguments, clippy::ptr_arg)]
     fn calc_look_up_forces(
         lut_angle: f64,
         ref_angles: &Vec<f64>,
@@ -270,15 +272,16 @@ impl Lut {
     ///
     /// # Arguments
     /// * `temperature` - Ring temperature in degree Celsius. The order is:
-    /// [LG2-2, LG2-3, LG2-4, LG3-1, LG4-2, LG4-1, LG3-2, LG3-3, LG3-4, LG4-4,
-    /// LG4-3, LG2-1].
-    /// * `ref_temperature` - Reference temperature in degree Celsius. The order is
-    /// the same as the temperature.
+    ///   [LG2-2, LG2-3, LG2-4, LG3-1, LG4-2, LG4-1, LG3-2, LG3-3, LG3-4,
+    ///   LG4-4, LG4-3, LG2-1].
+    /// * `ref_temperature` - Reference temperature in degree Celsius. The
+    ///   order is the same as the temperature.
     /// * `temp_inv` - Temperature inversion matrix.
     /// * `lut` - Temperature LUT: [Tr, Tx, Ty, Tu].
     ///
     /// # Returns
     /// Temperature correction force in Newton.
+    #[allow(clippy::ptr_arg)]
     fn calc_look_up_forces_temperature(
         temperature: &Vec<f64>,
         ref_temperature: &Vec<f64>,
@@ -301,17 +304,17 @@ impl Lut {
     /// Newton.
     ///
     /// # Arguments
-    /// * `lut_angle` - Angle used to calculate the LUT forces of gravity component
-    /// in degree.
+    /// * `lut_angle` - Angle used to calculate the LUT forces of gravity
+    ///   component in degree.
     /// * `ref_angles` - Reference angles of the elevation LUT.
-    /// * `lut` - Gravity LUT. The row is the actuator index and the column is the
-    /// correction under each reference angle.
+    /// * `lut` - Gravity LUT. The row is the actuator index and the column is
+    ///   the correction under each reference angle.
     ///
     /// # Returns
     /// Gravity correction forces in Newton.
     fn calc_look_up_forces_gravity(
         lut_angle: f64,
-        ref_angles: &Vec<f64>,
+        ref_angles: &[f64],
         lut: &SMatrix<f64, NUM_ACTUATOR, NUM_COLUMN_LUT_GRAVITY>,
     ) -> Vec<f64> {
         // Search the nearest angles in the LUT

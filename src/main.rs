@@ -39,7 +39,7 @@ fn main() {
             Arg::new("ports")
                 .short('p')
                 .long("ports")
-                .value_names(&["GUI command port", "GUI telemetry port", "CSC command port", "CSC telemetry port"])
+                .value_names(["GUI command port", "GUI telemetry port", "CSC command port", "CSC telemetry port"])
                 .help("Command and telemetry ports to override the configuration file. Default is 0, which means no override.")
                 .number_of_values(4)
                 .default_values(["0", "0", "0", "0"])
@@ -142,11 +142,14 @@ fn initiate_logger(level: LevelFilter, filepath: &str) {
         }
     }
 
-    if logger_file.is_some() {
-        let _ = CombinedLogger::init(vec![logger_terminal, logger_file.unwrap()]);
-    } else {
-        let _ = CombinedLogger::init(vec![logger_terminal]);
-    }
+    match logger_file {
+        Some(file) => {
+            let _ = CombinedLogger::init(vec![logger_terminal, file]);
+        }
+        None => {
+            let _ = CombinedLogger::init(vec![logger_terminal]);
+        }
+    };
 }
 
 /// Generate a log file name with the current timestamp.
@@ -155,10 +158,7 @@ fn initiate_logger(level: LevelFilter, filepath: &str) {
 /// * A string representing the log file name.
 fn generate_log_file_name() -> String {
     let now = Local::now();
-    format!(
-        "application_{}.log",
-        now.format("%Y%m%d_%H%M%S").to_string()
-    )
+    format!("application_{}.log", now.format("%Y%m%d_%H%M%S"))
 }
 
 #[cfg(test)]

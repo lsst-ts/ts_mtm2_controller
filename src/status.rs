@@ -30,6 +30,7 @@ use crate::enums::{
 };
 use crate::power::sub_power_system::SubPowerSystem;
 
+#[derive(Default)]
 pub struct Status {
     // Connection status. True if connected. Otherwise, false.
     _connections: HashMap<Commander, bool>,
@@ -93,13 +94,13 @@ impl Status {
             digital_output: 0,
             digital_input: 0,
 
-            power_system: power_system,
+            power_system,
 
-            mode_control_loop: ClosedLoopControlMode::Idle,
-            mode_data_acquisition: DataAcquisitionMode::Idle,
+            mode_control_loop: ClosedLoopControlMode::default(),
+            mode_data_acquisition: DataAcquisitionMode::default(),
 
             ilc_modes: vec![InnerLoopControlMode::Unknown; NUM_INNER_LOOP_CONTROLLER],
-            limit_switch: limit_switch,
+            limit_switch,
 
             summary_faults_status: 0,
         }
@@ -142,7 +143,7 @@ impl Status {
     ///
     /// # Returns
     /// True if all the ILCs are enabled. Otherwise, false.
-    pub fn are_ilc_enabled(&self, bypassed_ilcs: &Vec<usize>) -> bool {
+    pub fn are_ilc_enabled(&self, bypassed_ilcs: &[usize]) -> bool {
         for (idx, ilc) in self.ilc_modes.iter().enumerate() {
             if !bypassed_ilcs.contains(&idx) && *ilc != InnerLoopControlMode::Enabled {
                 return false;

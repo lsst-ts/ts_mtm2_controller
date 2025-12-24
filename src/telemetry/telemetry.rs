@@ -53,10 +53,10 @@ impl Telemetry {
         events: Option<Vec<Value>>,
     ) -> Self {
         Self {
-            power: power,
-            control_loop: control_loop,
-            command_result: command_result,
-            events: events,
+            power,
+            control_loop,
+            command_result,
+            events,
         }
     }
 }

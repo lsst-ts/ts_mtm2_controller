@@ -101,16 +101,16 @@ pub fn run(
 /// # Arguments
 /// * `config_file` - Configuration file.
 /// * `port_command` - Command port. If the value is 0, the port is read from
-/// the configuration file.
+///   the configuration file.
 /// * `port_telemetry` - Telemetry port. If the value is 0, the port is read
-/// from the configuration file.
+///   from the configuration file.
 /// * `is_gui` - Is the GUI or not. If not, it is the CSC.
 ///
 /// # Returns
 /// * `final_port_command` - Final command port. If the value is 0, the OS will
-/// assign a port.
+///   assign a port.
 /// * `final_port_telemetry` - Final telemetry port. If the value is 0, the OS
-/// will assign a port.
+///   will assign a port.
 fn get_final_ports(
     config_file: &Path,
     port_command: i32,

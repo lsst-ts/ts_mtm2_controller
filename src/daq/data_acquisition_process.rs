@@ -71,9 +71,9 @@ impl DataAcquisitionProcess {
     /// # Arguments
     /// * `is_simulation_mode` - Whether the system is in simulation mode.
     /// * `sender_telemetry_to_control_loop` - The sender of the inner-loop
-    /// controller (ILC) telemetry to the control loop.
+    ///   controller (ILC) telemetry to the control loop.
     /// * `sender_telemetry_to_power` - The sender of the telemetry to the
-    /// power system.
+    ///   power system.
     /// * `sender_to_model` - The sender of the message to the model.
     /// * `sender_to_daq` - The sender of the message to DAQ.
     /// * `receiver_to_daq` - The receiver of the message to DAQ.

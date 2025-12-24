@@ -82,13 +82,13 @@ impl ErrorHandler {
 
         Self {
             config_control_loop: config_control_loop.clone(),
-            config_power: config_power,
+            config_power,
             actuators: Actuator::from_cell_mapping_file(Path::new(
                 "config/cell/cell_actuator_mapping.yaml",
             )),
             summary_faults_status: 0,
             _faults_mask: Self::get_faults_mask(),
-            ilc: ilc,
+            ilc,
             _count_out_max_cycle_time: 0,
 
             _count_voltage_communication: 0,
@@ -217,12 +217,12 @@ impl ErrorHandler {
         is_closed_loop: bool,
     ) {
         self.check_ilc_status(&telemetry.ilc_status);
-        if self.ilc["fault"].len() > 0 {
+        if !self.ilc["fault"].is_empty() {
             self.add_error(ErrorCode::FaultActuatorIlcRead);
         }
 
-        if (self.ilc["limit_switch_retract"].len() > 0)
-            || (self.ilc["limit_switch_extend"].len() > 0)
+        if (!self.ilc["limit_switch_retract"].is_empty())
+            || (!self.ilc["limit_switch_extend"].is_empty())
         {
             let error_code_limit_switch = if is_closed_loop {
                 ErrorCode::FaultActuatorLimitCL
@@ -269,7 +269,7 @@ impl ErrorHandler {
     ///
     /// # Arguments
     /// * `ilc_status` - The ILC status.
-    fn check_ilc_status(&mut self, ilc_status: &Vec<u8>) {
+    fn check_ilc_status(&mut self, ilc_status: &[u8]) {
         let mut fault: Vec<i32> = Vec::new();
         let mut limit_switch_retract: Vec<i32> = Vec::new();
         let mut limit_switch_extend: Vec<i32> = Vec::new();
@@ -305,11 +305,11 @@ impl ErrorHandler {
     /// # Arguments
     /// * `encoders`: The 78 encoder values to check.
     /// * `is_axial`: Is the encoder for axial actuator or not. If not, it
-    /// is for tangent actuator.
+    ///   is for tangent actuator.
     ///
     /// # Returns
     /// True if any of the encoders is out of limit. Otherwise, False.
-    fn is_encoder_out_limit(&mut self, encoders: &Vec<i32>, is_axial: bool) -> bool {
+    fn is_encoder_out_limit(&mut self, encoders: &[i32], is_axial: bool) -> bool {
         if is_axial {
             for (idx, encoder) in encoders[0..NUM_AXIAL_ACTUATOR].iter().enumerate() {
                 if self.actuators[idx].is_encoder_out_limit(*encoder) {
@@ -335,7 +335,7 @@ impl ErrorHandler {
     ///
     /// # Returns
     /// True if the actuator force is out of limit. Otherwise, False.
-    pub fn is_actuator_force_out_limit(&self, force: &Vec<f64>, is_closed_loop: bool) -> bool {
+    pub fn is_actuator_force_out_limit(&self, force: &[f64], is_closed_loop: bool) -> bool {
         // Decide the force limits
         let mut force_limit_axial: f64;
         let mut force_limit_tangent: f64;
@@ -367,13 +367,13 @@ impl ErrorHandler {
     ///
     /// # Arguments
     /// * `tangent_force_error`: The force error of tangent link in Newton. The
-    /// first 6 elements are the "force". The last 2 elements are the "weight"
-    /// and "sum".
+    ///   first 6 elements are the "force". The last 2 elements are the
+    ///   "weight" and "sum".
     ///
     /// # Returns
     /// True if the force error of tangent link is out of limit. Otherwise,
     /// False.
-    fn is_tangent_force_error_out_limit(&self, tangent_force_error: &Vec<f64>) -> bool {
+    fn is_tangent_force_error_out_limit(&self, tangent_force_error: &[f64]) -> bool {
         let tangent_force_error_threshold = &self.config_control_loop.tangent_force_error_threshold;
 
         let is_out_limit_total_weight = tangent_force_error[6].abs()
@@ -408,7 +408,7 @@ impl ErrorHandler {
     ///
     /// # Returns
     /// True if the cell temperature is high. Otherwise, False.
-    fn is_cell_temperature_high(&self, intake: &Vec<f64>, exhaust: &Vec<f64>) -> bool {
+    fn is_cell_temperature_high(&self, intake: &[f64], exhaust: &[f64]) -> bool {
         let diff = (exhaust[0] - intake[0] + exhaust[1] - intake[1]) / 2.0;
         diff > self.config_control_loop.max_cell_temperature_difference
     }
@@ -537,14 +537,14 @@ impl ErrorHandler {
     ///
     /// # Arguments
     /// * `is_boost_current_fault_enabled` - Is the boost current fault enabled
-    /// or not.
+    ///   or not.
     /// * `digital_input` - The digital input value.
     /// * `digital_output` - The digital output value.
     ///
     /// # Returns
     /// A tuple containing three boolean values:
     /// * The first value indicates if there is a fault in power supply load
-    /// sharing.
+    ///   sharing.
     /// * The second value indicates if there is a fault in power health.
     /// * The third value indicates if there is a fault in interlock.
     pub fn check_power_supply_health(
@@ -620,14 +620,14 @@ impl ErrorHandler {
         }
 
         // Only check the warning level if there is no fault.
-        if !self.has_error(error_code_fault) {
-            if self.is_out_range(
+        if !self.has_error(error_code_fault)
+            && self.is_out_range(
                 voltage,
                 self.config_power.warning_voltage_min,
                 self.config_power.warning_voltage_max,
-            ) {
-                self.add_error(error_code_warning);
-            }
+            )
+        {
+            self.add_error(error_code_warning);
         }
     }
 

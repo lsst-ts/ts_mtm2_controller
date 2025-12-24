@@ -51,7 +51,7 @@ impl DataAcquisition {
     ///
     /// # Arguments
     /// * `is_simulation_mode` - A boolean indicating whether to run in
-    /// simulation mode.
+    ///   simulation mode.
     ///
     /// # Returns
     /// A new instance of DataAcquisition.
@@ -78,7 +78,7 @@ impl DataAcquisition {
 
             mode: DataAcquisitionMode::Idle,
 
-            plant: plant,
+            plant,
         }
     }
 
@@ -176,9 +176,9 @@ impl DataAcquisition {
     fn get_power(&mut self, power_type: PowerType) -> (f64, f64) {
         if let Some(plant) = &mut self.plant {
             if power_type == PowerType::Motor {
-                return plant.power_system_motor.get_voltage_and_current();
+                plant.power_system_motor.get_voltage_and_current()
             } else {
-                return plant.power_system_communication.get_voltage_and_current();
+                plant.power_system_communication.get_voltage_and_current()
             }
         } else {
             // Update the hardware.
@@ -195,7 +195,7 @@ impl DataAcquisition {
     /// If not in simulation mode.
     fn get_digital_output(&self) -> u8 {
         if let Some(plant) = &self.plant {
-            return plant.digital_output;
+            plant.digital_output
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
@@ -211,7 +211,7 @@ impl DataAcquisition {
     /// If not in simulation mode.
     fn get_digital_input(&self) -> u32 {
         if let Some(plant) = &self.plant {
-            return plant.get_digital_input();
+            plant.get_digital_input()
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
@@ -264,7 +264,7 @@ impl DataAcquisition {
     /// If not in simulation mode.
     fn get_ilc_data_actuator(&mut self) -> (Vec<u8>, Vec<i32>, Vec<f64>) {
         if let Some(plant) = &mut self.plant {
-            return plant.get_actuator_ilc_data();
+            plant.get_actuator_ilc_data()
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
@@ -281,11 +281,11 @@ impl DataAcquisition {
     /// If not in simulation mode.
     fn get_ilc_data_temperature(&self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         if let Some(plant) = &self.plant {
-            return (
+            (
                 plant.temperature_ring.clone(),
                 plant.temperature_intake.clone(),
                 plant.temperature_exhaust.clone(),
-            );
+            )
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
@@ -302,7 +302,7 @@ impl DataAcquisition {
     /// If not in simulation mode.
     fn get_ilc_data_displacement(&self) -> (Vec<f64>, Vec<f64>) {
         if self.is_simulation_mode() {
-            return (vec![0.0; NUM_IMS], vec![0.0; NUM_IMS]);
+            (vec![0.0; NUM_IMS], vec![0.0; NUM_IMS])
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
@@ -318,7 +318,7 @@ impl DataAcquisition {
     /// If not in simulation mode.
     fn get_ilc_data_inclinometer(&self) -> f64 {
         if let Some(plant) = &self.plant {
-            return plant.inclinometer_angle;
+            plant.inclinometer_angle
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
@@ -357,7 +357,7 @@ impl DataAcquisition {
         if let Some(plant) = &mut self.plant {
             plant.switch_digital_output(digital_output, status);
 
-            return Some(());
+            Some(())
         } else {
             panic!("Not implemented yet.");
         }
@@ -425,7 +425,7 @@ impl DataAcquisition {
     ///
     /// # Returns
     /// Some if the actuator steps are moved successfully. Otherwise, None.
-    pub fn move_actuator_steps(&mut self, actuator_steps: &Vec<i32>) -> Option<()> {
+    pub fn move_actuator_steps(&mut self, actuator_steps: &[i32]) -> Option<()> {
         // Check the input
         if actuator_steps.len() != NUM_ACTUATOR {
             error!(
@@ -446,7 +446,7 @@ impl DataAcquisition {
 
         // Do the actuator movement.
         if let Some(plant) = &mut self.plant {
-            plant.move_actuator_steps(&actuator_steps);
+            plant.move_actuator_steps(actuator_steps);
 
             Some(())
         } else {

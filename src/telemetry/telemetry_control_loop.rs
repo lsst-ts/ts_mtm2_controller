@@ -28,7 +28,7 @@ use crate::constants::{
 };
 use crate::telemetry::telemetry_default::TelemetryDefault;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TelemetryControlLoop {
     // Mirror is in position or not.
     pub is_in_position: bool,
@@ -68,26 +68,25 @@ pub struct TelemetryControlLoop {
 
 impl TelemetryDefault for TelemetryControlLoop {
     fn get_messages(&self, digit: i32) -> Vec<Value> {
-        let mut messages = Vec::new();
-        messages.push(self.get_message_position(digit));
-        messages.push(self.get_message_position_ims(digit));
-        messages.push(self.get_message_axial_force(digit));
-        messages.push(self.get_message_tangent_force(digit));
-        messages.push(self.get_message_force_error_tangent(digit));
-        messages.push(self.get_message_temperature(digit));
-        messages.push(self.get_message_zenith_angle(digit));
-        messages.push(self.get_message_inclinometer_angle_tma(digit));
-        messages.push(self.get_message_axial_actuator_steps());
-        messages.push(self.get_message_tangent_actuator_steps());
-        messages.push(self.get_message_axial_encoder_positions(digit));
-        messages.push(self.get_message_tangent_encoder_positions(digit));
-        messages.push(self.get_message_ilc_data());
-        messages.push(self.get_message_displacement_sensors(digit));
-        messages.push(self.get_message_force_balance(digit));
-        messages.push(self.get_message_net_forces_total(digit));
-        messages.push(self.get_message_net_moments_total(digit));
-
-        messages
+        vec![
+            self.get_message_position(digit),
+            self.get_message_position_ims(digit),
+            self.get_message_axial_force(digit),
+            self.get_message_tangent_force(digit),
+            self.get_message_force_error_tangent(digit),
+            self.get_message_temperature(digit),
+            self.get_message_zenith_angle(digit),
+            self.get_message_inclinometer_angle_tma(digit),
+            self.get_message_axial_actuator_steps(),
+            self.get_message_tangent_actuator_steps(),
+            self.get_message_axial_encoder_positions(digit),
+            self.get_message_tangent_encoder_positions(digit),
+            self.get_message_ilc_data(),
+            self.get_message_displacement_sensors(digit),
+            self.get_message_force_balance(digit),
+            self.get_message_net_forces_total(digit),
+            self.get_message_net_moments_total(digit),
+        ]
     }
 }
 
@@ -105,7 +104,7 @@ impl TelemetryControlLoop {
                 &["raw", "processed", "zenith", "external"],
                 0.0,
             ),
-            temperature: temperature,
+            temperature,
             actuator_steps: vec![0; NUM_ACTUATOR],
             actuator_positions: vec![0.0; NUM_ACTUATOR],
             forces: Self::initialize_dict_vector(

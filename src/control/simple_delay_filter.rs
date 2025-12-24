@@ -67,14 +67,14 @@ impl SimpleDelayFilter {
     ///
     /// # Arguments
     /// * `value` - Input value with the same number of elements (aka.
-    /// "num_element") when initializing this class.
+    ///   "num_element") when initializing this class.
     ///
     /// # Returns
     /// Filtered value.
     ///
     /// # Panics
     /// * If the size of the input value is not the same as the number of
-    /// elements.
+    ///   elements.
     pub fn filter(&mut self, value: &[f64]) -> Vec<f64> {
         // Check the size of the input value
         assert!(

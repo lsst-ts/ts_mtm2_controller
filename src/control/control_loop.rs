@@ -73,7 +73,7 @@ impl ControlLoop {
     /// * `config` - The configuration.
     /// * `is_mirror` - Is the mirror or the surrogate.
     /// * `is_simulation_mode` - Is the simulation mode or not.
-    /// the loop.
+    ///   the loop.
     ///
     /// # Returns
     /// A new control loop.
@@ -97,7 +97,7 @@ impl ControlLoop {
         };
 
         Self {
-            is_mirror: is_mirror,
+            is_mirror,
 
             _closed_loop: Self::create_closed_loop(
                 config.control_frequency,
@@ -112,7 +112,7 @@ impl ControlLoop {
 
             config: config.clone(),
 
-            telemetry: telemetry,
+            telemetry,
 
             is_in_position: false,
 
@@ -120,7 +120,7 @@ impl ControlLoop {
 
             event_queue: EventQueue::new(),
 
-            plant: plant,
+            plant,
         }
     }
 
@@ -146,10 +146,10 @@ impl ControlLoop {
     /// * `control_frequency` - Control frequency in Hz.
     /// * `is_mirror` - Is the mirror or the surrogate.
     /// * `filepath_parameters_control` - The path to the control parameters
-    /// file.
+    ///   file.
     /// * `hardpoints` - Six 0-based hardpoints. The order is from low to high.
-    /// * `loc_act_axial` - Location of the axial actuators: (x, y). This should
-    /// be a 72 x 2 matrix.
+    /// * `loc_act_axial` - Location of the axial actuators: (x, y). This
+    ///   should be a 72 x 2 matrix.
     ///
     /// # Returns
     /// A closed-loop.
@@ -158,7 +158,7 @@ impl ControlLoop {
         is_mirror: bool,
         filepath_parameters_control: &Path,
         hardpoints: &[usize],
-        loc_act_axial: &Vec<Vec<f64>>,
+        loc_act_axial: &[Vec<f64>],
     ) -> ClosedLoop {
         // Calculate the command delay filter parameters.
         let params_cmd_delay = calc_cmd_delay_filter_params(is_mirror, control_frequency, false, 5);
@@ -234,14 +234,14 @@ impl ControlLoop {
     /// * `is_mirror` - Is the mirror or the surrogate.
     /// * `hardpoints` - Six 0-based hardpoints. The order is from low to high.
     /// * `loc_act_axial` - Location of the axial actuators: (x, y). This should
-    /// be a 72 x 2 matrix.
+    ///   be a 72 x 2 matrix.
     ///
     /// # Returns
     /// The kinetic decoupling matrix and the hardpoint compensation matrix.
     fn calculate_matrices_hardpoints(
         is_mirror: bool,
         hardpoints: &[usize],
-        loc_act_axial: &Vec<Vec<f64>>,
+        loc_act_axial: &[Vec<f64>],
     ) -> (
         SMatrix<f64, NUM_ACTIVE_ACTUATOR, NUM_ACTIVE_ACTUATOR>,
         SMatrix<f64, NUM_ACTIVE_ACTUATOR, NUM_HARDPOINTS>,
@@ -255,7 +255,7 @@ impl ControlLoop {
 
         let stiffness = read_file_stiffness(Path::new(filepath_stiffness));
         let kdc = calc_kinetic_decoupling_matrix(
-            &loc_act_axial,
+            loc_act_axial,
             &hardpoints[..NUM_HARDPOINTS_AXIAL],
             &hardpoints[NUM_HARDPOINTS_AXIAL..],
             &stiffness,
@@ -263,7 +263,7 @@ impl ControlLoop {
 
         // Hardpoint compensation matrix
         let (hd_comp_axial, hd_comp_tangent) = calc_hp_comp_matrix(
-            &loc_act_axial,
+            loc_act_axial,
             &hardpoints[..NUM_HARDPOINTS_AXIAL],
             &hardpoints[NUM_HARDPOINTS_AXIAL..],
         );
@@ -310,7 +310,7 @@ impl ControlLoop {
             &self.config.cell_geometry.loc_act_axial,
         );
 
-        self._closed_loop.kinfl = kdc.clone();
+        self._closed_loop.kinfl = kdc;
         self._closed_loop.kdc = kdc;
 
         self._closed_loop.hd_comp = hd_comp;
@@ -376,22 +376,22 @@ impl ControlLoop {
         // Do the closed-loop control.
         if self._mode == ClosedLoopControlMode::ClosedLoop {
             // Do the clipping for the active movement steps.
-            for idx in 0..NUM_ACTUATOR {
+            for (idx, step) in steps.iter_mut().enumerate().take(NUM_ACTUATOR) {
                 if idx < NUM_AXIAL_ACTUATOR {
-                    steps[idx] = clip(
+                    *step = clip(
                         self.steps_position_mirror[idx],
                         -config.step_limit["axial"],
                         config.step_limit["axial"],
                     );
                 } else {
-                    steps[idx] = clip(
+                    *step = clip(
                         self.steps_position_mirror[idx],
                         -config.step_limit["tangent"],
                         config.step_limit["tangent"],
                     );
                 }
 
-                self.steps_position_mirror[idx] -= steps[idx];
+                self.steps_position_mirror[idx] -= *step;
             }
 
             // Add with the closed-loop control steps in closed-loop control
@@ -651,9 +651,9 @@ impl ControlLoop {
 
         let mut mx = 0.0;
         let mut my = 0.0;
-        for idx in 0..NUM_AXIAL_ACTUATOR {
-            mx += forces[idx] * cell_geometry.loc_act_axial[idx][1];
-            my += forces[idx] * cell_geometry.loc_act_axial[idx][0];
+        for (idx, force) in forces.iter().enumerate().take(NUM_AXIAL_ACTUATOR) {
+            mx += *force * cell_geometry.loc_act_axial[idx][1];
+            my += *force * cell_geometry.loc_act_axial[idx][0];
         }
 
         let mz =
@@ -767,7 +767,6 @@ impl ControlLoop {
     pub fn get_demanded_force(&self, applied_force: &[f64]) -> Vec<f64> {
         let forces = &self.telemetry.forces;
         (0..NUM_ACTUATOR)
-            .into_iter()
             .map(|idx| {
                 applied_force[idx] + forces["lutGravity"][idx] + forces["lutTemperature"][idx]
             })
@@ -896,11 +895,11 @@ impl ControlLoop {
     /// # Arguments
     /// * `command` - Start, stop, pause, or resume the actuator movement.
     /// * `actuators` - The actuator indices to move. Put an empty vector if the
-    /// command is not start.
+    ///   command is not start.
     /// * `displacement` - The displacement in the unit. Put 0.0 if the command
-    /// is not start.
+    ///   is not start.
     /// * `unit` - The unit of the displacement. Put
-    /// `ActuatorDisplacementUnit::None` if the command is not start.
+    ///   `ActuatorDisplacementUnit::None` if the command is not start.
     ///
     /// # Returns
     /// Ok if the actuator movement is successful. Otherwise, an error message.
@@ -916,16 +915,16 @@ impl ControlLoop {
         }
 
         match command {
-            CommandActuator::Start => return self._open_loop.start(actuators, displacement, unit),
+            CommandActuator::Start => self._open_loop.start(actuators, displacement, unit),
             CommandActuator::Stop => {
                 self._open_loop.stop();
-                return Ok(());
+                Ok(())
             }
             CommandActuator::Pause => {
                 self._open_loop.pause();
-                return Ok(());
+                Ok(())
             }
-            CommandActuator::Resume => return self._open_loop.resume(),
+            CommandActuator::Resume => self._open_loop.resume(),
         }
     }
 

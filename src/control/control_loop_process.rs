@@ -75,7 +75,7 @@ impl ControlLoopProcess {
     /// * `sender_to_daq` - The sender to the data acquisition.
     /// * `sender_to_model` - The sender to the model.
     /// * `stop` - An Arc instance that holds the AtomicBool instance to stop
-    /// the loop.
+    ///   the loop.
     ///
     /// # Returns
     /// New instance of the control loop process.
@@ -165,40 +165,30 @@ impl ControlLoopProcess {
             let mut had_processed_telemetry_command = false;
             let mut is_telemetry_command = false;
             let mut is_internal_command = false;
-            loop {
-                match self._receiver_to_control_loop.try_recv() {
-                    Ok(message) => {
-                        command_result = Some(self._command_schema.execute(
-                            &message,
-                            None,
-                            None,
-                            Some(&mut self.control_loop),
-                            None,
-                        ));
+            while let Ok(message) = self._receiver_to_control_loop.try_recv() {
+                command_result = Some(self._command_schema.execute(
+                    &message,
+                    None,
+                    None,
+                    Some(&mut self.control_loop),
+                    None,
+                ));
 
-                        is_internal_command = get_message_sequence_id(&message) == -1;
+                is_internal_command = get_message_sequence_id(&message) == -1;
 
-                        // If we receive a telemetry command as the first time,
-                        // continue to process the second command.
-                        is_telemetry_command = get_message_name(&message) == telemetry_command_name;
+                // If we receive a telemetry command as the first time,
+                // continue to process the second command.
+                is_telemetry_command = get_message_name(&message) == telemetry_command_name;
 
-                        if (!had_processed_telemetry_command) && is_telemetry_command {
-                            had_processed_telemetry_command = true;
-                            continue;
-                        }
+                if (!had_processed_telemetry_command) && is_telemetry_command {
+                    had_processed_telemetry_command = true;
+                    continue;
+                }
 
-                        // Break the loop if we processed a non-telemetry
-                        // command or two consecutive telemetry commands.
-                        if (!is_telemetry_command)
-                            || (had_processed_telemetry_command && is_telemetry_command)
-                        {
-                            break;
-                        }
-                    }
-                    Err(_) => {
-                        // No command to process.
-                        break;
-                    }
+                // Break the loop if we processed a non-telemetry
+                // command or two consecutive telemetry commands.
+                if !is_telemetry_command || had_processed_telemetry_command {
+                    break;
                 }
             }
 

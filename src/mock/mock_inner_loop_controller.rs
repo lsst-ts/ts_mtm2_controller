@@ -22,7 +22,7 @@
 use crate::enums::InnerLoopControlMode;
 
 /// Mock Inner-Loop Controller (ILC) to simulate the behavior of hardware.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MockInnerLoopController {
     // Controller's mode.
     pub mode: InnerLoopControlMode,
@@ -36,7 +36,7 @@ impl MockInnerLoopController {
     /// A new model with a random number.
     pub fn new() -> Self {
         Self {
-            mode: InnerLoopControlMode::Standby,
+            mode: InnerLoopControlMode::default(),
             _status: 0b0000_0000,
         }
     }
@@ -53,7 +53,7 @@ impl MockInnerLoopController {
             InnerLoopControlMode::NoChange => return self.mode,
             InnerLoopControlMode::Unknown => return self.mode,
             InnerLoopControlMode::ClearFaults => {
-                self.mode = InnerLoopControlMode::Standby;
+                self.mode = InnerLoopControlMode::default();
             }
             other => {
                 self.mode = other;

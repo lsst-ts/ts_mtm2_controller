@@ -58,7 +58,7 @@ impl CommandServer {
 
         Self {
             _sender_to_tcp: sender_to_tcp,
-            receiver_to_tcp: receiver_to_tcp,
+            receiver_to_tcp,
 
             sender_from_tcp: sender.clone(),
 
@@ -80,9 +80,9 @@ impl CommandServer {
     ///
     /// # Arguments
     /// * `commands` - A vector of strings that holds the commands. The command
-    /// name should begin with "cmd_"
-    pub fn register_commands(&mut self, commands: &Vec<String>) {
-        self._commands = commands.clone();
+    ///   name should begin with "cmd_"
+    pub fn register_commands(&mut self, commands: &[String]) {
+        self._commands = commands.to_owned();
     }
 
     /// Check if the command is registered or not.
@@ -123,7 +123,7 @@ impl CommandServer {
 
         self._last_sequence_id = sequence_id;
 
-        return lost_sequence_ids;
+        lost_sequence_ids
     }
 
     /// Process the command.

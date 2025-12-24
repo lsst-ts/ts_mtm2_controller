@@ -78,14 +78,14 @@ impl MockPlant {
     ///
     /// # Arguments
     /// * `static_transfer_matrix` - Static transfer matrix used to simulate the
-    /// delta force from the change of steps. This is a (NUM_ACTUATOR x
-    /// NUM_ACTUATOR) matrix. The unit of row is the Newton and the unit of
-    /// column is the actuator's step.
+    ///   delta force from the change of steps. This is a (NUM_ACTUATOR x
+    ///   NUM_ACTUATOR) matrix. The unit of row is the Newton and the unit of
+    ///   column is the actuator's step.
     /// * `inclinometer_angle` - The inclinometer angle in degree.
     ///
     /// # Returns
     /// A new mock plant.
-    pub fn new(static_transfer_matrix: &Vec<Vec<f64>>, inclinometer_angle: f64) -> Self {
+    pub fn new(static_transfer_matrix: &[Vec<f64>], inclinometer_angle: f64) -> Self {
         let matrix = SMatrix::from_row_iterator(
             static_transfer_matrix
                 .iter()
@@ -147,17 +147,17 @@ impl MockPlant {
             ),
             _actuator_force_step: vec![0.0; NUM_ACTUATOR],
 
-            inclinometer_angle: inclinometer_angle,
+            inclinometer_angle,
             _inclinometer_offset: inclinometer_offset,
 
             _mirror_weight_kg: mirror_weight_kg,
 
-            temperature_ring: temperature_ring,
+            temperature_ring,
             temperature_intake: vec![PLANT_TEMPERATURE_LOW; NUM_TEMPERATURE_INTAKE],
             temperature_exhaust: vec![PLANT_TEMPERATURE_HIGH; NUM_TEMPERATURE_EXHAUST],
 
-            power_system_communication: power_system_communication,
-            power_system_motor: power_system_motor,
+            power_system_communication,
+            power_system_motor,
 
             _ilcs: vec![MockInnerLoopController::new(); NUM_INNER_LOOP_CONTROLLER],
 
@@ -297,12 +297,12 @@ impl MockPlant {
 
         // Tangent actuators A1 and A4 do not bear the weight of mirror.
         // A2 and A3 have the reversed direction compared with A5 and A6.
-        let mut index_tangent_link = vec![1, 2, 4, 5];
+        let mut index_tangent_link = [1, 2, 4, 5];
         index_tangent_link
             .iter_mut()
             .for_each(|x| *x += NUM_AXIAL_ACTUATOR);
 
-        let tangent_force_direction = vec![-1.0, -1.0, 1.0, 1.0];
+        let tangent_force_direction = [-1.0, -1.0, 1.0, 1.0];
         let force_tangent = force_mirror_weight * angle_correct.to_radians().cos()
             / (index_tangent_link.len() as f64);
 
@@ -310,7 +310,7 @@ impl MockPlant {
             .iter()
             .zip(tangent_force_direction.iter())
             .for_each(|(index, direction)| {
-                forces[*index as usize] = force_tangent * (*direction);
+                forces[*index] = force_tangent * (*direction);
             });
 
         forces
@@ -383,7 +383,7 @@ impl MockPlant {
     /// # Panics
     /// If the length of the actuator steps is not equal to the number of
     /// actuators.
-    pub fn move_actuator_steps(&mut self, actuator_steps: &Vec<i32>) {
+    pub fn move_actuator_steps(&mut self, actuator_steps: &[i32]) {
         assert!(
             actuator_steps.len() == NUM_ACTUATOR,
             "The length of the actuator steps is not equal to the number of actuators."

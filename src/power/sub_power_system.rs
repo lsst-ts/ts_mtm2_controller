@@ -58,9 +58,9 @@ impl SubPowerSystem {
     /// * `power_type` - Type of the power system.
     /// * `output_voltage_off_level` - Output voltage off level in volt.
     /// * `breaker_operating_voltage` - Specifies the minimum voltage level,
-    /// plus some hysteresis, required to operate the electronic breakers.
+    ///   plus some hysteresis, required to operate the electronic breakers.
     /// * `time_unit` - Unit time in milliseconds used to convert the time
-    /// values to counts.
+    ///   values to counts.
     /// * `time_power_on` - Time in milliseconds to turn on the power.
     /// * `time_power_off` - Time in milliseconds to turn off the power.
     /// * `time_breaker_on` - Time in milliseconds to turn on the breaker.
@@ -68,6 +68,7 @@ impl SubPowerSystem {
     ///
     /// # Returns
     /// New instance of the sub power system.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         power_type: PowerType,
         output_voltage_off_level: f64,
@@ -107,9 +108,8 @@ impl SubPowerSystem {
     /// # Returns
     /// Bit mask for the breakers.
     fn get_breaker_mask(power_type: PowerType) -> u32 {
-        let bits;
-        if power_type == PowerType::Motor {
-            bits = vec![
+        let bits = if power_type == PowerType::Motor {
+            vec![
                 DigitalInput::J1W9N1MotorPowerBreaker,
                 DigitalInput::J1W9N2MotorPowerBreaker,
                 DigitalInput::J1W9N3MotorPowerBreaker,
@@ -119,17 +119,17 @@ impl SubPowerSystem {
                 DigitalInput::J3W11N1MotorPowerBreaker,
                 DigitalInput::J3W11N2MotorPowerBreaker,
                 DigitalInput::J3W11N3MotorPowerBreaker,
-            ];
+            ]
         } else {
-            bits = vec![
+            vec![
                 DigitalInput::J1W12N1CommunicationPowerBreaker,
                 DigitalInput::J1W12N2CommunicationPowerBreaker,
                 DigitalInput::J2W13N1CommunicationPowerBreaker,
                 DigitalInput::J2W13N2CommunicationPowerBreaker,
                 DigitalInput::J3W14N1CommunicationPowerBreaker,
                 DigitalInput::J3W14N2CommunicationPowerBreaker,
-            ];
-        }
+            ]
+        };
 
         bits.iter().fold(0, |acc, x| acc | x.bit_value())
     }
@@ -257,15 +257,15 @@ impl SubPowerSystem {
     /// * `digital_output` - Digital output value.
     /// * `digital_input` - Digital input value.
     /// * `is_interlock_active` - True if the interlock is active. Otherwise,
-    /// false.
+    ///   false.
     ///
     /// # Returns
     /// Tuple containing three values:
     /// 1. True if the state is changed. Otherwise, false.
     /// 2. True if there is the error and need to power off the system.
-    /// Otherwise, false.
+    ///    Otherwise, false.
     /// 3. Vector of tuples containing the digital output and its status to be
-    /// applied.
+    ///    applied.
     pub fn transition_state(
         &mut self,
         voltage: f64,
@@ -326,10 +326,8 @@ impl SubPowerSystem {
                     self._count_breaker -= 1;
                 }
 
-                if self._count_breaker == 0 {
-                    if self._count_voltage > 0 {
-                        self._count_voltage -= 1;
-                    }
+                if (self._count_breaker == 0) && (self._count_voltage > 0) {
+                    self._count_voltage -= 1;
                 }
 
                 // Check if the voltage is below the output voltage off level.
@@ -379,16 +377,15 @@ impl SubPowerSystem {
                                 self.reset_breakers(DigitalOutputStatus::BinaryHighLevel),
                             );
                         }
-                    } else {
-                        if (digital_output & DigitalOutput::ResetCommunicationBreakers.bit_value())
-                            == 0
-                        {
-                            return (
-                                false,
-                                false,
-                                self.reset_breakers(DigitalOutputStatus::BinaryHighLevel),
-                            );
-                        }
+                    } else if (digital_output
+                        & DigitalOutput::ResetCommunicationBreakers.bit_value())
+                        == 0
+                    {
+                        return (
+                            false,
+                            false,
+                            self.reset_breakers(DigitalOutputStatus::BinaryHighLevel),
+                        );
                     }
 
                     // Check the interlock status.

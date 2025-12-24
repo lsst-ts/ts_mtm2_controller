@@ -57,6 +57,7 @@ pub trait Command {
     ) -> Option<()>;
 }
 
+#[derive(Default)]
 pub struct CommandSchema {
     // List of commands.
     pub commands: Vec<Box<dyn Command + Send>>,

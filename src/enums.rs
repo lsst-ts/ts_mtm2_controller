@@ -107,9 +107,10 @@ pub enum PowerSystemState {
 }
 
 /// Closed loop control mode.
-#[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
+#[derive(FromRepr, Debug, Default, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum ClosedLoopControlMode {
+    #[default]
     Idle = 1,
     TelemetryOnly = 2,
     OpenLoop = 3,
@@ -117,18 +118,20 @@ pub enum ClosedLoopControlMode {
 }
 
 /// Data acquisition mode.
-#[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
+#[derive(FromRepr, Debug, Default, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum DataAcquisitionMode {
+    #[default]
     Idle = 1,
     Telemetry = 2,
     ClosedLoopControl = 3,
 }
 
 /// Inner-loop control mode.
-#[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
+#[derive(FromRepr, Debug, Default, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum InnerLoopControlMode {
+    #[default]
     Standby = 1,
     Disabled = 2,
     Enabled = 3,

@@ -54,9 +54,9 @@ impl MockPowerSystem {
     /// * `max_voltage` - Maximum voltage in volt.
     /// * `max_current` - Maximum current in ampere.
     /// * `breaker_operating_voltage` - Specifies the minimum voltage level,
-    /// plus some hysteresis, required to operate the electronic breakers.
+    ///   plus some hysteresis, required to operate the electronic breakers.
     /// * `time_unit` - Unit time in milliseconds used to convert the time
-    /// values to counts.
+    ///   values to counts.
     /// * `time_power_on` - Time in milliseconds to turn on the power.
     /// * `time_power_off` - Time in milliseconds to turn off the power.
     /// * `time_breaker_on` - Time in milliseconds to turn on the breaker.
@@ -64,6 +64,7 @@ impl MockPowerSystem {
     ///
     /// # Returns
     /// A new mock power system.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_voltage: f64,
         max_current: f64,

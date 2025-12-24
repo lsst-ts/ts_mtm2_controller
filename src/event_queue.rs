@@ -21,6 +21,7 @@
 
 use serde_json::Value;
 
+#[derive(Default)]
 pub struct EventQueue {
     // Events to publish
     _events: Vec<Value>,

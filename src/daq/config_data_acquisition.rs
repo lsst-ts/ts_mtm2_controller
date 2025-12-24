@@ -23,6 +23,7 @@ use std::path::Path;
 
 use crate::utility::get_parameter;
 
+#[derive(Default)]
 pub struct ConfigDataAcquisition {
     // The frequency of data acquisition (DAQ) loop in Hz
     pub frequency_loop: f64,
