@@ -1,4 +1,4 @@
-# Version Histroy
+# Version History
 
 0.3.2
 
