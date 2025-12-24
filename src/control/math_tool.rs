@@ -159,7 +159,7 @@ pub fn calc_hp_comp_matrix(
     // Tangential hardpoints
     let mut hd_comp_tangent: SMatrix<f64, NUM_ACTIVE_ACTUATOR_TANGENT, NUM_HARDPOINTS_TANGENT> =
         SMatrix::repeat(2.0 / 3.0);
-    if hardpoints_tangent == vec![72, 74, 76] {
+    if hardpoints_tangent == [72, 74, 76] {
         hd_comp_tangent[(0, 2)] = -1.0 / 3.0;
         hd_comp_tangent[(1, 0)] = -1.0 / 3.0;
         hd_comp_tangent[(2, 1)] = -1.0 / 3.0;

@@ -3,4 +3,4 @@ echo "Linting Rust code with clippy."
 cargo clippy
 
 echo "Formatting Rust code with rustfmt."
-find src/ -name '*.rs' -exec rustfmt {} +
+cargo fmt
