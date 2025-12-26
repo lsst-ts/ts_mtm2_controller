@@ -956,7 +956,7 @@ impl Model {
     ///
     /// # Arguments
     /// * `events` - Events.
-    fn process_subsystem_event(&mut self, events: &Vec<Value>) {
+    fn process_subsystem_event(&mut self, events: &[Value]) {
         for event in events {
             let name = get_message_name(event);
             if name == "powerSystemState" {
@@ -1148,7 +1148,7 @@ mod tests {
         messages
     }
 
-    fn get_specific_message(messages: &Vec<Value>, name: &str) -> Option<Value> {
+    fn get_specific_message(messages: &[Value], name: &str) -> Option<Value> {
         for message in messages {
             if get_message_name(message) == name {
                 return Some(message.clone());

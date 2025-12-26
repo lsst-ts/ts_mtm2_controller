@@ -240,8 +240,8 @@ impl TcpServer {
     /// existing data instead.
     ///
     /// # Arguments
-    /// * `items` - A vector of Value instances that holds the JSON data.
-    pub fn write_jsons(&mut self, items: &Vec<Value>) {
+    /// * `items` - A slice of Value instances that holds the JSON data.
+    pub fn write_jsons(&mut self, items: &[Value]) {
         if let Some(stream) = self._writer.as_mut() {
             if !stream.buffer().is_empty() {
                 self.flush();

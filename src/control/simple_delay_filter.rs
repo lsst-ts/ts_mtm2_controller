@@ -151,8 +151,8 @@ mod tests {
 
     fn check_delay_history(
         simple_delay_filter: &SimpleDelayFilter,
-        value_1: &Vec<f64>,
-        value_2: &Vec<f64>,
+        value_1: &[f64],
+        value_2: &[f64],
     ) {
         check_delay_history_size(simple_delay_filter);
 
