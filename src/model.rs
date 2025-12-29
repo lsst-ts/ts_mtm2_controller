@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{debug, info};
+use log::{debug, error, info};
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -34,9 +34,8 @@ use std::{
 
 use crate::command::{
     command_control_loop::{
-        CommandApplyForces, CommandGetInnerLoopControlMode, CommandMoveActuators,
-        CommandPositionMirror, CommandResetActuatorSteps, CommandResetForceOffsets,
-        CommandSetClosedLoopControlMode, CommandSetInnerLoopControlMode,
+        CommandApplyForces, CommandMoveActuators, CommandPositionMirror, CommandResetActuatorSteps,
+        CommandResetForceOffsets, CommandSetClosedLoopControlMode,
     },
     command_controller::{
         CommandClearErrors, CommandEnableOpenLoopMaxLimit, CommandLoadConfiguration,
@@ -45,7 +44,9 @@ use crate::command::{
         CommandSetMirrorHome, CommandSetTemperatureOffset, CommandSwitchCommandSource,
         CommandSwitchForceBalanceSystem,
     },
-    command_data_acquisition::CommandSwitchDigitalOutput,
+    command_data_acquisition::{
+        CommandGetInnerLoopControlMode, CommandSetInnerLoopControlMode, CommandSwitchDigitalOutput,
+    },
     command_power_system::{CommandPower, CommandResetBreakers},
     command_schema::{Command, CommandSchema},
 };
@@ -187,7 +188,11 @@ impl Model {
     fn create_commands() -> HashMap<String, Vec<String>> {
         // The commands here need to be in the
         // DataAcquisitionProcess.create_command_schema()
-        let commands_data_acquisition = vec![CommandSwitchDigitalOutput.name().to_string()];
+        let commands_data_acquisition = vec![
+            CommandSwitchDigitalOutput.name().to_string(),
+            CommandGetInnerLoopControlMode.name().to_string(),
+            CommandSetInnerLoopControlMode.name().to_string(),
+        ];
 
         // The commands here need to be in the
         // PowerSystemProcess.create_command_schema()
@@ -205,8 +210,6 @@ impl Model {
             CommandPositionMirror.name().to_string(),
             CommandResetActuatorSteps.name().to_string(),
             CommandMoveActuators.name().to_string(),
-            CommandGetInnerLoopControlMode.name().to_string(),
-            CommandSetInnerLoopControlMode.name().to_string(),
         ];
 
         let controller_command_schema = Self::create_controller_command_schema();
@@ -545,6 +548,7 @@ impl Model {
     /// new telemetry.
     pub fn step(&mut self) {
         // Check the message from the GUI
+        let commander_before_gui_command = self._controller.commander;
         let mut gui_has_valid_command = false;
         if let Some(receiver) = &self._receivers_from_tcp[&Commander::GUI] {
             if let Ok(message) = receiver.try_recv() {
@@ -562,9 +566,16 @@ impl Model {
             }
         }
 
-        // Change the commander if the GUI has a valid command
-        if gui_has_valid_command && (self._controller.commander != Commander::GUI) {
-            self._controller.commander = Commander::GUI;
+        let change_commander_from_gui_to_csc = (commander_before_gui_command == Commander::GUI)
+            && (self._controller.commander == Commander::CSC);
+
+        // Change the commander if the GUI has a valid command. But do not do
+        // this if this is to switch the commander back to CSC.
+        if gui_has_valid_command
+            && (!change_commander_from_gui_to_csc)
+            && (self._controller.commander != Commander::GUI)
+        {
+            self._controller.set_commander(Commander::GUI);
         }
 
         // Check the message from the CSC
@@ -714,6 +725,9 @@ impl Model {
         if is_command(&name) {
             // Fail the command if the source is CSC but the commander is GUI
             if (controller.commander == Commander::GUI) && (source == Commander::CSC) {
+                error!(
+                    "The command {name} from CSC is rejected because the current commander is GUI."
+                );
                 let _ = sender_to_tcp.try_send(vec![acknowledge_command(
                     CommandStatus::Fail,
                     get_message_sequence_id(message),
@@ -1094,6 +1108,7 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
 
+    use crate::command::command_data_acquisition::CommandSetDataAcquisitionMode;
     use crate::constants::{LOCAL_HOST, NUM_INNER_LOOP_CONTROLLER, TERMINATOR};
     use crate::enums::{DataAcquisitionMode, InnerLoopControlMode, PowerSystemState};
     use crate::mock::mock_constants::{
@@ -1372,6 +1387,11 @@ mod tests {
         );
 
         wait_for_command_result_and_reset(&mut model);
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"commandableByDDS\",\"state\":false}\r\n",
+        );
 
         client_read_and_assert(
             &mut client_command_gui,
@@ -1738,12 +1758,30 @@ mod tests {
         model.run_processes();
 
         // Create the clients to connect the servers
-        let (_client_command_csc, mut client_telemetry_csc) =
+        let (mut client_command_csc, mut client_telemetry_csc) =
             create_tcp_clients(model._ports["csc_command"], model._ports["csc_telemetry"]);
 
         sleep(Duration::from_millis(MAX_TIMEOUT));
 
         wait_for_connection(&mut model);
+
+        // Power on the communication system and set the data acquisition mode
+        // to telemetry
+        client_write_and_sleep(
+            &mut client_command_csc,
+            "{\"id\":\"cmd_power\",\"sequence_id\":1,\"status\":true,\"powerType\":2}\r\n",
+            SLEEP_TIME,
+        );
+        wait_for_command_result_and_reset(&mut model);
+
+        if let Some(sender) = model._controller.sender_to_daq.as_ref() {
+            let _ = sender.try_send(json!(
+                {
+                    "id": CommandSetDataAcquisitionMode.name(),
+                    "mode": DataAcquisitionMode::Telemetry as u8,
+                }
+            ));
+        }
 
         // Write the telemetry of the external elevation angle.
         client_write_and_sleep(
@@ -1755,20 +1793,14 @@ mod tests {
         let max_num = 100;
         let mut idx = 0;
         for _ in 0..max_num {
-            idx += 1;
             model.step();
-
-            let elevation = model
-                ._controller
-                .last_effective_telemetry
-                .control_loop
-                .clone()
-                .unwrap()
-                .inclinometer["external"];
-
-            if elevation == 12.34 {
-                break;
+            if let Some(telemetry) = &model._controller.last_effective_telemetry.control_loop {
+                if telemetry.inclinometer["external"] == 12.34 {
+                    break;
+                }
             }
+
+            idx += 1;
         }
 
         assert!(idx < max_num);
@@ -1814,10 +1846,20 @@ mod tests {
             "{\"id\":\"success\",\"sequence_id\":1}\r\n",
         );
 
-        // Command should change to the GUI.
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"commandableByDDS\",\"state\":false}\r\n",
+        );
+
+        // Commander should change to the GUI.
         assert_eq!(model._controller.commander, Commander::GUI);
 
         // Command from the CSC should fail.
+        client_read_and_assert(
+            &mut client_command_csc,
+            "{\"id\":\"commandableByDDS\",\"state\":false}\r\n",
+        );
+
         client_write_and_sleep(
             &mut client_command_csc,
             "{\"id\":\"cmd_clearErrors\",\"sequence_id\":2}\r\n",
@@ -1834,6 +1876,39 @@ mod tests {
         client_read_and_assert(
             &mut client_command_csc,
             "{\"id\":\"fail\",\"sequence_id\":2}\r\n",
+        );
+
+        // Change the commander to the CSC again.
+        client_write_and_sleep(
+            &mut client_command_gui,
+            "{\"id\":\"cmd_switchCommandSource\",\"isRemote\":true,\"sequence_id\":2}\r\n",
+            SLEEP_TIME,
+        );
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"ack\",\"sequence_id\":2}\r\n",
+        );
+
+        wait_for_command_result_and_reset(&mut model);
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"success\",\"sequence_id\":2}\r\n",
+        );
+
+        client_read_and_assert(
+            &mut client_command_gui,
+            "{\"id\":\"commandableByDDS\",\"state\":true}\r\n",
+        );
+
+        // Commander should change to the CSC.
+        assert_eq!(model._controller.commander, Commander::CSC);
+
+        // Check the CSC gets this new event
+        client_read_and_assert(
+            &mut client_command_csc,
+            "{\"id\":\"commandableByDDS\",\"state\":true}\r\n",
         );
 
         model.stop();
