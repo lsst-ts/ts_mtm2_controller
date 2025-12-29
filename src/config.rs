@@ -82,6 +82,8 @@ pub struct Config {
     // Matrix and offset for the IMS displacement.
     pub disp_matrix: SMatrix<f64, NUM_SPACE_DEGREE_OF_FREEDOM, NUM_IMS_READING>,
     pub disp_offset: SVector<f64, NUM_IMS_READING>,
+    // Pseudo-inverse of the displacement matrix for the IMS.
+    pub disp_matrix_inv: SMatrix<f64, NUM_IMS_READING, NUM_SPACE_DEGREE_OF_FREEDOM>,
     // Force limits
     pub force_limit: HashMap<String, f64>,
     // The threshold of the tangent force error in Newton.
@@ -210,6 +212,10 @@ impl Config {
 
             disp_matrix,
             disp_offset,
+
+            disp_matrix_inv: disp_matrix
+                .pseudo_inverse(f64::EPSILON)
+                .expect("Should be able to compute the pseudo inverse of displacement matrix."),
 
             force_limit,
 
