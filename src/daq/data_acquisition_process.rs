@@ -48,7 +48,7 @@ use crate::utility::get_message_sequence_id;
 
 pub struct DataAcquisitionProcess {
     // Data acquisition (DAQ) system
-    _daq: DataAcquisition,
+    pub daq: DataAcquisition,
     // Command schema
     _command_schema: CommandSchema,
     // Sender of the telemetry to the control loop (inner-loop controller, ILC)
@@ -98,7 +98,7 @@ impl DataAcquisitionProcess {
         Self::check_divisor(config.frequency_loop, config.frequency_toggle_bit);
 
         Self {
-            _daq: daq,
+            daq,
 
             _command_schema: Self::create_command_schema(),
 
@@ -170,10 +170,10 @@ impl DataAcquisitionProcess {
     pub fn run(&mut self) {
         info!("Data acquisition loop is running.");
 
-        self._daq.init_default_digital_output();
+        self.daq.init_default_digital_output();
 
         // Max counter to send the telemetry.
-        let config = &self._daq.config;
+        let config = &self.daq.config;
         let max_counter_send_telemetry =
             (config.frequency_loop / config.frequency_send_telemetry) as u64;
 
@@ -194,7 +194,7 @@ impl DataAcquisitionProcess {
             if let Ok(message) = self._receiver_to_daq.try_recv() {
                 command_result = Some(self._command_schema.execute(
                     &message,
-                    Some(&mut self._daq),
+                    Some(&mut self.daq),
                     None,
                     None,
                     None,
@@ -209,11 +209,11 @@ impl DataAcquisitionProcess {
 
             // Send the command result or events to the model. Ignore the
             // error.
-            let has_events = self._daq.event_queue.has_event();
+            let has_events = self.daq.event_queue.has_event();
             if command_result.is_some() || has_events {
                 // Get the events.
                 let events = if has_events {
-                    Some(self._daq.event_queue.get_events_and_clear())
+                    Some(self.daq.event_queue.get_events_and_clear())
                 } else {
                     None
                 };
@@ -231,21 +231,21 @@ impl DataAcquisitionProcess {
                 // Always send the power telemetry data.
                 let _ = self
                     ._sender_telemetry_to_power
-                    .try_send(self._daq.get_telemetry_power());
+                    .try_send(self.daq.get_telemetry_power());
 
                 // When the system is not in idle mode, there is the ILC
                 // telemetry data to send.
-                if self._daq.mode != DataAcquisitionMode::Idle {
+                if self.daq.mode != DataAcquisitionMode::Idle {
                     let _ = self
                         ._sender_telemetry_to_control_loop
-                        .try_send(self._daq.get_telemetry_ilc());
+                        .try_send(self.daq.get_telemetry_ilc());
                 }
             }
 
             // Toggle the bit of the closed-loop control for the safety module
             // to use.
             if (counter % max_counter_toggle_bit) == 0 {
-                self._daq.toggle_bit_closed_loop_control();
+                self.daq.toggle_bit_closed_loop_control();
             }
 
             // Update the counter.
@@ -340,18 +340,14 @@ mod tests {
             data_acquisition.run();
         });
 
-        sleep(Duration::from_millis(500));
-
         // Check to get the power telemetry data.
-        let mut received_telemetry_power = TelemetryPower::new();
+        let received_telemetry_power;
         loop {
-            match receiver_telemetry_to_power.try_recv() {
-                Ok(telemetry_power) => {
-                    received_telemetry_power = telemetry_power;
-                }
-                Err(_) => {
-                    break;
-                }
+            if let Ok(telemetry_power) =
+                receiver_telemetry_to_power.recv_timeout(Duration::from_millis(50))
+            {
+                received_telemetry_power = telemetry_power;
+                break;
             }
         }
 
@@ -383,18 +379,11 @@ mod tests {
         }));
 
         // Check the telemetry data.
-        sleep(Duration::from_millis(500));
-
-        let mut latest_telemetry = Telemetry::new(None, None, None, None);
+        let latest_telemetry;
         loop {
-            match receiver_to_model.try_recv() {
-                Ok(telemetry) => {
-                    if let Some(_result) = &telemetry.command_result {
-                        latest_telemetry = telemetry;
-                        break;
-                    }
-                }
-                Err(_) => {
+            if let Ok(telemetry) = receiver_to_model.recv_timeout(Duration::from_millis(50)) {
+                if let Some(_) = &telemetry.command_result {
+                    latest_telemetry = telemetry;
                     break;
                 }
             }
@@ -410,13 +399,11 @@ mod tests {
 
         // There should be ILC telemetry data when not in idle mode.
         loop {
-            match receiver_telemetry_to_control_loop.try_recv() {
-                Ok(_) => {
-                    has_telemetry_control_loop = true;
-                }
-                Err(_) => {
-                    break;
-                }
+            if let Ok(_) =
+                receiver_telemetry_to_control_loop.recv_timeout(Duration::from_millis(50))
+            {
+                has_telemetry_control_loop = true;
+                break;
             }
         }
 
