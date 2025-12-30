@@ -127,6 +127,7 @@ impl Command for CommandMoveActuatorSteps {
         _controller: Option<&mut Controller>,
     ) -> Option<()> {
         let mut steps = Vec::new();
+        let seq_id = message["seq_id_move_actuator_steps"].as_i64()?;
         let step_list = message["steps"].as_array()?;
         for step_item in step_list {
             let step = step_item.as_i64()?;
@@ -134,7 +135,7 @@ impl Command for CommandMoveActuatorSteps {
         }
 
         let system = data_acquisition?;
-        system.move_actuator_steps(&steps)?;
+        system.move_actuator_steps(seq_id as i32, &steps)?;
 
         Some(())
     }
@@ -272,7 +273,7 @@ mod tests {
         data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
         assert!(command
             .execute(
-                &json!({"steps": steps}),
+                &json!({"seq_id_move_actuator_steps": 1, "steps": steps}),
                 Some(&mut data_acquisition),
                 None,
                 None,
