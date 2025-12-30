@@ -64,6 +64,9 @@ pub struct TelemetryControlLoop {
     pub force_balance: HashMap<String, f64>,
     // Cycle time in second.
     pub cycle_time: f64,
+    // Sequence ID of the last command to move actuator steps
+    // (see CommandMoveActuatorSteps).
+    pub seq_id_move_actuator_steps: i32,
 }
 
 impl TelemetryDefault for TelemetryControlLoop {
@@ -135,6 +138,8 @@ impl TelemetryControlLoop {
             force_balance: Self::initialize_dict_value(&["fx", "fy", "fz", "mx", "my", "mz"], 0.0),
 
             cycle_time: 0.0,
+
+            seq_id_move_actuator_steps: 0,
         }
     }
 
