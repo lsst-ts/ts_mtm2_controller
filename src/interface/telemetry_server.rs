@@ -22,7 +22,6 @@
 use log::info;
 use serde_json::Value;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::thread::sleep;
 use std::time::Duration;
 
 use crate::constants::BOUND_SYNC_CHANNEL;
@@ -71,8 +70,6 @@ impl TelemetryServer {
     /// * `tcp_server` - TCP server.
     /// * `telemetry_server` - Telemetry server.
     pub fn process_telemetry(tcp_server: &mut TcpServer, telemetry_server: &mut TelemetryServer) {
-        let mut is_processed = false;
-
         // Check the telemetry from the TCP/IP and send to the internal use.
         let telemetry_received = tcp_server.read_json();
         if !telemetry_received.is_null() {
@@ -82,24 +79,17 @@ impl TelemetryServer {
                 let _ = telemetry_server
                     .sender_from_tcp
                     .try_send(telemetry_received);
-
-                is_processed = true;
             } else {
                 info!("Invalid telemetry message: {telemetry_received}.");
             }
         }
 
         // Check the internal telemetry and send to the TCP/IP.
-        if let Ok(telemetry_send) = telemetry_server.receiver_to_tcp.try_recv() {
+        if let Ok(telemetry_send) = telemetry_server
+            .receiver_to_tcp
+            .recv_timeout(Duration::from_millis(tcp_server.timeout))
+        {
             tcp_server.write_jsons(&telemetry_send);
-
-            is_processed = true;
-        }
-
-        // Sleep for a while to avoid busy waiting if no telemetry is received or
-        // sent.
-        if !is_processed {
-            sleep(Duration::from_millis(tcp_server.timeout));
         }
     }
 }
@@ -114,12 +104,12 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
-    use std::thread::spawn;
+    use std::thread::{sleep, spawn};
 
     use crate::constants::{LOCAL_HOST, TERMINATOR};
     use crate::utility::{client_read_and_assert, client_write_and_sleep};
 
-    const SLEEP_TIME: u64 = 100;
+    const SLEEP_TIME: u64 = 50;
     const MAX_TIMEOUT: u64 = 200;
 
     fn create_telemetry_server() -> (TelemetryServer, SyncSender<Value>, Receiver<Value>) {
