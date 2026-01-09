@@ -22,7 +22,6 @@
 use log::info;
 use serde_json::Value;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::thread::sleep;
 use std::time::Duration;
 
 use crate::constants::BOUND_SYNC_CHANNEL;
@@ -132,8 +131,6 @@ impl CommandServer {
     /// * `tcp_server` - TCP server.
     /// * `command_server` - Command server.
     pub fn process_command(tcp_server: &mut TcpServer, command_server: &mut CommandServer) {
-        let mut is_processed = false;
-
         // Check the command/event from the TCP/IP and send to the internal use.
         let message_received = tcp_server.read_json();
         if !message_received.is_null() {
@@ -174,21 +171,14 @@ impl CommandServer {
             } else {
                 info!("Invalid command/event message: {message_received}.");
             }
-
-            is_processed = true;
         }
 
         // Check the internal command result or event, and send to the TCP/IP.
-        if let Ok(message_send) = command_server.receiver_to_tcp.try_recv() {
+        if let Ok(message_send) = command_server
+            .receiver_to_tcp
+            .recv_timeout(Duration::from_millis(tcp_server.timeout))
+        {
             tcp_server.write_jsons(&message_send);
-
-            is_processed = true;
-        }
-
-        // Sleep for a while to avoid busy waiting if no telemetry is received or
-        // sent.
-        if !is_processed {
-            sleep(Duration::from_millis(tcp_server.timeout));
         }
     }
 
@@ -215,12 +205,12 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
-    use std::thread::spawn;
+    use std::thread::{sleep, spawn};
 
     use crate::constants::{LOCAL_HOST, TERMINATOR};
     use crate::utility::{client_read_and_assert, client_write_and_sleep};
 
-    const SLEEP_TIME: u64 = 100;
+    const SLEEP_TIME: u64 = 50;
     const MAX_TIMEOUT: u64 = 200;
 
     fn create_command_server() -> (CommandServer, SyncSender<Value>, Receiver<Value>) {

@@ -41,6 +41,10 @@ pub struct DataAcquisition {
     pub event_queue: EventQueue,
     // Data acquisition mode
     pub mode: DataAcquisitionMode,
+    // Sequence ID of the last move actuator steps command. This is used to let
+    // the ControlLoopProcess can synchronize the commands and telemetry (as
+    // the results of commands).
+    _seq_id_move_actuator_steps: i32,
     // Plant model
     pub plant: Option<MockPlant>,
 }
@@ -77,6 +81,8 @@ impl DataAcquisition {
             event_queue: EventQueue::new(),
 
             mode: DataAcquisitionMode::Idle,
+
+            _seq_id_move_actuator_steps: 0,
 
             plant,
         }
@@ -224,6 +230,9 @@ impl DataAcquisition {
     /// Telemetry data.
     pub fn get_telemetry_ilc(&mut self) -> TelemetryControlLoop {
         let mut telemetry = TelemetryControlLoop::new();
+
+        // Put the sequence ID
+        telemetry.seq_id_move_actuator_steps = self._seq_id_move_actuator_steps;
 
         // Raw ILC data
         let (ilc_status, ilc_encoders, forces) = self.get_ilc_data_actuator();
@@ -421,11 +430,13 @@ impl DataAcquisition {
     /// Move the actuator steps.
     ///
     /// # Arguments
+    /// * `seq_id` - The sequence ID of the last command to move actuator steps
+    ///   (see CommandMoveActuatorSteps).
     /// * `actuator_steps` - The actuator steps to move.
     ///
     /// # Returns
     /// Some if the actuator steps are moved successfully. Otherwise, None.
-    pub fn move_actuator_steps(&mut self, actuator_steps: &[i32]) -> Option<()> {
+    pub fn move_actuator_steps(&mut self, seq_id: i32, actuator_steps: &[i32]) -> Option<()> {
         // Check the input
         if actuator_steps.len() != NUM_ACTUATOR {
             error!(
@@ -445,6 +456,7 @@ impl DataAcquisition {
         }
 
         // Do the actuator movement.
+        self._seq_id_move_actuator_steps = seq_id;
         if let Some(plant) = &mut self.plant {
             plant.move_actuator_steps(actuator_steps);
 
@@ -656,12 +668,15 @@ mod tests {
     #[test]
     fn test_get_telemetry_ilc() {
         let mut data_acquisition = create_data_acquisition(true);
+        data_acquisition._seq_id_move_actuator_steps = 1;
         if let Some(plant) = &mut data_acquisition.plant {
             plant.power_system_communication.is_power_on = true;
         }
 
         data_acquisition.get_telemetry_ilc();
         let telemetry = data_acquisition.get_telemetry_ilc();
+
+        assert_eq!(telemetry.seq_id_move_actuator_steps, 1);
 
         assert_relative_eq!(
             telemetry.forces["measured"][0],
@@ -733,21 +748,21 @@ mod tests {
         let actuator_steps_invalid = vec![100];
 
         assert!(data_acquisition
-            .move_actuator_steps(&actuator_steps_invalid)
+            .move_actuator_steps(1, &actuator_steps_invalid)
             .is_none());
 
         // Test with invalid mode
         let actuator_steps_valid = vec![100; NUM_ACTUATOR];
 
         assert!(data_acquisition
-            .move_actuator_steps(&actuator_steps_valid)
+            .move_actuator_steps(1, &actuator_steps_valid)
             .is_none());
 
         // Test with valid actuator steps and mode
         data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
 
         assert!(data_acquisition
-            .move_actuator_steps(&actuator_steps_valid)
+            .move_actuator_steps(1, &actuator_steps_valid)
             .is_some());
     }
 

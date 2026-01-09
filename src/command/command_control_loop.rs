@@ -28,9 +28,7 @@ use crate::constants::{NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_TANGENT_LINK};
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
 use crate::daq::data_acquisition::DataAcquisition;
-use crate::enums::{
-    ActuatorDisplacementUnit, ClosedLoopControlMode, CommandActuator, InnerLoopControlMode,
-};
+use crate::enums::{ActuatorDisplacementUnit, ClosedLoopControlMode, CommandActuator};
 use crate::power::power_system::PowerSystem;
 
 /// Command to set the closed-loop control mode.
@@ -341,73 +339,7 @@ impl Command for CommandSetExternalElevation {
         }
 
         let control = control_loop?;
-        control.telemetry.inclinometer.insert(
-            String::from("external"),
-            message["actualPosition"].as_f64()?,
-        );
-
-        Some(())
-    }
-}
-
-/// Command to set the mode of inner-loop controller.
-pub struct CommandSetInnerLoopControlMode;
-impl Command for CommandSetInnerLoopControlMode {
-    fn name(&self) -> &str {
-        "cmd_setInnerLoopControlMode"
-    }
-
-    fn execute(
-        &self,
-        message: &Value,
-        _data_acquisition: Option<&mut DataAcquisition>,
-        _power_system: Option<&mut PowerSystem>,
-        control_loop: Option<&mut ControlLoop>,
-        _controller: Option<&mut Controller>,
-    ) -> Option<()> {
-        let control = control_loop?;
-
-        let addresses = message["addresses"].as_array()?;
-        for address in addresses {
-            let address = address.as_u64()? as usize;
-            let mode = InnerLoopControlMode::from_repr(message["mode"].as_u64()? as u8)?;
-            if let Err(err) = control.set_ilc_mode(address, mode) {
-                error!("Failed to set the inner-loop control mode: {err}");
-
-                return None;
-            }
-        }
-
-        Some(())
-    }
-}
-
-/// Command to get the mode of inner-loop controller.
-pub struct CommandGetInnerLoopControlMode;
-impl Command for CommandGetInnerLoopControlMode {
-    fn name(&self) -> &str {
-        "cmd_getInnerLoopControlMode"
-    }
-
-    fn execute(
-        &self,
-        message: &Value,
-        _data_acquisition: Option<&mut DataAcquisition>,
-        _power_system: Option<&mut PowerSystem>,
-        control_loop: Option<&mut ControlLoop>,
-        _controller: Option<&mut Controller>,
-    ) -> Option<()> {
-        let control = control_loop?;
-
-        let addresses = message["addresses"].as_array()?;
-        for address in addresses {
-            let address = address.as_u64()? as usize;
-            if let Err(err) = control.get_ilc_mode(address) {
-                error!("Failed to get the inner-loop control mode: {err}");
-
-                return None;
-            }
-        }
+        control.external_elevation_angle = message["actualPosition"].as_f64()?;
 
         Some(())
     }
@@ -618,10 +550,7 @@ mod tests {
             )
             .is_some());
 
-        assert_eq!(
-            control_loop.telemetry.inclinometer.get("external"),
-            Some(&1.0)
-        );
+        assert_eq!(control_loop.external_elevation_angle, 1.0);
 
         assert!(command
             .execute(
@@ -633,59 +562,6 @@ mod tests {
             )
             .is_some());
 
-        assert_eq!(
-            control_loop.telemetry.inclinometer.get("external"),
-            Some(&2.0)
-        );
-    }
-
-    #[test]
-    fn test_command_set_inner_loop_control_mode() {
-        let mut control_loop = create_control_loop();
-
-        let command = CommandSetInnerLoopControlMode;
-
-        assert_eq!(command.name(), "cmd_setInnerLoopControlMode");
-
-        assert!(command
-            .execute(
-                &json!({"addresses": [0, 1], "mode": 2}),
-                None,
-                None,
-                Some(&mut control_loop),
-                None
-            )
-            .is_some());
-
-        assert_eq!(
-            control_loop.get_ilc_mode(0).unwrap(),
-            InnerLoopControlMode::Disabled
-        );
-        assert_eq!(
-            control_loop.get_ilc_mode(1).unwrap(),
-            InnerLoopControlMode::Disabled
-        );
-    }
-
-    #[test]
-    fn test_command_get_inner_loop_control_mode() {
-        let mut control_loop = create_control_loop();
-
-        let command = CommandGetInnerLoopControlMode;
-
-        assert_eq!(command.name(), "cmd_getInnerLoopControlMode");
-
-        let _ = control_loop.set_ilc_mode(0, InnerLoopControlMode::Enabled);
-        let _ = control_loop.set_ilc_mode(1, InnerLoopControlMode::Enabled);
-
-        assert!(command
-            .execute(
-                &json!({"addresses": [0, 1]}),
-                None,
-                None,
-                Some(&mut control_loop),
-                None
-            )
-            .is_some());
+        assert_eq!(control_loop.external_elevation_angle, 2.0);
     }
 }

@@ -13,7 +13,7 @@ port_command_csc: 50000
 port_telemetry_csc: 50001
 
 # Timeout in milliseconds
-timeout: 100
+timeout: 50
 
 # Is the application running in the mirror mode? If not, it is running with the
 # surrogate. The main difference is the control parameters.

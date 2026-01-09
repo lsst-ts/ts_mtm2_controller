@@ -127,7 +127,7 @@ impl Event {
     ///
     /// # Returns
     /// The message of the bypassed actuator ILCs.
-    pub fn get_message_bypassed_actuator_ilcs(ilcs: &Vec<usize>) -> Value {
+    pub fn get_message_bypassed_actuator_ilcs(ilcs: &[usize]) -> Value {
         json!({
             "id": "bypassedActuatorILCs",
             "ilcs": ilcs,
@@ -175,7 +175,7 @@ impl Event {
     ///
     /// # Returns
     /// The message of the temperature offset in degree C.
-    pub fn get_message_temperature_offset(ring: &Vec<f64>) -> Value {
+    pub fn get_message_temperature_offset(ring: &[f64]) -> Value {
         json!({
             "id": "temperatureOffset",
             "ring": ring,

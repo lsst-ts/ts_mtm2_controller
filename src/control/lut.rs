@@ -190,8 +190,8 @@ impl Lut {
     pub fn get_lut_forces(
         &self,
         lut_angle: f64,
-        ring_temperature: &Vec<f64>,
-        ref_temperature: &Vec<f64>,
+        ring_temperature: &[f64],
+        ref_temperature: &[f64],
         enable_lut_temperature: bool,
     ) -> (Vec<f64>, Vec<f64>) {
         let (forces_gravity, mut forces_temperature) = Self::calc_look_up_forces(
@@ -231,13 +231,13 @@ impl Lut {
     /// # Returns
     /// A tuple of two vectors: gravity correction forces and temperature
     /// correction forces in Newton.
-    #[allow(clippy::too_many_arguments, clippy::ptr_arg)]
+    #[allow(clippy::too_many_arguments)]
     fn calc_look_up_forces(
         lut_angle: f64,
-        ref_angles: &Vec<f64>,
+        ref_angles: &[f64],
         lut_gravity: &SMatrix<f64, NUM_ACTUATOR, NUM_COLUMN_LUT_GRAVITY>,
-        ring_temperature: &Vec<f64>,
-        ref_temperature: &Vec<f64>,
+        ring_temperature: &[f64],
+        ref_temperature: &[f64],
         temp_inv: &SMatrix<f64, NUM_LUT_TEMPERATURE, NUM_TEMPERATURE_RING>,
         lut_temperature: &SMatrix<f64, NUM_AXIAL_ACTUATOR, NUM_LUT_TEMPERATURE>,
         enable_lut_temperature: bool,
@@ -252,7 +252,7 @@ impl Lut {
         let (reordered_temperatures, reordered_ref_temperature) = order
             .iter()
             .map(|idx| (ring_temperature[*idx], ref_temperature[*idx]))
-            .unzip();
+            .unzip::<f64, f64, Vec<f64>, Vec<f64>>();
 
         let forces_temperature: Vec<f64> = Self::calc_look_up_forces_temperature(
             &reordered_temperatures,
@@ -281,10 +281,9 @@ impl Lut {
     ///
     /// # Returns
     /// Temperature correction force in Newton.
-    #[allow(clippy::ptr_arg)]
     fn calc_look_up_forces_temperature(
-        temperature: &Vec<f64>,
-        ref_temperature: &Vec<f64>,
+        temperature: &[f64],
+        ref_temperature: &[f64],
         temp_inv: &SMatrix<f64, NUM_LUT_TEMPERATURE, NUM_TEMPERATURE_RING>,
         lut: &SMatrix<f64, NUM_AXIAL_ACTUATOR, NUM_LUT_TEMPERATURE>,
     ) -> Vec<f64> {

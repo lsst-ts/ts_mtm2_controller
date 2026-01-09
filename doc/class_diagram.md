@@ -215,6 +215,7 @@ Telemetry o-- TelemetryControlLoop
 namespace command {
   class CommandSchema
   class CommandControlLoop
+  class CommandDataAcquisition
 }
 
 CommandSchema "1" *-- "n" CommandControlLoop
@@ -223,6 +224,7 @@ ControlLoopProcess ..> Config
 ControlLoopProcess *-- ControlLoop
 ControlLoopProcess *-- CommandSchema
 ControlLoopProcess ..> CommandControlLoop
+ControlLoopProcess ..> CommandDataAcquisition
 ControlLoopProcess ..> Telemetry
 
 CommandControlLoop --> ControlLoop
@@ -232,7 +234,7 @@ ControlLoop *-- ClosedLoop
 ControlLoop *-- OpenLoop
 ControlLoop *-- TelemetryControlLoop
 ControlLoop *-- EventQueue
-ControlLoop o-- MockPlant
+ControlLoop ..> MockPlant
 ControlLoop ..> Event
 
 Config *-- Lut

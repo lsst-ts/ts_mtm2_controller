@@ -26,6 +26,7 @@ use crate::control::actuator::Actuator;
 use crate::control::math_tool::clip;
 use crate::enums::ActuatorDisplacementUnit;
 
+#[derive(Default)]
 pub struct OpenLoop {
     // The open-loop control is running or not.
     pub is_running: bool,
@@ -35,19 +36,14 @@ pub struct OpenLoop {
     _selected_actuators: Vec<usize>,
     // Displacement of steps to do the movement.
     _displacement_steps: Vec<i32>,
-    // Is the simulation mode enabled or not.
-    _is_simulation_mode: bool,
 }
 
 impl OpenLoop {
     /// Open-loop control.
     ///
-    /// # Arguments
-    /// * `is_simulation_mode` - Enable the simulation mode or not.
-    ///
     /// # Returns
     /// A new OpenLoop object.
-    pub fn new(is_simulation_mode: bool) -> Self {
+    pub fn new() -> Self {
         Self {
             is_running: false,
             actuators: Actuator::from_cell_mapping_file(Path::new(
@@ -55,7 +51,6 @@ impl OpenLoop {
             )),
             _selected_actuators: Vec::new(),
             _displacement_steps: Vec::new(),
-            _is_simulation_mode: is_simulation_mode,
         }
     }
 
@@ -107,19 +102,12 @@ impl OpenLoop {
     ///
     /// # Returns
     /// Steps of displacement.
-    ///
-    /// # Panics
-    /// If the simulation mode is disabled.
     fn calculate_steps(
         &self,
         actuators: &[usize],
         displacement: f64,
         unit: ActuatorDisplacementUnit,
     ) -> Vec<i32> {
-        if !self._is_simulation_mode {
-            panic!("Not implemented yet.");
-        }
-
         if unit == ActuatorDisplacementUnit::Millimeter {
             actuators
                 .iter()
@@ -242,13 +230,13 @@ impl OpenLoop {
 mod tests {
     use super::*;
 
-    fn create_open_loop(is_simulation_mode: bool) -> OpenLoop {
-        OpenLoop::new(is_simulation_mode)
+    fn create_open_loop() -> OpenLoop {
+        OpenLoop::new()
     }
 
     #[test]
     fn test_start_fail() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
 
         assert_eq!(
             open_loop.start(&Vec::new(), 10.0, ActuatorDisplacementUnit::Millimeter),
@@ -269,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_start_success() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
 
         assert_eq!(
             open_loop.start(&vec![1], 2.0, ActuatorDisplacementUnit::Step),
@@ -282,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_calculate_steps() {
-        let open_loop = create_open_loop(true);
+        let open_loop = create_open_loop();
 
         let idx = 1;
         assert_eq!(
@@ -302,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_stop() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
         open_loop.is_running = true;
         open_loop._selected_actuators = vec![10];
         open_loop._displacement_steps = vec![10];
@@ -316,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_pause() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
         open_loop.is_running = true;
 
         open_loop.pause();
@@ -326,14 +314,14 @@ mod tests {
 
     #[test]
     fn test_resume_fail() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
 
         assert_eq!(open_loop.resume(), Err("The movement is done."));
     }
 
     #[test]
     fn test_resume_success() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
         open_loop._displacement_steps = vec![10];
 
         assert_eq!(open_loop.resume(), Ok(()));
@@ -342,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_get_steps_to_move_fail() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
 
         assert_eq!(
             open_loop.get_steps_to_move(1, 2),
@@ -362,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_get_steps_to_move_done() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
         let _ = open_loop.start(&vec![1, 74], -2.0, ActuatorDisplacementUnit::Step);
 
         let actuator_steps = open_loop.get_steps_to_move(3, 3).unwrap();
@@ -374,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_run_steps_not_done() {
-        let mut open_loop = create_open_loop(true);
+        let mut open_loop = create_open_loop();
         let _ = open_loop.start(&vec![1, 73], 4.0, ActuatorDisplacementUnit::Step);
 
         let actuator_steps = open_loop.get_steps_to_move(2, 3).unwrap();

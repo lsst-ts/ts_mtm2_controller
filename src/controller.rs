@@ -125,7 +125,7 @@ impl Controller {
     ///
     /// # Returns
     /// Some if the hardpoints are set. Otherwise, None.
-    pub fn set_hardpoints(&mut self, hardpoints: &Vec<usize>) -> Option<()> {
+    pub fn set_hardpoints(&mut self, hardpoints: &[usize]) -> Option<()> {
         // The first 3 should be the axial actuators. The last 3 should be the
         // tangent links.
         for (idx, hardpoint) in hardpoints.iter().enumerate().take(NUM_HARDPOINTS) {
@@ -155,7 +155,7 @@ impl Controller {
 
         // Update the configuration.
         let mut config = self.error_handler.config_control_loop.clone();
-        config.hardpoints = hardpoints.clone();
+        config.hardpoints = hardpoints.to_vec();
 
         info!("Set the hardpoints to {:?}.", hardpoints);
 

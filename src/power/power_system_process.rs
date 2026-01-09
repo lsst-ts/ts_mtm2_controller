@@ -393,16 +393,10 @@ mod tests {
     fn wait_events(receiver_to_model: &Receiver<Telemetry>) -> Telemetry {
         let latest_telemetry;
         loop {
-            match receiver_to_model.try_recv() {
-                Ok(telemetry) => {
-                    if telemetry.events.is_some() {
-                        latest_telemetry = telemetry;
-                        break;
-                    }
-                }
-
-                Err(_) => {
-                    sleep(Duration::from_millis(100));
+            if let Ok(telemetry) = receiver_to_model.recv_timeout(Duration::from_millis(50)) {
+                if telemetry.events.is_some() {
+                    latest_telemetry = telemetry;
+                    break;
                 }
             }
         }

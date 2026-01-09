@@ -40,13 +40,11 @@ use crate::mock::mock_constants::{
 use crate::mock::mock_inner_loop_controller::MockInnerLoopController;
 use crate::mock::mock_power_system::MockPowerSystem;
 use crate::power::config_power::ConfigPower;
-use crate::utility::{get_parameter, read_file_disp_ims};
+use crate::utility::get_parameter;
 
 #[derive(Clone)]
 pub struct MockPlant {
     _static_transfer_matrix: SMatrix<f64, NUM_ACTUATOR, NUM_ACTUATOR>,
-    _disp_matrix_inv: SMatrix<f64, NUM_IMS_READING, NUM_SPACE_DEGREE_OF_FREEDOM>,
-    _disp_offset: SVector<f64, NUM_IMS_READING>,
     // Current positions of the actuator in steps referenced to the home
     // position.
     pub actuator_steps: Vec<i32>,
@@ -92,10 +90,6 @@ impl MockPlant {
                 .flat_map(|row| row.iter().copied()),
         );
 
-        let (disp_matrix, disp_offset) = read_file_disp_ims(Path::new("config/disp_ims.yaml"));
-        let disp_smatrix: SMatrix<f64, NUM_SPACE_DEGREE_OF_FREEDOM, NUM_IMS_READING> =
-            SMatrix::from_row_iterator(disp_matrix.iter().flat_map(|row| row.iter().copied()));
-
         let filepath = Path::new("config/parameters_control.yaml");
         let inclinometer_offset = get_parameter(filepath, "inclinometer_offset");
         let mirror_weight_kg = get_parameter(filepath, "mirror_weight_kg");
@@ -133,11 +127,6 @@ impl MockPlant {
 
         Self {
             _static_transfer_matrix: matrix,
-
-            _disp_matrix_inv: disp_smatrix
-                .pseudo_inverse(f64::EPSILON)
-                .expect("Should be able to compute the pseudo inverse of displacement matrix."),
-            _disp_offset: SVector::from_iterator(disp_offset.iter().copied()),
 
             actuator_steps: vec![0; NUM_ACTUATOR],
             _actuator_force_weight: Self::get_forces_mirror_weight(
@@ -462,6 +451,8 @@ impl MockPlant {
     /// rigid body position.
     ///
     /// # Arguments
+    /// * `disp_matrix_inv` - The pseudo-inverse of the displacement matrix.
+    /// * `disp_offset` - The displacement offset.
     /// * `x` - The x position in micron.
     /// * `y` - The y position in micron.
     /// * `z` - The z position in micron.
@@ -471,8 +462,10 @@ impl MockPlant {
     ///
     /// # Returns
     /// A tuple of the theta_z and delta_z readings in micron.
+    #[allow(clippy::too_many_arguments)]
     pub fn calculate_ims_readings(
-        &self,
+        disp_matrix_inv: &SMatrix<f64, NUM_IMS_READING, NUM_SPACE_DEGREE_OF_FREEDOM>,
+        disp_offset: &SVector<f64, NUM_IMS_READING>,
         x: f64,
         y: f64,
         z: f64,
@@ -481,9 +474,8 @@ impl MockPlant {
         rz: f64,
     ) -> (Vec<f64>, Vec<f64>) {
         // Change the unit from mm to um
-        let reading_ims = (self._disp_matrix_inv * SVector::from_vec(vec![x, y, z, rx, ry, rz])
-            + self._disp_offset)
-            * 1e3;
+        let reading_ims =
+            (disp_matrix_inv * SVector::from_vec(vec![x, y, z, rx, ry, rz]) + disp_offset) * 1e3;
 
         let theta_z = [8, 10, 4, 6, 0, 2]
             .iter()
@@ -508,7 +500,7 @@ mod tests {
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
         TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
     };
-    use crate::utility::read_file_stiffness;
+    use crate::utility::{read_file_disp_ims, read_file_stiffness};
 
     const EPSILON: f64 = 1e-7;
 
@@ -892,18 +884,30 @@ mod tests {
 
     #[test]
     fn test_calculate_ims_readings() {
-        let mock_plant = create_mock_plant();
+        let (matrix, offset) = read_file_disp_ims(Path::new("config/disp_ims.yaml"));
+        let disp_matrix: SMatrix<f64, NUM_SPACE_DEGREE_OF_FREEDOM, NUM_IMS_READING> =
+            SMatrix::from_row_iterator(matrix.iter().flat_map(|row| row.iter().copied()));
+        let disp_offset: SVector<f64, NUM_IMS_READING> =
+            SVector::from_iterator(offset.iter().copied());
 
-        let (disp_matrix, disp_offset) = read_file_disp_ims(Path::new("config/disp_ims.yaml"));
-        let matrix: SMatrix<f64, NUM_SPACE_DEGREE_OF_FREEDOM, NUM_IMS_READING> =
-            SMatrix::from_row_iterator(disp_matrix.iter().flat_map(|row| row.iter().copied()));
-        let offset: SVector<f64, NUM_IMS_READING> =
-            SVector::from_iterator(disp_offset.iter().copied());
+        let disp_matrix_inv = disp_matrix
+            .pseudo_inverse(f64::EPSILON)
+            .expect("Should be able to compute the pseudo inverse of displacement matrix.");
 
         // Zero position
-        let (theta_z, delta_z) = mock_plant.calculate_ims_readings(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        let (theta_z, delta_z) = MockPlant::calculate_ims_readings(
+            &disp_matrix_inv,
+            &disp_offset,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
 
-        let (x, y, z, rx, ry, rz) = calculate_position_ims(&matrix, &offset, &theta_z, &delta_z);
+        let (x, y, z, rx, ry, rz) =
+            calculate_position_ims(&disp_matrix, &disp_offset, &theta_z, &delta_z);
 
         assert_relative_eq!(x, 0.0, epsilon = EPSILON);
         assert_relative_eq!(y, 0.0, epsilon = EPSILON);
@@ -913,10 +917,19 @@ mod tests {
         assert_relative_eq!(rz, 0.0, epsilon = EPSILON);
 
         // Non-zero position
-        let (theta_z, delta_z) =
-            mock_plant.calculate_ims_readings(10.0, 20.0, 30.0, 40.0, 50.0, 60.0);
+        let (theta_z, delta_z) = MockPlant::calculate_ims_readings(
+            &disp_matrix_inv,
+            &disp_offset,
+            10.0,
+            20.0,
+            30.0,
+            40.0,
+            50.0,
+            60.0,
+        );
 
-        let (x, y, z, rx, ry, rz) = calculate_position_ims(&matrix, &offset, &theta_z, &delta_z);
+        let (x, y, z, rx, ry, rz) =
+            calculate_position_ims(&disp_matrix, &disp_offset, &theta_z, &delta_z);
 
         assert_relative_eq!(x, 10.0, epsilon = EPSILON);
         assert_relative_eq!(y, 20.0, epsilon = EPSILON);

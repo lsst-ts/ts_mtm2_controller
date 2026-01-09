@@ -67,8 +67,6 @@ The followings are the commands:
 - CommandMoveActuators
 - CommandSetConfig
 - CommandSetExternalElevation
-- CommandGetInnerLoopControlMode
-- CommandSetInnerLoopControlMode
 
 See [here](../src/command/command_control_loop.rs) for the details.
 

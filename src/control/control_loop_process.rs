@@ -19,23 +19,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::info;
-use serde_json::Value;
+use log::{error, info};
+use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{sync_channel, Receiver, SyncSender},
     Arc,
 };
-use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::command::{
     command_control_loop::{
-        CommandApplyForces, CommandGetInnerLoopControlMode, CommandMoveActuators,
-        CommandPositionMirror, CommandResetActuatorSteps, CommandResetForceOffsets,
-        CommandSetClosedLoopControlMode, CommandSetConfig, CommandSetExternalElevation,
-        CommandSetInnerLoopControlMode,
+        CommandApplyForces, CommandMoveActuators, CommandPositionMirror, CommandResetActuatorSteps,
+        CommandResetForceOffsets, CommandSetClosedLoopControlMode, CommandSetConfig,
+        CommandSetExternalElevation,
     },
+    command_data_acquisition::CommandMoveActuatorSteps,
     command_schema::{Command, CommandSchema},
 };
 use crate::config::Config;
@@ -126,8 +125,6 @@ impl ControlLoopProcess {
         command_schema.add_command(Box::new(CommandMoveActuators));
         command_schema.add_command(Box::new(CommandSetConfig));
         command_schema.add_command(Box::new(CommandSetExternalElevation));
-        command_schema.add_command(Box::new(CommandGetInnerLoopControlMode));
-        command_schema.add_command(Box::new(CommandSetInnerLoopControlMode));
 
         command_schema
     }
@@ -156,9 +153,22 @@ impl ControlLoopProcess {
         let telemetry_command_name = CommandSetExternalElevation.name();
 
         let period = (1000.0 / self.control_loop.config.control_frequency) as u64;
+        let mut seq_id_move_actuator_steps = 0;
+        let mut processed_telemetry: Option<TelemetryControlLoop> = None;
         while !self._stop.load(Ordering::Relaxed) {
             // Time the control loop
             let now = Instant::now();
+
+            // Process the received telemetry from the data acquisition.
+            if let Some(telemetry) = &mut processed_telemetry {
+                // We need to check the sequence ID here because we need to
+                // make sure the new telemetry is the expected one that the
+                // inner-loop controlloer (ILC) has moved the actuators.
+                if telemetry.seq_id_move_actuator_steps == seq_id_move_actuator_steps {
+                    self.control_loop.process_telemetry_data(telemetry);
+                    self.control_loop.step(telemetry);
+                }
+            }
 
             // Process the messages.
             let mut command_result = None;
@@ -197,13 +207,27 @@ impl ControlLoopProcess {
                 command_result = None;
             }
 
-            // Run the control loop
-            self.control_loop.step();
+            if let Some(steps) = self.control_loop.take_steps_to_move_actuators() {
+                seq_id_move_actuator_steps =
+                    self.get_next_seq_id_move_actuator_steps(seq_id_move_actuator_steps);
+                if self
+                    ._sender_to_daq
+                    .try_send(json!({
+                        "id": CommandMoveActuatorSteps.name(),
+                        "seq_id_move_actuator_steps": seq_id_move_actuator_steps,
+                        "steps": steps,
+                    }))
+                    .is_err()
+                {
+                    error!(
+                        "Failed to send the move actuator steps command to the data acquisition with sequence ID {}.",
+                        seq_id_move_actuator_steps
+                    );
+                };
+            }
 
             // Send the telemetry and event data to the model and ignore the
             // error.
-            let mut telemetry = self.control_loop.telemetry.clone();
-
             let events = if self.control_loop.event_queue.has_event() {
                 Some(self.control_loop.event_queue.get_events_and_clear())
             } else {
@@ -211,22 +235,49 @@ impl ControlLoopProcess {
             };
 
             let cycle_time = now.elapsed().as_millis() as u64;
-            telemetry.cycle_time = (cycle_time as f64) / 1000.0;
+
+            if let Some(telemetry) = &mut processed_telemetry {
+                telemetry.cycle_time = (cycle_time as f64) / 1000.0;
+            }
 
             let _ = self._sender_to_model.try_send(Telemetry::new(
                 None,
-                Some(telemetry),
+                processed_telemetry.take(),
                 command_result,
                 events,
             ));
 
-            // Sleep with the remaining time
-            if period > cycle_time {
-                sleep(Duration::from_millis(period - cycle_time));
+            // Calculate the remaining time to wait for the new telemetry.
+            let wait_telemetry_time = period.saturating_sub(cycle_time);
+            match self
+                ._receiver_telemetry_to_control_loop
+                .recv_timeout(Duration::from_millis(wait_telemetry_time))
+            {
+                Ok(telemetry) => {
+                    processed_telemetry = Some(telemetry);
+                }
+                Err(_) => {
+                    processed_telemetry = None;
+                }
             }
         }
 
         info!("Control loop is stopped.");
+    }
+
+    /// Get the next sequence ID for the move actuator steps command.
+    ///
+    /// # Arguments
+    /// * `current_id` - The current sequence ID.
+    ///
+    /// # Returns
+    /// The next sequence ID.
+    fn get_next_seq_id_move_actuator_steps(&self, current_id: i32) -> i32 {
+        if current_id == i32::MAX {
+            0
+        } else {
+            current_id + 1
+        }
     }
 }
 
@@ -236,11 +287,22 @@ mod tests {
 
     use serde_json::json;
     use std::path::Path;
-    use std::thread::spawn;
+    use std::thread::{sleep, spawn};
 
+    use crate::command::command_control_loop::{
+        CommandMoveActuators, CommandSetClosedLoopControlMode,
+    };
     use crate::daq::data_acquisition_process::DataAcquisitionProcess;
+    use crate::enums::DataAcquisitionMode;
+    use crate::mock::mock_constants::PLANT_STEP_TO_ENCODER;
+    use crate::telemetry::telemetry_power::TelemetryPower;
 
-    fn create_control_loop_process() -> (ControlLoopProcess, Receiver<Telemetry>, Receiver<Value>) {
+    fn create_control_loop_process() -> (
+        ControlLoopProcess,
+        Receiver<Telemetry>,
+        SyncSender<Value>,
+        Receiver<Value>,
+    ) {
         let config = Config::new(
             Path::new("config/parameters_control.yaml"),
             Path::new("config/lut/handling"),
@@ -262,7 +324,32 @@ mod tests {
                 &stop,
             ),
             receiver_to_model,
+            sender_to_daq,
             receiver_to_daq,
+        )
+    }
+
+    fn create_data_acquisition_process(
+        sender_telemetry_to_control_loop: &SyncSender<TelemetryControlLoop>,
+        sender_to_model: &SyncSender<Telemetry>,
+        sender_to_daq: SyncSender<Value>,
+        receiver_to_daq: Receiver<Value>,
+        stop: &Arc<AtomicBool>,
+    ) -> (DataAcquisitionProcess, Receiver<TelemetryPower>) {
+        let (sender_telemetry_to_power, receiver_telemetry_to_power) =
+            sync_channel(BOUND_SYNC_CHANNEL);
+
+        (
+            DataAcquisitionProcess::new(
+                true,
+                sender_telemetry_to_control_loop,
+                &sender_telemetry_to_power,
+                sender_to_model,
+                sender_to_daq,
+                receiver_to_daq,
+                stop,
+            ),
+            receiver_telemetry_to_power,
         )
     }
 
@@ -270,42 +357,61 @@ mod tests {
     fn test_new() {
         let control_loop_process = create_control_loop_process().0;
 
-        assert_eq!(
-            control_loop_process._command_schema.number_of_commands(),
-            10
-        );
+        assert_eq!(control_loop_process._command_schema.number_of_commands(), 8);
     }
 
     #[test]
     fn test_run() {
-        let (mut control_loop_process, receiver_to_model, _receiver_to_daq) =
+        let (mut control_loop_process, receiver_to_model, sender_to_daq, receiver_to_daq) =
             create_control_loop_process();
         let stop = control_loop_process._stop.clone();
 
+        let (mut data_acquisition_process, _receiver_telemetry_power) =
+            create_data_acquisition_process(
+                &control_loop_process._sender_telemetry_to_control_loop,
+                &control_loop_process._sender_to_model,
+                sender_to_daq,
+                receiver_to_daq,
+                &stop,
+            );
+        data_acquisition_process.daq.mode = DataAcquisitionMode::Telemetry;
+        if let Some(plant) = &mut data_acquisition_process.daq.plant {
+            plant.power_system_communication.is_power_on = true;
+        }
+
         let sender_to_control_loop = control_loop_process.get_sender_to_control_loop();
 
-        let handle = spawn(move || {
+        let handle_control_loop = spawn(move || {
             control_loop_process.run();
+        });
+        let handle_data_acquisition = spawn(move || {
+            data_acquisition_process.run();
         });
 
         sleep(Duration::from_millis(500));
 
         // Set the closed-loop control mode.
         let _ = sender_to_control_loop.try_send(json!({
-            "id": "cmd_setClosedLoopControlMode",
+            "id": CommandSetClosedLoopControlMode.name(),
             "sequence_id": 2,
-            "mode": 2,
+            "mode": 3,
         }));
 
         // Check the telemetry data.
-        sleep(Duration::from_millis(500));
-
         let mut latest_telemetry = Telemetry::new(None, None, None, None);
         loop {
-            match receiver_to_model.try_recv() {
-                Ok(telemetry) => {
-                    if let Some(_result) = &telemetry.command_result {
-                        latest_telemetry = telemetry;
+            match receiver_to_model.recv_timeout(Duration::from_millis(50)) {
+                Ok(mut telemetry) => {
+                    if telemetry.control_loop.is_some() {
+                        latest_telemetry.control_loop = telemetry.control_loop.take();
+                    }
+
+                    if telemetry.events.is_some() {
+                        latest_telemetry.events = telemetry.events.take();
+                    }
+
+                    if telemetry.command_result.is_some() {
+                        latest_telemetry.command_result = telemetry.command_result.take();
                         break;
                     }
                 }
@@ -327,7 +433,7 @@ mod tests {
             vec![
                 json!({
                     "id": "closedLoopControlMode",
-                    "mode": 2,
+                    "mode": 3,
                 }),
                 json!({
                     "id": "forceBalanceSystemStatus",
@@ -336,9 +442,59 @@ mod tests {
             ]
         );
 
+        let mut telemetry_control_loop = latest_telemetry.control_loop.unwrap();
+
+        assert_eq!(telemetry_control_loop.seq_id_move_actuator_steps, 0);
+        assert_eq!(telemetry_control_loop.inclinometer["raw"], 90.0);
+
+        // Move the actuator steps.
+        let _ = sender_to_control_loop.try_send(json!({
+            "id": CommandMoveActuators.name(),
+            "sequence_id": 3,
+            "actuatorCommand": 1,
+            "actuators": [0, 1, 2],
+            "displacement": 80,
+            "unit": 2,
+        }));
+
+        let expected_encoder_value = (80.0 * PLANT_STEP_TO_ENCODER) as i32;
+        loop {
+            if let Ok(mut telemetry) = receiver_to_model.recv_timeout(Duration::from_millis(50)) {
+                if let Some(control_loop) = &telemetry.control_loop {
+                    if control_loop.ilc_encoders[0] == expected_encoder_value {
+                        latest_telemetry.control_loop = telemetry.control_loop.take();
+                        break;
+                    }
+                }
+            }
+        }
+
+        telemetry_control_loop = latest_telemetry.control_loop.unwrap();
+
+        assert!(telemetry_control_loop.seq_id_move_actuator_steps > 0);
+        assert_eq!(
+            telemetry_control_loop.ilc_encoders[0],
+            expected_encoder_value,
+        );
+
         // Close the server.
         stop.store(true, Ordering::Relaxed);
 
-        assert!(handle.join().is_ok());
+        assert!(handle_control_loop.join().is_ok());
+        assert!(handle_data_acquisition.join().is_ok());
+    }
+
+    #[test]
+    fn test_get_next_seq_id_move_actuator_steps() {
+        let control_loop_process = create_control_loop_process().0;
+
+        assert_eq!(
+            control_loop_process.get_next_seq_id_move_actuator_steps(0),
+            1
+        );
+        assert_eq!(
+            control_loop_process.get_next_seq_id_move_actuator_steps(i32::MAX),
+            0
+        );
     }
 }

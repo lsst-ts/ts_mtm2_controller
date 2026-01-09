@@ -1,5 +1,21 @@
 # Version History
 
+0.4.0
+
+- Put the **timeout** value to be 50 ms in `parameters_app.yaml`.
+- Improve the clippy format.
+- Put the `MockPlant.calculate_ims_readings()` to be static.
+- Add the `disp_matrix_inv` field in **Config**.
+- Remove the `_is_simulation_mode` field in **OpenLoop**.
+- Remove the simulation of **MockPlant** from the **ControlLoop**.
+The related simulation goes to the **DataAcquisition** instead.
+- Add the command of data acquisition to the **Model**.
+- Use the `Receiver.recv_timeout()` instead of `Receiver.try_recv()` in **CommandServer**,  **TelemetryServer**, and **DataAcquisitionProcess** (in the test).
+- Use the `Receiver.recv_timeout()` in the tests of **PowerSystemProcess**.
+- Add the `seq_id_move_actuator_steps` field in **CommandMoveActuatorSteps** and **TelemetryControlLoop**.
+The **DataAcquisition** will cache this value.
+- Fix the switch of commander in `model.rs`.
+
 0.3.2
 
 - Update the dependencies.
