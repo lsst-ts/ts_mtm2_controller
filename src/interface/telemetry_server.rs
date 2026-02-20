@@ -25,8 +25,8 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::time::Duration;
 
 use crate::constants::BOUND_SYNC_CHANNEL;
-use crate::interface::tcp_server::TcpServer;
 use crate::utility::{get_message_name, is_telemetry};
+use ts_control_utils::tcp_server::TcpServer;
 
 pub struct TelemetryServer {
     // Sender of the messages to the TCP/IP.
@@ -106,8 +106,10 @@ mod tests {
     };
     use std::thread::{sleep, spawn};
 
-    use crate::constants::{LOCAL_HOST, TERMINATOR};
-    use crate::utility::{client_read_and_assert, client_write_and_sleep};
+    use ts_control_utils::{
+        constants::{LOCAL_HOST, TERMINATOR},
+        utility::{client_read_and_assert, client_write_and_sleep},
+    };
 
     const SLEEP_TIME: u64 = 50;
     const MAX_TIMEOUT: u64 = 200;

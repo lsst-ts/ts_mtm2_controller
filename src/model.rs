@@ -55,8 +55,8 @@ use crate::control::control_loop_process::ControlLoopProcess;
 use crate::controller::Controller;
 use crate::daq::data_acquisition_process::DataAcquisitionProcess;
 use crate::enums::{
-    BitEnum, ClosedLoopControlMode, CommandStatus, Commander, DigitalInput, DigitalOutput,
-    ErrorCode, PowerType,
+    ClosedLoopControlMode, CommandStatus, Commander, DigitalInput, DigitalOutput, ErrorCode,
+    PowerType,
 };
 use crate::interface::command_telemetry_server::CommandTelemetryServer;
 use crate::power::power_system_process::PowerSystemProcess;
@@ -65,9 +65,10 @@ use crate::telemetry::{
     telemetry_default::TelemetryDefault, telemetry_power::TelemetryPower,
 };
 use crate::utility::{
-    acknowledge_command, get_message_name, get_message_sequence_id, get_parameter, is_command,
-    is_event, is_telemetry,
+    acknowledge_command, get_message_name, get_message_sequence_id, is_command, is_event,
+    is_telemetry,
 };
+use ts_control_utils::{enums::BitEnum, utility::get_parameter};
 
 #[allow(clippy::type_complexity)]
 pub struct Model {
@@ -1109,15 +1110,17 @@ mod tests {
     use std::time::Duration;
 
     use crate::command::command_data_acquisition::CommandSetDataAcquisitionMode;
-    use crate::constants::{LOCAL_HOST, NUM_INNER_LOOP_CONTROLLER, TERMINATOR};
+    use crate::constants::NUM_INNER_LOOP_CONTROLLER;
     use crate::enums::{DataAcquisitionMode, InnerLoopControlMode, PowerSystemState};
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
         TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_NO_POWER,
         TEST_DIGITAL_OUTPUT_POWER_COMM, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
-    use crate::utility::{
-        client_read_and_assert, client_read_json, client_read_specific_json, client_write_and_sleep,
+    use crate::utility::client_read_specific_json;
+    use ts_control_utils::{
+        constants::{LOCAL_HOST, TERMINATOR},
+        utility::{client_read_and_assert, client_read_json, client_write_and_sleep},
     };
 
     const MAX_TIME_WAIT_FOR_COMMAND_RESULT: i32 = 500;

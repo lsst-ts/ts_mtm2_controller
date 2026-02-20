@@ -31,7 +31,7 @@ use crate::constants::{
 };
 use crate::control::math_tool::correct_inclinometer_angle;
 use crate::enums::{
-    BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode, PowerType,
+    DigitalInput, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode, PowerType,
 };
 use crate::mock::mock_constants::{
     PLANT_CURRENT_COMMUNICATION, PLANT_CURRENT_MOTOR, PLANT_STEP_TO_ENCODER,
@@ -40,7 +40,7 @@ use crate::mock::mock_constants::{
 use crate::mock::mock_inner_loop_controller::MockInnerLoopController;
 use crate::mock::mock_power_system::MockPowerSystem;
 use crate::power::config_power::ConfigPower;
-use crate::utility::get_parameter;
+use ts_control_utils::{enums::BitEnum, utility::get_parameter};
 
 #[derive(Clone)]
 pub struct MockPlant {

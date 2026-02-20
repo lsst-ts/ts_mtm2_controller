@@ -486,12 +486,12 @@ mod tests {
     use approx::assert_relative_eq;
     use serde_json::json;
 
-    use crate::enums::BitEnum;
     use crate::mock::mock_constants::{
         PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
         TEST_DIGITAL_OUTPUT_NO_POWER, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
     use crate::mock::mock_power_system::MockPowerSystem;
+    use ts_control_utils::enums::BitEnum;
 
     const EPSILON: f64 = 1e-7;
 

@@ -53,10 +53,6 @@ pub const NUM_COLUMN_LUT_GRAVITY: usize = 73;
 // Outlier threshold from inner-loop controller (ILC) telemetry
 pub const OUTLIER_INCLINOMETER_RAW: u32 = 1000000;
 
-pub const LOCAL_HOST: &str = "127.0.0.1";
-pub const ALL_HOST: &str = "0.0.0.0";
-pub const TERMINATOR: &[u8; 2] = b"\r\n";
-
 pub const BOUND_SYNC_CHANNEL: usize = 100;
 
 pub const DEFAULT_POSITION_FILENAME: &str = "position.yaml";

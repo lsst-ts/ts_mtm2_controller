@@ -172,7 +172,7 @@ mod tests {
     use serde_json::json;
 
     use crate::constants::NUM_ACTUATOR;
-    use crate::enums::BitEnum;
+    use ts_control_utils::enums::BitEnum;
 
     fn create_data_acquisition() -> DataAcquisition {
         DataAcquisition::new(true)

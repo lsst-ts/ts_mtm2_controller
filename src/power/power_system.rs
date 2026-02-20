@@ -535,7 +535,7 @@ mod tests {
 
     use std::path::Path;
 
-    use crate::enums::{BitEnum, DigitalInput};
+    use crate::enums::DigitalInput;
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
         TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
@@ -544,6 +544,7 @@ mod tests {
     use crate::mock::mock_power_system::MockPowerSystem;
     use crate::telemetry::telemetry_power::TelemetryPower;
     use crate::utility::read_file_stiffness;
+    use ts_control_utils::enums::BitEnum;
 
     fn create_power_system() -> (PowerSystem, MockPlant) {
         // Plant model

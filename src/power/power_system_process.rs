@@ -35,10 +35,11 @@ use crate::command::{
     command_schema::{Command, CommandSchema},
 };
 use crate::constants::BOUND_SYNC_CHANNEL;
-use crate::enums::{BitEnum, DataAcquisitionMode, PowerType};
+use crate::enums::{DataAcquisitionMode, PowerType};
 use crate::power::power_system::PowerSystem;
 use crate::telemetry::{telemetry::Telemetry, telemetry_power::TelemetryPower};
 use crate::utility::{get_message_name, get_message_sequence_id};
+use ts_control_utils::enums::BitEnum;
 
 pub struct PowerSystemProcess {
     // Power system

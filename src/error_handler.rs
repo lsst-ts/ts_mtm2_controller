@@ -27,11 +27,12 @@ use strum::IntoEnumIterator;
 use crate::config::Config;
 use crate::constants::NUM_AXIAL_ACTUATOR;
 use crate::control::actuator::Actuator;
-use crate::enums::{BitEnum, DigitalInput, DigitalOutput, ErrorCode, PowerType};
+use crate::enums::{DigitalInput, DigitalOutput, ErrorCode, PowerType};
 use crate::power::config_power::ConfigPower;
 use crate::telemetry::{
     telemetry_control_loop::TelemetryControlLoop, telemetry_power::TelemetryPower,
 };
+use ts_control_utils::enums::BitEnum;
 
 pub struct ErrorHandler {
     // Configuration of the control loop.

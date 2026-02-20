@@ -30,12 +30,11 @@ use std::sync::{
 use std::thread::{sleep, spawn, JoinHandle};
 use std::time::Duration;
 
-use crate::constants::TERMINATOR;
 use crate::enums::Commander;
 use crate::interface::command_server::CommandServer;
-use crate::interface::tcp_server::TcpServer;
 use crate::interface::telemetry_server::TelemetryServer;
 use crate::telemetry::event::Event;
+use ts_control_utils::{constants::TERMINATOR, tcp_server::TcpServer};
 
 pub struct CommandTelemetryServer {
     // Name of the server.
@@ -280,9 +279,13 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
 
-    use crate::constants::{BOUND_SYNC_CHANNEL, LOCAL_HOST};
+    use crate::constants::BOUND_SYNC_CHANNEL;
     use crate::enums::CommandStatus;
-    use crate::utility::{acknowledge_command, client_read_and_assert, client_write_and_sleep};
+    use crate::utility::acknowledge_command;
+    use ts_control_utils::{
+        constants::LOCAL_HOST,
+        utility::{client_read_and_assert, client_write_and_sleep},
+    };
 
     const TIMEOUT: u64 = 100;
     const MAX_TIMEOUT: u64 = 200;
