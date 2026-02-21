@@ -10,7 +10,7 @@ opt-level = 0
 opt-level = 3
 
 [dependencies]
-ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "tickets/OSW-1697" }
+ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
 approx = "0.5"
 chrono = "0.4.43"
 clap = { version = "4.5.60", features = ["cargo"] }

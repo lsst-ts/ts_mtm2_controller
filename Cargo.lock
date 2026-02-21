@@ -1342,7 +1342,7 @@ dependencies = [
 [[package]]
 name = "ts_control_utils"
 version = "0.1.0"
-source = "git+https://github.com/lsst-ts/ts_control_utils.git?branch=tickets%2FOSW-1697#87b758b0f7c6ef5107943cc743b4cffa1163b56b"
+source = "git+https://github.com/lsst-ts/ts_control_utils.git?branch=develop#0ac484bfe97bf66ded8cbef49dc573879a1ecaf0"
 dependencies = [
  "approx",
  "config",
