@@ -29,9 +29,8 @@ use std::sync::atomic::Ordering;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::constants::ALL_HOST;
 use crate::model::Model;
-use crate::utility::get_parameter;
+use ts_control_utils::{constants::ALL_HOST, utility::get_parameter};
 
 /// Run the application.
 ///

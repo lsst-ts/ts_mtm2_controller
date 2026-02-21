@@ -22,7 +22,7 @@
 use std::path::Path;
 
 use crate::enums::PowerType;
-use crate::utility::get_parameter;
+use ts_control_utils::utility::get_parameter;
 
 #[derive(Default)]
 pub struct ConfigPower {

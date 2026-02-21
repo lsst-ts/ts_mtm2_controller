@@ -21,9 +21,8 @@
 
 use log::{error, info, warn};
 
-use crate::enums::{
-    BitEnum, DigitalInput, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
-};
+use crate::enums::{DigitalInput, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType};
+use ts_control_utils::enums::BitEnum;
 
 #[derive(Copy, Clone)]
 pub struct SubPowerSystem {

@@ -29,7 +29,8 @@ use crate::constants::{
     NUM_TEMPERATURE_RING,
 };
 use crate::control::lut::Lut;
-use crate::utility::{get_parameter, get_parameter_array, read_file_cell_geom, read_file_disp_ims};
+use crate::utility::{read_file_cell_geom, read_file_disp_ims};
+use ts_control_utils::utility::{get_parameter, get_parameter_array};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct CellGeometry {

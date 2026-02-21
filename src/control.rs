@@ -20,7 +20,6 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 pub mod actuator;
-pub mod biquadratic_filter;
 pub mod closed_loop;
 pub mod control_loop;
 pub mod control_loop_process;
@@ -30,4 +29,3 @@ pub mod in_position;
 pub mod lut;
 pub mod math_tool;
 pub mod open_loop;
-pub mod simple_delay_filter;

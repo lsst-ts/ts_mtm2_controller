@@ -38,9 +38,8 @@ use crate::enums::{ActuatorDisplacementUnit, ClosedLoopControlMode, CommandActua
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
 use crate::telemetry::{event::Event, telemetry_control_loop::TelemetryControlLoop};
-use crate::utility::{
-    get_parameter, get_parameter_array, get_parameter_matrix, read_file_stiffness,
-};
+use crate::utility::read_file_stiffness;
+use ts_control_utils::utility::{get_parameter, get_parameter_array, get_parameter_matrix};
 
 pub struct ControlLoop {
     // Is the mirror or the surrogate.
@@ -894,7 +893,7 @@ mod tests {
 
     use crate::constants::NUM_TEMPERATURE_RING;
     use crate::daq::data_acquisition::DataAcquisition;
-    use crate::utility::assert_relative_eq_vector;
+    use ts_control_utils::utility::assert_relative_eq_vector;
 
     const EPSILON: f64 = 1e-7;
 

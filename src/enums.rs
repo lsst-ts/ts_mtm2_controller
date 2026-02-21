@@ -19,29 +19,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use num_traits::PrimInt;
 use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumIter, FromRepr, VariantNames};
-
-/// A trait to provide value and bit value methods for the bit enum.
-pub trait BitEnum<T: PrimInt> {
-    /// Get the value.
-    ///
-    /// # Returns
-    /// Value.
-    fn value(&self) -> T;
-
-    /// Get the bit value.
-    ///
-    /// # Returns
-    /// Bit value. If the value is not defined, it returns 0.
-    fn bit_value(&self) -> T {
-        match self.value().to_usize() {
-            Some(value) => T::one() << value,
-            None => T::zero(),
-        }
-    }
-}
+use ts_control_utils::enums::BitEnum;
 
 impl BitEnum<u64> for ErrorCode {
     fn value(&self) -> u64 {

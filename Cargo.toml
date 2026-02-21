@@ -10,20 +10,19 @@ opt-level = 0
 opt-level = 3
 
 [dependencies]
+ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
 approx = "0.5"
-chrono = "0.4.42"
-clap = { version = "4.5.53", features = ["cargo"] }
-config = "0.14.1"
+chrono = "0.4.43"
+clap = { version = "4.5.60", features = ["cargo"] }
 csv = "1.4.0"
 kiddo = "4.2.1"
 log = "0.4.29"
 nalgebra = { version = "0.33.2", features = ["serde-serialize"]}
-num-traits = "0.2.19"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.146"
+serde_json = "1.0.149"
 signal-hook = "0.3.18"
 simplelog = "0.12.2"
 strum = "0.26.3"
 strum_macros = "0.26.4"
-tempfile = "3.23.0"
-time = "0.3.44"
+tempfile = "3.25.0"
+time = "0.3.47"

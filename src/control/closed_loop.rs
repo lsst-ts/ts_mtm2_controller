@@ -25,12 +25,13 @@ use crate::constants::{
     NUM_ACTIVE_ACTUATOR, NUM_ACTIVE_ACTUATOR_AXIAL, NUM_ACTIVE_ACTUATOR_TANGENT,
     NUM_AXIAL_ACTUATOR, NUM_HARDPOINTS, NUM_HARDPOINTS_AXIAL, NUM_TANGENT_LINK,
 };
-use crate::control::biquadratic_filter::BiquadraticFilter;
 use crate::control::deadband_control::DeadbandControl;
 use crate::control::gain_schedular::GainSchedular;
 use crate::control::in_position::InPosition;
 use crate::control::math_tool::clip;
-use crate::control::simple_delay_filter::SimpleDelayFilter;
+use ts_control_utils::{
+    biquadratic_filter::BiquadraticFilter, simple_delay_filter::SimpleDelayFilter,
+};
 
 pub struct ClosedLoop {
     _prefilter_axial: BiquadraticFilter,

@@ -345,7 +345,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::mock::mock_constants::{PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW};
-    use crate::utility::assert_relative_eq_vector;
+    use ts_control_utils::utility::assert_relative_eq_vector;
 
     const EPSILON: f64 = 1e-7;
 

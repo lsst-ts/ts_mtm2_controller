@@ -749,7 +749,8 @@ mod tests {
     use approx::assert_relative_eq;
     use std::path::Path;
 
-    use crate::utility::{assert_relative_eq_vector, read_file_cell_geom, read_file_stiffness};
+    use crate::utility::{read_file_cell_geom, read_file_stiffness};
+    use ts_control_utils::utility::assert_relative_eq_vector;
 
     const EPSILON: f64 = 1e-7;
 

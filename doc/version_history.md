@@ -1,5 +1,9 @@
 # Version History
 
+0.4.1
+
+- Use the **ts_control_utils**.
+
 0.4.0
 
 - Put the **timeout** value to be 50 ms in `parameters_app.yaml`.

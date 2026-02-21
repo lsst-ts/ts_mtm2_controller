@@ -29,7 +29,7 @@ use crate::enums::{
     ClosedLoopControlMode, DataAcquisitionMode, InclinationTelemetrySource, InnerLoopControlMode,
     PowerSystemState, PowerType,
 };
-use crate::utility::get_parameter;
+use ts_control_utils::utility::get_parameter;
 
 pub struct Event;
 impl Event {
