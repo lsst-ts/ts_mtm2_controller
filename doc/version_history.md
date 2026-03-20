@@ -1,5 +1,19 @@
 # Version History
 
+0.4.2
+
+- Add the `crc` dependency.
+- Add the ILC related constants and enums to `constants.rs` and `enums.rs`.
+- Add the `inner_loop_controller.rc`.
+- Update the `parameters_control.yaml` and **Config** to have the limit of raw ILC values.
+- Update the `parameters_daq.yaml` and **ConfigDataAcquisition** to check the ILC stale data.
+- Update the **TelemetryControlLoop** to have the `ilc_error_codes` field.
+- Update the **DataAcquisition** to hold the latest ILC telemetry, which will be used when working with the real ILC data.
+- Update the **DataAcquisitionProcess** to end the default digital output when shutting down the process.
+- Update the **ErrorHandler** to check the raw ILC values and add the error from `TelemetryControlLoop.ilc_error_codes`.
+- Update the `class_diagram.md`.
+- Improve the `Jenkinsfile`.
+
 0.4.1
 
 - Use the **ts_control_utils**.
