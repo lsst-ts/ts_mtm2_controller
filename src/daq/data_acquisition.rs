@@ -23,9 +23,12 @@ use log::{error, info};
 use std::path::Path;
 
 use crate::constants::{NUM_ACTUATOR, NUM_IMS};
-use crate::daq::config_data_acquisition::ConfigDataAcquisition;
+use crate::daq::{
+    config_data_acquisition::ConfigDataAcquisition, inner_loop_controller::InnerLoopController,
+};
 use crate::enums::{
-    DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, InnerLoopControlMode, PowerType,
+    DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
+    PowerType,
 };
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
@@ -41,10 +44,17 @@ pub struct DataAcquisition {
     pub event_queue: EventQueue,
     // Data acquisition mode
     pub mode: DataAcquisitionMode,
+    // The latest telemetry data from the inner-loop controller (ILC)
+    _latest_telemetry: TelemetryControlLoop,
     // Sequence ID of the last move actuator steps command. This is used to let
     // the ControlLoopProcess can synchronize the commands and telemetry (as
     // the results of commands).
     _seq_id_move_actuator_steps: i32,
+    // Inner-loop controller
+    _ilc: InnerLoopController,
+    // The counts of stale data for each actuator ILC. This is used to check if
+    // the ILC data is stale for too long.
+    _actuator_ilc_stale_data_counts: Vec<i32>,
     // Plant model
     pub plant: Option<MockPlant>,
 }
@@ -81,8 +91,12 @@ impl DataAcquisition {
             event_queue: EventQueue::new(),
 
             mode: DataAcquisitionMode::Idle,
+            _latest_telemetry: TelemetryControlLoop::new(),
 
             _seq_id_move_actuator_steps: 0,
+
+            _ilc: InnerLoopController::new(),
+            _actuator_ilc_stale_data_counts: vec![0; NUM_ACTUATOR],
 
             plant,
         }
@@ -132,7 +146,15 @@ impl DataAcquisition {
         self.event_queue
             .add_event(Event::get_message_data_acquisition_mode(mode));
 
-        info!("Setting data acquisition mode to {:?}", mode);
+        info!("Set the data acquisition mode to {:?}.", mode);
+
+        // Reset the current actuator ILC stale data counts to 0 when switching
+        // to Idle mode as we do not read the ILC data in Idle mode.
+        if mode == DataAcquisitionMode::Idle {
+            self._actuator_ilc_stale_data_counts = vec![0; NUM_ACTUATOR];
+
+            info!("Reset the current actuator ILC stale data counts to 0.");
+        }
 
         Some(())
     }
@@ -260,7 +282,19 @@ impl DataAcquisition {
             .inclinometer
             .insert(String::from("raw"), inclinometer_angle);
 
-        telemetry
+        // Check the ILC stale data
+        //
+        // TODO: OSW-2036. Improve the MockInnerLoopController to be more
+        // realistic. Then, remove the bypass for the ILC stale data check in
+        // simulation mode.
+        if !self.is_simulation_mode() {
+            self.check_ilc_stale_data(&mut telemetry);
+        }
+
+        // Cache the latest telemetry data
+        self._latest_telemetry = telemetry;
+
+        self._latest_telemetry.clone()
     }
 
     /// Get the actuator inner-loop controller (ILC) data.
@@ -334,8 +368,71 @@ impl DataAcquisition {
         }
     }
 
+    /// Check the inner-loop controller (ILC) data is stale or not. Add the
+    /// related error codes to the telemetry data.
+    ///
+    /// # Arguments
+    /// * `telmetry` - The telemetry data.
+    fn check_ilc_stale_data(&mut self, telmetry: &mut TelemetryControlLoop) {
+        let bypassed_ilcs = &self.config.bypassed_actuator_ilcs;
+        let ilc_stale_data_limit = self.config.actuator_ilc_stale_data_limit;
+
+        let mut has_warning = false;
+        let mut has_fault = false;
+        for (idx, status) in telmetry.ilc_status.iter().enumerate() {
+            // Bypass the stale data check for the bypassed actuator ILCs
+            if bypassed_ilcs.contains(&idx) {
+                continue;
+            }
+
+            if self._ilc.is_expected_communication_counter(*status) {
+                // The bad ILC reading has the status to be 0.
+                if *status != 0 {
+                    self._actuator_ilc_stale_data_counts[idx] = 0;
+                }
+            } else {
+                if !has_warning {
+                    has_warning = true;
+                }
+
+                if self._actuator_ilc_stale_data_counts[idx] < ilc_stale_data_limit {
+                    self._actuator_ilc_stale_data_counts[idx] += 1;
+                } else if !has_fault {
+                    has_fault = true;
+                }
+            }
+        }
+
+        if has_warning {
+            telmetry
+                .ilc_error_codes
+                .push(ErrorCode::IgnoreWarnBroadcast);
+        }
+
+        if has_fault {
+            telmetry
+                .ilc_error_codes
+                .push(ErrorCode::IgnoreFaultStaleData);
+            telmetry
+                .ilc_error_codes
+                .push(ErrorCode::FaultActuatorIlcRead);
+        } else if has_warning {
+            telmetry
+                .ilc_error_codes
+                .push(ErrorCode::IgnoreWarnStaleData);
+        }
+    }
+
     /// Initialize the default digital output.
     pub fn init_default_digital_output(&mut self) {
+        self.set_default_digital_output(DigitalOutputStatus::BinaryHighLevel);
+    }
+
+    /// Set the default digital output.
+    ///
+    /// # Arguments
+    /// * `status` - Digital output status to set for the default digital outputs.
+    fn set_default_digital_output(&mut self, status: DigitalOutputStatus) {
         [
             DigitalOutput::InterlockEnable,
             DigitalOutput::ResetMotorBreakers,
@@ -343,8 +440,13 @@ impl DataAcquisition {
         ]
         .iter()
         .for_each(|digital_output| {
-            self.switch_digital_output(*digital_output, DigitalOutputStatus::BinaryHighLevel);
+            self.switch_digital_output(*digital_output, status);
         });
+    }
+
+    /// End the default digital output.
+    pub fn end_default_digital_output(&mut self) {
+        self.set_default_digital_output(DigitalOutputStatus::BinaryLowLevel);
     }
 
     /// Switch the digital output.
@@ -576,6 +678,8 @@ mod tests {
             })]
         );
 
+        data_acquisition._actuator_ilc_stale_data_counts[0] = 5;
+
         assert!(data_acquisition
             .set_mode(DataAcquisitionMode::Idle)
             .is_some());
@@ -587,6 +691,8 @@ mod tests {
                 "mode": DataAcquisitionMode::Idle as u8,
             })]
         );
+
+        assert_eq!(data_acquisition._actuator_ilc_stale_data_counts[0], 0);
 
         // ClosedLoopControl -> Idle
         data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
@@ -690,6 +796,77 @@ mod tests {
         assert_eq!(telemetry.temperature["exhaust"][0], PLANT_TEMPERATURE_HIGH);
 
         assert_eq!(telemetry.inclinometer["raw"], 90.0);
+
+        assert_eq!(data_acquisition._latest_telemetry, telemetry);
+    }
+
+    #[test]
+    fn test_check_ilc_stale_data() {
+        let mut data_acquisition = create_data_acquisition(true);
+        data_acquisition.config.bypassed_actuator_ilcs = vec![1, 2];
+
+        let mut telemetry = TelemetryControlLoop::new();
+
+        // Bypassed actuator ILCs should not be checked for stale data
+        // Bit 4-7 is the broadcast communication counter
+        let current_communication_counter = data_acquisition._ilc.communication_counter << 4;
+        telemetry.ilc_status = vec![current_communication_counter; NUM_ACTUATOR];
+        telemetry.ilc_status[1] = 0x00;
+        telemetry.ilc_status[2] = 0x00;
+
+        let actuator_ilc_stale_data_limit = data_acquisition.config.actuator_ilc_stale_data_limit;
+        for _ in 0..actuator_ilc_stale_data_limit {
+            data_acquisition.check_ilc_stale_data(&mut telemetry);
+        }
+
+        assert_eq!(
+            data_acquisition._actuator_ilc_stale_data_counts,
+            vec![0; NUM_ACTUATOR]
+        );
+        assert!(telemetry.ilc_error_codes.is_empty());
+
+        // Stale data for one cycle
+        telemetry.ilc_status[0] = 0x00;
+        data_acquisition.check_ilc_stale_data(&mut telemetry);
+
+        assert_eq!(data_acquisition._actuator_ilc_stale_data_counts[0], 1);
+        assert_eq!(
+            telemetry.ilc_error_codes,
+            vec![
+                ErrorCode::IgnoreWarnBroadcast,
+                ErrorCode::IgnoreWarnStaleData
+            ]
+        );
+
+        // Stale data for too long
+        telemetry.ilc_error_codes.clear();
+
+        for _ in 0..actuator_ilc_stale_data_limit {
+            data_acquisition.check_ilc_stale_data(&mut telemetry);
+        }
+
+        assert_eq!(
+            data_acquisition._actuator_ilc_stale_data_counts[0],
+            actuator_ilc_stale_data_limit
+        );
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::IgnoreFaultStaleData));
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::FaultActuatorIlcRead));
+
+        // No stale data
+        telemetry.ilc_status[0] = current_communication_counter;
+        telemetry.ilc_error_codes.clear();
+
+        data_acquisition.check_ilc_stale_data(&mut telemetry);
+
+        assert_eq!(
+            data_acquisition._actuator_ilc_stale_data_counts,
+            vec![0; NUM_ACTUATOR]
+        );
+        assert!(telemetry.ilc_error_codes.is_empty());
     }
 
     #[test]
@@ -702,6 +879,14 @@ mod tests {
             data_acquisition.get_digital_output(),
             TEST_DIGITAL_OUTPUT_NO_POWER
         );
+    }
+
+    #[test]
+    fn test_end_default_digital_output() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        data_acquisition.end_default_digital_output();
+        assert_eq!(data_acquisition.get_digital_output(), 0);
     }
 
     #[test]
