@@ -261,6 +261,8 @@ impl DataAcquisitionProcess {
             }
         }
 
+        self.daq.end_default_digital_output();
+
         info!("Data acquisition loop is stopped.");
     }
 }
