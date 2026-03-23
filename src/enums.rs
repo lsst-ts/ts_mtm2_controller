@@ -145,7 +145,7 @@ pub enum CommandActuator {
 /// begins from the `Fault`, it is a fault. For the spares, the name begins from
 /// the `Spare`. Some of the error codes are ignored at the moment and the name
 /// begins with the `Ignore`.
-#[derive(Debug, Clone, Copy, EnumIter)]
+#[derive(Debug, PartialEq, Clone, Copy, EnumIter)]
 pub enum ErrorCode {
     IgnoreWarnStaleData,
     IgnoreFaultStaleData,
@@ -294,6 +294,18 @@ pub enum DigitalInput {
     Spare29,
     Spare30,
     InterlockPowerRelay,
+}
+
+/// Custom FPGA Modbus error code defined in "Read_Com_Port (SubVI).vi" in
+/// ts_mtm2_cell.
+#[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
+#[repr(i32)]
+pub enum CustomFpgaModbusError {
+    NoRespond = 5010,
+    MessageError = 5020,
+    Timeout = 5030,
+    AddressNotMatched = 5050,
+    CrcError = 5060,
 }
 
 #[cfg(test)]
