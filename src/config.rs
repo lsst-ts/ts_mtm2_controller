@@ -96,6 +96,15 @@ pub struct Config {
     // Maximum count that the control loop can be out of time
     // (1/control_frequency).
     pub max_out_cycle_time: i32,
+    // The actuator encoder value limit in counts.
+    pub limit_encoder_value: i32,
+    // The maximum and minimum values for the displacement sensor in
+    // millimeters.
+    pub max_value_displacement_sensor: f64,
+    pub min_value_displacement_sensor: f64,
+    // The maximum and minimum values for the inclinometer in degrees.
+    pub max_value_inclinometer: f64,
+    pub min_value_inclinometer: f64,
 }
 
 impl Config {
@@ -226,6 +235,24 @@ impl Config {
 
             enabled_faults_mask: get_parameter(filepath_parameters_control, "enabled_faults_mask"),
             max_out_cycle_time: get_parameter(filepath_parameters_control, "max_out_cycle_time"),
+
+            limit_encoder_value: get_parameter(filepath_parameters_control, "limit_encoder_value"),
+            max_value_displacement_sensor: get_parameter(
+                filepath_parameters_control,
+                "max_value_displacement_sensor",
+            ),
+            min_value_displacement_sensor: get_parameter(
+                filepath_parameters_control,
+                "min_value_displacement_sensor",
+            ),
+            max_value_inclinometer: get_parameter(
+                filepath_parameters_control,
+                "max_value_inclinometer",
+            ),
+            min_value_inclinometer: get_parameter(
+                filepath_parameters_control,
+                "min_value_inclinometer",
+            ),
         }
     }
 
