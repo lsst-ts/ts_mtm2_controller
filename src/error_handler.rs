@@ -27,6 +27,7 @@ use strum::IntoEnumIterator;
 use crate::config::Config;
 use crate::constants::NUM_AXIAL_ACTUATOR;
 use crate::control::actuator::Actuator;
+use crate::daq::inner_loop_controller::InnerLoopController;
 use crate::enums::{DigitalInput, DigitalOutput, ErrorCode, PowerType};
 use crate::power::config_power::ConfigPower;
 use crate::telemetry::{
@@ -217,6 +218,10 @@ impl ErrorHandler {
         telemetry: &TelemetryControlLoop,
         is_closed_loop: bool,
     ) {
+        for error_code in &telemetry.ilc_error_codes {
+            self.add_error(*error_code);
+        }
+
         self.check_ilc_status(&telemetry.ilc_status);
         if !self.ilc["fault"].is_empty() {
             self.add_error(ErrorCode::FaultActuatorIlcRead);
@@ -256,6 +261,14 @@ impl ErrorHandler {
             self.add_error(ErrorCode::WarnCellTemp);
         }
 
+        if self.is_displacement_sensor_out_limit(&telemetry.displacement_sensors) {
+            self.add_error(ErrorCode::WarnDisplacementSensorRange);
+        }
+
+        if self.is_raw_inclinometer_out_limit(telemetry.inclinometer["raw"]) {
+            self.add_error(ErrorCode::FaultInclinometerRange);
+        }
+
         if self.is_inclinometer_angle_diff_high(
             telemetry.inclinometer["processed"],
             telemetry.inclinometer["external"],
@@ -276,16 +289,18 @@ impl ErrorHandler {
         let mut limit_switch_extend: Vec<i32> = Vec::new();
         // The bit mask here is based on the LTS-346.
         for (idx, data) in ilc_status.iter().enumerate() {
-            // Bit 0
-            if *data & 0b0000_0001 != 0 {
+            let (is_fault, _, is_closed_limit_switch_cw, is_closed_limit_switch_ccw) =
+                InnerLoopController::check_actuator_ilc_status(*data);
+
+            if is_fault {
                 fault.push(idx as i32);
             }
-            // Bit 2
-            if *data & 0b0000_0100 != 0 {
+
+            if is_closed_limit_switch_cw {
                 limit_switch_retract.push(idx as i32);
             }
-            // Bit 3
-            if *data & 0b0000_1000 != 0 {
+
+            if is_closed_limit_switch_ccw {
                 limit_switch_extend.push(idx as i32);
             }
         }
@@ -311,15 +326,16 @@ impl ErrorHandler {
     /// # Returns
     /// True if any of the encoders is out of limit. Otherwise, False.
     fn is_encoder_out_limit(&mut self, encoders: &[i32], is_axial: bool) -> bool {
+        let limit_encoder_value = self.config_control_loop.limit_encoder_value;
         if is_axial {
-            for (idx, encoder) in encoders[0..NUM_AXIAL_ACTUATOR].iter().enumerate() {
-                if self.actuators[idx].is_encoder_out_limit(*encoder) {
+            for encoder in encoders[0..NUM_AXIAL_ACTUATOR].iter() {
+                if encoder.abs() > limit_encoder_value {
                     return true;
                 }
             }
         } else {
-            for (idx, encoder) in encoders[NUM_AXIAL_ACTUATOR..].iter().enumerate() {
-                if self.actuators[NUM_AXIAL_ACTUATOR + idx].is_encoder_out_limit(*encoder) {
+            for encoder in encoders[NUM_AXIAL_ACTUATOR..].iter() {
+                if encoder.abs() > limit_encoder_value {
                     return true;
                 }
             }
@@ -412,6 +428,69 @@ impl ErrorHandler {
     fn is_cell_temperature_high(&self, intake: &[f64], exhaust: &[f64]) -> bool {
         let diff = (exhaust[0] - intake[0] + exhaust[1] - intake[1]) / 2.0;
         diff > self.config_control_loop.max_cell_temperature_difference
+    }
+
+    /// The displacement sensor value is out of limit or not.
+    ///
+    /// # Arguments
+    /// * `displacement_sensors`: The displacement sensor values in
+    ///   millimeters.
+    ///
+    /// # Returns
+    /// True if the displacement sensor value is out of limit. Otherwise,
+    /// False.
+    fn is_displacement_sensor_out_limit(
+        &self,
+        displacement_sensors: &HashMap<String, Vec<f64>>,
+    ) -> bool {
+        let config = &self.config_control_loop;
+        for displacement_sensor in ["thetaZ", "deltaZ"] {
+            if let Some(values) = displacement_sensors.get(displacement_sensor) {
+                for value in values {
+                    if self.is_out_limit(
+                        *value,
+                        config.min_value_displacement_sensor,
+                        config.max_value_displacement_sensor,
+                    ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if the value is out of limit or not.
+    ///
+    /// # Arguments
+    /// * `value` - The value to check.
+    /// * `low` - The low bound of the limit.
+    /// * `high` - The high bound of the limit.
+    ///
+    /// # Returns
+    /// True if the value is out of the limit. Otherwise, false.
+    fn is_out_limit<T>(&self, value: T, low: T, high: T) -> bool
+    where
+        T: PartialOrd,
+    {
+        (value < low) || (value > high)
+    }
+
+    /// The raw inclinometer value is out of limit or not.
+    ///
+    /// # Arguments
+    /// * `raw_inclinometer`: The raw inclinometer value in degree.
+    ///
+    /// # Returns
+    /// True if the raw inclinometer value is out of limit. Otherwise, False.
+    fn is_raw_inclinometer_out_limit(&self, raw_inclinometer: f64) -> bool {
+        let config = &self.config_control_loop;
+        self.is_out_limit(
+            raw_inclinometer,
+            config.min_value_inclinometer,
+            config.max_value_inclinometer,
+        )
     }
 
     /// The inclinometer angle difference is high or not.
@@ -781,7 +860,7 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    use crate::constants::NUM_ACTUATOR;
+    use crate::constants::{NUM_ACTUATOR, NUM_IMS};
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
         TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
@@ -900,6 +979,16 @@ mod tests {
         telemetry.ilc_encoders[0] = 100000000;
         telemetry.ilc_encoders[NUM_AXIAL_ACTUATOR] = 100000000;
 
+        telemetry.inclinometer.insert(String::from("raw"), 361.0);
+
+        telemetry
+            .displacement_sensors
+            .insert(String::from("thetaZ"), vec![41.0; NUM_IMS]);
+
+        telemetry
+            .ilc_error_codes
+            .push(ErrorCode::FaultIlcStateTransition);
+
         error_handler.check_condition_control_loop(&telemetry, true);
 
         let expected_faults_status = [
@@ -908,6 +997,9 @@ mod tests {
             ErrorCode::FaultExcessiveForce,
             ErrorCode::FaultAxialActuatorEncoderRange,
             ErrorCode::FaultTangentActuatorEncoderRange,
+            ErrorCode::WarnDisplacementSensorRange,
+            ErrorCode::FaultInclinometerRange,
+            ErrorCode::FaultIlcStateTransition,
         ]
         .iter()
         .fold(0, |acc, error_code| acc + error_code.bit_value());
@@ -1051,6 +1143,53 @@ mod tests {
 
         assert!(!error_handler.is_cell_temperature_high(&vec![0.0, 0.0], &vec![0.0, 0.0]));
         assert!(error_handler.is_cell_temperature_high(&vec![0.0, 0.0], &vec![10.0, 10.0]));
+    }
+
+    #[test]
+    fn test_is_displacement_sensor_out_limit() {
+        let error_handler = create_error_handler();
+
+        let mut displacement_sensors = HashMap::new();
+        displacement_sensors.insert(String::from("thetaZ"), vec![0.0; NUM_IMS]);
+        displacement_sensors.insert(String::from("deltaZ"), vec![0.0; NUM_IMS]);
+
+        assert!(!error_handler.is_displacement_sensor_out_limit(&displacement_sensors));
+
+        displacement_sensors.insert(
+            String::from("thetaZ"),
+            vec![
+                error_handler
+                    .config_control_loop
+                    .max_value_displacement_sensor
+                    + 1.0;
+                NUM_IMS
+            ],
+        );
+
+        assert!(error_handler.is_displacement_sensor_out_limit(&displacement_sensors));
+    }
+
+    #[test]
+    fn test_is_out_limit() {
+        let error_handler = create_error_handler();
+
+        assert!(error_handler.is_out_limit(-1, 0, 10));
+        assert!(error_handler.is_out_limit(11, 0, 10));
+
+        assert!(!error_handler.is_out_limit(5, 0, 10));
+        assert!(!error_handler.is_out_limit(0, 0, 10));
+        assert!(!error_handler.is_out_limit(10, 0, 10));
+    }
+
+    #[test]
+    fn test_is_raw_inclinometer_out_limit() {
+        let error_handler = create_error_handler();
+
+        assert!(!error_handler.is_raw_inclinometer_out_limit(0.0));
+
+        assert!(error_handler.is_raw_inclinometer_out_limit(
+            error_handler.config_control_loop.min_value_inclinometer - 1.0
+        ));
     }
 
     #[test]
