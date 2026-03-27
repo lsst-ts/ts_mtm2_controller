@@ -21,16 +21,21 @@
 
 use std::path::Path;
 
-use ts_control_utils::utility::get_parameter;
+use ts_control_utils::utility::{get_parameter, get_parameter_array};
 
 #[derive(Default)]
 pub struct ConfigDataAcquisition {
-    // The frequency of data acquisition (DAQ) loop in Hz
+    // The frequency of data acquisition (DAQ) loop in Hz.
     pub frequency_loop: f64,
-    // The frequency to send the telemetry in Hz
+    // The frequency to send the telemetry in Hz.
     pub frequency_send_telemetry: f64,
-    // The frequency to toggle the closed-loop control bit in Hz
+    // The frequency to toggle the closed-loop control bit in Hz.
     pub frequency_toggle_bit: f64,
+    // The limit of the actuator inner-loop controller (ILC) stale data.
+    pub actuator_ilc_stale_data_limit: i32,
+    // Bypassed actuator ILC list (0-based) to check the error reported by ILC
+    // directly.
+    pub bypassed_actuator_ilcs: Vec<usize>,
 }
 
 impl ConfigDataAcquisition {
@@ -45,6 +50,12 @@ impl ConfigDataAcquisition {
             frequency_loop: get_parameter(filepath, "frequency_loop"),
             frequency_send_telemetry: get_parameter(filepath, "frequency_send_telemetry"),
             frequency_toggle_bit: get_parameter(filepath, "frequency_toggle_bit"),
+
+            actuator_ilc_stale_data_limit: get_parameter(filepath, "actuator_ilc_stale_data_limit"),
+            bypassed_actuator_ilcs: get_parameter_array::<usize>(
+                filepath,
+                "bypassed_actuator_ilcs",
+            ),
         }
     }
 }
