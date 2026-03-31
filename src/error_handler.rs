@@ -1114,7 +1114,7 @@ mod tests {
         let mut tangent_force_error = vec![0.0; 8];
 
         // Test the total weight error
-        tangent_force_error[6] = -2000.0;
+        tangent_force_error[6] = -5000.0;
 
         assert!(error_handler.is_tangent_force_error_out_limit(&tangent_force_error));
 

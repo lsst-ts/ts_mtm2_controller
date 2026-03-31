@@ -1,5 +1,9 @@
 # Version History
 
+0.4.3
+
+- Update the **tangent_link_total_weight_error** to be 5000 N from 2000 N in `config/parameters_control.yaml`.
+
 0.4.2
 
 - Add the `crc` dependency.
