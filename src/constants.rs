@@ -50,9 +50,26 @@ pub const NUM_SPACE_DEGREE_OF_FREEDOM: usize = 6;
 // Therefore, we have (360 / 5) + 1 = 73 columns.
 pub const NUM_COLUMN_LUT_GRAVITY: usize = 73;
 
-// Outlier threshold from inner-loop controller (ILC) telemetry
-pub const OUTLIER_INCLINOMETER_RAW: u32 = 1000000;
-
 pub const BOUND_SYNC_CHANNEL: usize = 100;
 
 pub const DEFAULT_POSITION_FILENAME: &str = "position.yaml";
+
+// Code to read or change inner-loop controller (ILC) mode. This is used for
+// all ILCs.
+pub const CODE_ILC_MODE: u8 = 0x41;
+
+// Code used with BROADCAST_ADDRESS to broadcast step motor command to all
+// stepper controlled actuator ILCs (tangent & axial only).
+pub const CODE_STEP_MOTOR_BROADCAST: u8 = 0x42;
+
+// Code to read load cell force and ILC status data from the individual
+// actuator ILCs (tangent & axial only).
+pub const CODE_FORCE_REQUEST: u8 = 0x43;
+
+// Code to read the monitor sensor: temperature, displacement, and
+// inclinometer.
+pub const CODE_MONITOR_SENSOR: u8 = 0x54;
+
+// Broadcast address for all ILCs. This is used to send the step command to all
+// actuator ILCs at once.
+pub const BROADCAST_ADDRESS: u8 = 248;

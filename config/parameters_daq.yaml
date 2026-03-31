@@ -11,3 +11,12 @@ frequency_send_telemetry: 20.0
 # The frequency to toggle the closed-loop control bit in Hz. This frequency
 # should be a divisor of frequency_loop.
 frequency_toggle_bit: 10.0
+
+# The limit of the actuator inner-loop controller (ILC) stale data. Sometimes,
+# you may want to tune this parameter for the possible bad communication
+# between the controller and ILC to avoid the trigger of error.
+actuator_ilc_stale_data_limit: 10
+
+# Bypassed actuator ILC list (0-based) to check the error reported by ILC
+# directly. Any ILC in this list should be set to be hardpoint.
+bypassed_actuator_ilcs: []

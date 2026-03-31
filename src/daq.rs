@@ -22,3 +22,4 @@
 pub mod config_data_acquisition;
 pub mod data_acquisition;
 pub mod data_acquisition_process;
+pub mod inner_loop_controller;

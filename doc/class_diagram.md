@@ -50,6 +50,7 @@ namespace power {
 
 namespace daq {
   class DataAcquisitionProcess
+  class InnerLoopController
 }
 
 namespace interface {
@@ -96,6 +97,7 @@ ErrorHandler *-- Config
 ErrorHandler *-- ConfigPower
 ErrorHandler "1" *-- "78" Actuator
 ErrorHandler ..> TelemetryControlLoop
+ErrorHandler ..> InnerLoopController
 ```
 
 ## Daq
@@ -139,9 +141,10 @@ CommandDataAcquisition --> DataAcquisition
 DataAcquisition *-- ConfigDataAcquisition
 DataAcquisition o-- MockPlant
 DataAcquisition *-- EventQueue
+DataAcquisition *-- InnerLoopController
+DataAcquisition *-- TelemetryControlLoop
 DataAcquisition ..> Event
 DataAcquisition ..> TelemetryPower
-DataAcquisition ..> TelemetryControlLoop
 ```
 
 ## Power

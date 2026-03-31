@@ -13,8 +13,9 @@ pipeline {
     }
 
     environment {
-        // XML report path
-        XML_REPORT_COVERAGE = "coverage.xml"
+        // Report path
+        REPORT_COVERAGE = "coverage.info"
+        REPORT_JUNIT = "junit.xml"
     }
 
     options {
@@ -54,7 +55,10 @@ pipeline {
                 // We can not update PATH in 'environment' block.
                 withEnv(["HOME=${env.WORKSPACE}"]) {
                     sh """
-                        cargo llvm-cov nextest --cobertura --output-path ${env.XML_REPORT_COVERAGE} --profile ci
+                        cargo llvm-cov nextest --no-cfg-coverage --lcov --output-path ${env.REPORT_COVERAGE} --profile ci
+                        sed -i 's/ uuid=\"[^\"]*\"//g' target/nextest/ci/${env.REPORT_JUNIT}
+                        sed -i 's/ timestamp=\"[^\"]*\"//g' target/nextest/ci/${env.REPORT_JUNIT}
+                        sed -i 's/ disabled=\"[^\"]*\"//g' target/nextest/ci/${env.REPORT_JUNIT}
                     """
                 }
             }
@@ -72,7 +76,7 @@ pipeline {
 
             // Publish the coverage report
             recordCoverage(
-                tools: [[parser: 'COBERTURA', pattern: '*.xml']]
+                tools: [[parser: 'LCOV', pattern: '*.info']]
             )
         }
 

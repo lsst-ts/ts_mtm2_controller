@@ -12,6 +12,13 @@ By default, the CSC is the commander to control the system.
 However, the GUI can always take over the control from the CSC.
 This assures the engineer's ability to support and debug the system in night.
 
+## Error Handling
+
+The **ErrorHandler** is used to manage the system warning and error.
+It is hold by the **Controller** and running in the main thread.
+The telemetry from the threads of control loop and power system will be checked to see there is the issue in system or not.
+The **DataAcquisition** monitors the reading of inner-loop controller (ILC) and sends the related error codes to **ControlLoopProcess**, and then to **ErrorHandler** by the **TelemetryControlLoop.ilc_error_codes**.
+
 ## Command Factory Pattern
 
 The [command factory pattern](../src/command/command_schema.rs) is applied in the system.

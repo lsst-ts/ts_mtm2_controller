@@ -26,9 +26,10 @@ use crate::constants::{
     NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_IMS, NUM_TANGENT_LINK, NUM_TEMPERATURE_EXHAUST,
     NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
 };
+use crate::enums::ErrorCode;
 use crate::telemetry::telemetry_default::TelemetryDefault;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Debug)]
 pub struct TelemetryControlLoop {
     // Mirror is in position or not.
     pub is_in_position: bool,
@@ -67,6 +68,8 @@ pub struct TelemetryControlLoop {
     // Sequence ID of the last command to move actuator steps
     // (see CommandMoveActuatorSteps).
     pub seq_id_move_actuator_steps: i32,
+    // Error codes of the inner loop controller (ILC).
+    pub ilc_error_codes: Vec<ErrorCode>,
 }
 
 impl TelemetryDefault for TelemetryControlLoop {
@@ -140,6 +143,8 @@ impl TelemetryControlLoop {
             cycle_time: 0.0,
 
             seq_id_move_actuator_steps: 0,
+
+            ilc_error_codes: vec![],
         }
     }
 

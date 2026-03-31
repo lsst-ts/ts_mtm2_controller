@@ -189,3 +189,23 @@ is_deadzone_enabled_axial: true
 
 # Deadzone is enabled or not for the tangent hardpoints.
 is_deadzone_enabled_tangent: true
+
+# The actuator encoder value limit in counts.
+# This is defined in ControlParameters.lvclass:set_to_defaults.vi
+# of ts_mtm2_cell.
+limit_encoder_value: 16000000
+
+# The maximum and minimum values for the displacement sensor. These values are
+# in millimeters.
+# They are defined in ControlParameters.lvclass:set_to_defaults.vi
+# of ts_mtm2_cell.
+max_value_displacement_sensor: 40.0
+min_value_displacement_sensor: -0.1
+
+# The maximum and minimum values for the inclinometer. These values are
+# in degrees. They are defined in ControlParameters.lvclass:set_to_defaults.vi
+# of ts_mtm2_cell.
+# The maximum and minimum are 6.284930636432 and -0.001745329251994 radians.
+# We convert them to degrees to match the units from the inner loop controller.
+max_value_inclinometer: 360.100000000024
+min_value_inclinometer: -0.09999999999998112
