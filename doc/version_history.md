@@ -1,5 +1,25 @@
 # Version History
 
+0.4.4
+
+- Add the `PowerSystem.update_digital_input_based_on_voltage()`.
+- Add the `warning_voltage_level` and `fault_voltage_level` fields to **ConfigPower**.
+- Update the `Event.get_message_config()` to use the data in **ConfigPower**.
+- Add the **MOCK_CODE_ILC_ERROR** and **MOCK_CODE_ILC_EXCEPTION**.
+- Add the `InnerLoopController.get_mode_value()` and `InnerLoopController.get_mode_from_value()`.
+- Support the ModBus frame in **MockInnerLoopController**.
+- Update the ILC data and do the request in **MockPlant**.
+- Apply the ModBus frame in **DataAcquisition**.
+- Use the `MockPlant.get_actuator_forces()` in **ClosedLoop**.
+- Update the `Event.get_message_config()` to use the data in **ConfigPower**.
+- Update the data type in **Event**, **CommandDataAcquisition**, and **Model**.
+- Remove the `frequency_send_telemetry` from `parameters_daq.yaml`.
+- Remove the `ConfigDataAcquisition.frequency_send_telemetry`.
+- Change the unit of `max_value_displacement_sensor` and `min_value_displacement_sensor` in `parameters_control.yaml`.
+- Add the `max_value_temperature_cell`, `min_value_temperature_cell`, `max_value_temperature_mirror`, and `min_value_temperature_mirror` in `parameters_control.yaml`.
+- Add the `ErrorHandler.is_temperature_out_of_range()`.
+- Update the `class_diagram.md`.
+
 0.4.3
 
 - Update the **tangent_link_total_weight_error** to be 5000 N from 2000 N in `config/parameters_control.yaml`.
