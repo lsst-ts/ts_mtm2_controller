@@ -840,7 +840,7 @@ impl Model {
         // Note we do not use the ErrorHandler.check_power_supply_health() here
         // because the logic here only considers the interlock itself instead of
         // the fault. That means the interlock can be triggered but this does
-        // not consider the be a fault.
+        // not consider to be a fault.
         let is_interlock_on = (digital_output & DigitalOutput::InterlockEnable.bit_value() == 0)
             | (digital_input & DigitalInput::InterlockPowerRelay.bit_value() != 0);
         if let Some(()) = self
@@ -1069,7 +1069,7 @@ impl Model {
             Event::get_message_temperature_offset(&config.ref_temperature),
             Event::get_message_digital_input(status.digital_input),
             Event::get_message_digital_output(status.digital_output),
-            Event::get_message_config(config),
+            Event::get_message_config(config, &controller.error_handler.config_power),
             Event::get_message_closed_loop_control_mode(status.mode_control_loop),
             Event::get_message_enabled_faults_mask(config.enabled_faults_mask),
             Event::get_message_summary_faults_status(status.summary_faults_status),
@@ -1092,7 +1092,7 @@ impl Model {
         ];
 
         status.ilc_modes.iter().enumerate().for_each(|(idx, mode)| {
-            messages.push(Event::get_message_inner_loop_control_mode(idx, *mode));
+            messages.push(Event::get_message_inner_loop_control_mode(idx as u8, *mode));
         });
 
         messages
