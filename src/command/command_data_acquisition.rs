@@ -75,7 +75,7 @@ impl Command for CommandSetInnerLoopControlMode {
 
         let addresses = message["addresses"].as_array()?;
         for address in addresses {
-            let address = address.as_u64()? as usize;
+            let address = address.as_u64()? as u8;
             let mode = InnerLoopControlMode::from_repr(message["mode"].as_u64()? as u8)?;
             system.set_ilc_mode(address, mode)?;
         }
@@ -103,7 +103,7 @@ impl Command for CommandGetInnerLoopControlMode {
 
         let addresses = message["addresses"].as_array()?;
         for address in addresses {
-            let address = address.as_u64()? as usize;
+            let address = address.as_u64()? as u8;
             system.get_ilc_mode(address)?;
         }
 
@@ -131,7 +131,7 @@ impl Command for CommandMoveActuatorSteps {
         let step_list = message["steps"].as_array()?;
         for step_item in step_list {
             let step = step_item.as_i64()?;
-            steps.push(step as i32);
+            steps.push(step as i8);
         }
 
         let system = data_acquisition?;
@@ -220,11 +220,20 @@ mod tests {
             .is_some());
 
         assert_eq!(
-            data_acquisition.plant.as_ref().unwrap().get_ilc_mode(0),
+            data_acquisition
+                .plant
+                .as_ref()
+                .unwrap()
+                .get_ilc_mode_by_address(0),
             InnerLoopControlMode::Disabled
         );
+
         assert_eq!(
-            data_acquisition.plant.as_ref().unwrap().get_ilc_mode(1),
+            data_acquisition
+                .plant
+                .as_ref()
+                .unwrap()
+                .get_ilc_mode_by_address(1),
             InnerLoopControlMode::Disabled
         );
     }
