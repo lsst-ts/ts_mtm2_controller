@@ -280,11 +280,16 @@ The [telemetry](../src/telemetry/) module supports the telemetry and event:
 ```mermaid
 classDiagram
 
+namespace power {
+  class ConfigPower
+}
+
 namespace main {
   class Config
 }
 
 Event ..> Config
+Event ..> ConfigPower
 
 TelemetryDefault <|-- TelemetryPower
 TelemetryDefault <|-- TelemetryControlLoop
@@ -337,6 +342,10 @@ The [mock](../src/mock/) module supports the simulation mode:
 ```mermaid
 classDiagram
 
+namespace daq {
+  class InnerLoopController
+}
+
 namespace power {
   class ConfigPower
 }
@@ -344,4 +353,6 @@ namespace power {
 MockPlant ..> ConfigPower
 MockPlant "1" *-- "2" MockPowerSystem
 MockPlant "1" *-- "84" MockInnerLoopController
+
+MockInnerLoopController ..> InnerLoopController
 ```
