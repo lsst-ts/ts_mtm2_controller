@@ -58,7 +58,8 @@ pub struct TelemetryControlLoop {
     pub net_total_forces: HashMap<String, f64>,
     // Net total moment in Newton * meter.
     pub net_total_moments: HashMap<String, f64>,
-    // Tangent force error. The first 6 elements are the "force". The last 2 elements are the "weight" and "sum". The unit is Newton.
+    // Tangent force error. The first 6 elements are the "force". The last 2
+    // elements are the "weight" and "sum". The unit is Newton.
     pub tangent_force_error: Vec<f64>,
     // Force balance based on the hardpoint correction. The unit are Newton for
     // the forces and Newton * meter for the moments.
