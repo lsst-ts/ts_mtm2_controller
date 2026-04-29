@@ -32,6 +32,10 @@ pub struct ConfigPower {
     pub maximum_counter_telemetry: i32,
     // Output voltage off level in volt.
     pub output_voltage_off_level: f64,
+    // 24V accuracy warning level in percent.
+    pub warning_voltage_level: f64,
+    // 24V accuracy fault level in percent.
+    pub fault_voltage_level: f64,
     // Minimum of the warning voltage level.
     pub warning_voltage_min: f64,
     // Maximum of the warning voltage level.
@@ -108,6 +112,9 @@ impl ConfigPower {
             maximum_counter_telemetry: get_parameter::<i32>(filepath, "period_telemetry")
                 / loop_time,
             output_voltage_off_level: get_parameter(filepath, "output_voltage_off_level"),
+
+            warning_voltage_level,
+            fault_voltage_level,
 
             warning_voltage_min,
             warning_voltage_max,
