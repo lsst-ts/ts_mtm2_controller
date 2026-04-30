@@ -98,8 +98,15 @@ pub struct Config {
     pub max_out_cycle_time: i32,
     // The actuator encoder value limit in counts.
     pub limit_encoder_value: i32,
-    // The maximum and minimum values for the displacement sensor in
-    // millimeters.
+    // The maximum and minimum values for the cell temperature sensor in degree
+    // Celsius.
+    pub max_value_temperature_cell: f64,
+    pub min_value_temperature_cell: f64,
+    // The maximum and minimum values for the mirror temperature sensor in
+    // degree Celsius.
+    pub max_value_temperature_mirror: f64,
+    pub min_value_temperature_mirror: f64,
+    // The maximum and minimum values for the displacement sensor in micron.
     pub max_value_displacement_sensor: f64,
     pub min_value_displacement_sensor: f64,
     // The maximum and minimum values for the inclinometer in degrees.
@@ -237,6 +244,25 @@ impl Config {
             max_out_cycle_time: get_parameter(filepath_parameters_control, "max_out_cycle_time"),
 
             limit_encoder_value: get_parameter(filepath_parameters_control, "limit_encoder_value"),
+
+            max_value_temperature_cell: get_parameter(
+                filepath_parameters_control,
+                "max_value_temperature_cell",
+            ),
+            min_value_temperature_cell: get_parameter(
+                filepath_parameters_control,
+                "min_value_temperature_cell",
+            ),
+
+            max_value_temperature_mirror: get_parameter(
+                filepath_parameters_control,
+                "max_value_temperature_mirror",
+            ),
+            min_value_temperature_mirror: get_parameter(
+                filepath_parameters_control,
+                "min_value_temperature_mirror",
+            ),
+
             max_value_displacement_sensor: get_parameter(
                 filepath_parameters_control,
                 "max_value_displacement_sensor",
@@ -245,6 +271,7 @@ impl Config {
                 filepath_parameters_control,
                 "min_value_displacement_sensor",
             ),
+
             max_value_inclinometer: get_parameter(
                 filepath_parameters_control,
                 "max_value_inclinometer",
