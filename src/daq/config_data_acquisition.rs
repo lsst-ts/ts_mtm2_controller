@@ -27,8 +27,6 @@ use ts_control_utils::utility::{get_parameter, get_parameter_array};
 pub struct ConfigDataAcquisition {
     // The frequency of data acquisition (DAQ) loop in Hz.
     pub frequency_loop: f64,
-    // The frequency to send the telemetry in Hz.
-    pub frequency_send_telemetry: f64,
     // The frequency to toggle the closed-loop control bit in Hz.
     pub frequency_toggle_bit: f64,
     // The limit of the actuator inner-loop controller (ILC) stale data.
@@ -48,7 +46,6 @@ impl ConfigDataAcquisition {
 
         Self {
             frequency_loop: get_parameter(filepath, "frequency_loop"),
-            frequency_send_telemetry: get_parameter(filepath, "frequency_send_telemetry"),
             frequency_toggle_bit: get_parameter(filepath, "frequency_toggle_bit"),
 
             actuator_ilc_stale_data_limit: get_parameter(filepath, "actuator_ilc_stale_data_limit"),
