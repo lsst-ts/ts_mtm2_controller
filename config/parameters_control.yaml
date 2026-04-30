@@ -219,12 +219,22 @@ is_deadzone_enabled_tangent: true
 # of ts_mtm2_cell.
 limit_encoder_value: 16000000
 
-# The maximum and minimum values for the displacement sensor. These values are
-# in millimeters.
+# Maximum and minimum values for the cell temperature sensors. These values are
+# in degree Celsius.
 # They are defined in ControlParameters.lvclass:set_to_defaults.vi
 # of ts_mtm2_cell.
-max_value_displacement_sensor: 40.0
-min_value_displacement_sensor: -0.1
+max_value_temperature_cell: 45.0
+min_value_temperature_cell: -40.0
+
+# Maximum and minimum values for the mirror temperature sensors. These values
+# are in degree Celsius.
+max_value_temperature_mirror: 40.0
+min_value_temperature_mirror: -40.0
+
+# The maximum and minimum values for the displacement sensor. These values are
+# in micron.
+max_value_displacement_sensor: 40000
+min_value_displacement_sensor: -100
 
 # The maximum and minimum values for the inclinometer. These values are
 # in degrees. They are defined in ControlParameters.lvclass:set_to_defaults.vi
