@@ -21,7 +21,6 @@
 
 use log::info;
 use serde_json::Value;
-use std::cmp::max;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{sync_channel, Receiver, SyncSender},
@@ -94,7 +93,6 @@ impl DataAcquisitionProcess {
 
         // Check the frequencies
         let config = &daq.config;
-        Self::check_divisor(config.frequency_loop, config.frequency_send_telemetry);
         Self::check_divisor(config.frequency_loop, config.frequency_toggle_bit);
 
         Self {
@@ -172,16 +170,9 @@ impl DataAcquisitionProcess {
 
         self.daq.init_default_digital_output();
 
-        // Max counter to send the telemetry.
-        let config = &self.daq.config;
-        let max_counter_send_telemetry =
-            (config.frequency_loop / config.frequency_send_telemetry) as u64;
-
         // Max counter to toggle the closed-loop control bit.
+        let config = &self.daq.config;
         let max_counter_toggle_bit = (config.frequency_loop / config.frequency_toggle_bit) as u64;
-
-        // Maximum counter to reset the counter.
-        let max_counter_reset = max(max_counter_send_telemetry, max_counter_toggle_bit);
 
         let period_loop = (1000.0 / config.frequency_loop) as u64;
         let mut counter = 0;
@@ -227,19 +218,17 @@ impl DataAcquisitionProcess {
             }
 
             // Send the telemetry and ignore the error.
-            if (counter % max_counter_send_telemetry) == 0 {
-                // Always send the power telemetry data.
-                let _ = self
-                    ._sender_telemetry_to_power
-                    .try_send(self.daq.get_telemetry_power());
+            // Always send the power telemetry data.
+            let _ = self
+                ._sender_telemetry_to_power
+                .try_send(self.daq.get_telemetry_power());
 
-                // When the system is not in idle mode, there is the ILC
-                // telemetry data to send.
-                if self.daq.mode != DataAcquisitionMode::Idle {
-                    let _ = self
-                        ._sender_telemetry_to_control_loop
-                        .try_send(self.daq.get_telemetry_ilc());
-                }
+            // When the system is not in idle mode, there is the ILC
+            // telemetry data to send.
+            if self.daq.mode != DataAcquisitionMode::Idle {
+                let _ = self
+                    ._sender_telemetry_to_control_loop
+                    .try_send(self.daq.get_telemetry_ilc());
             }
 
             // Toggle the bit of the closed-loop control for the safety module
@@ -250,7 +239,7 @@ impl DataAcquisitionProcess {
 
             // Update the counter.
             counter += 1;
-            if counter >= max_counter_reset {
+            if counter >= max_counter_toggle_bit {
                 counter = 0;
             }
 
