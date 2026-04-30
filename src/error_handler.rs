@@ -254,11 +254,26 @@ impl ErrorHandler {
             self.add_error(ErrorCode::FaultTangentLoadCell);
         }
 
+        if self.is_temperature_out_of_range(&telemetry.temperature["ring"], false) {
+            if self.config_control_loop.enable_lut_temperature {
+                self.add_error(ErrorCode::FaultMirrorTempSensor);
+            } else {
+                self.add_error(ErrorCode::WarnMirrorTempSensor);
+            }
+        }
+
+        if self.is_temperature_out_of_range(&telemetry.temperature["intake"], true) {
+            self.add_error(ErrorCode::WarnCellTemp);
+        }
+        if self.is_temperature_out_of_range(&telemetry.temperature["exhaust"], true) {
+            self.add_error(ErrorCode::WarnCellTemp);
+        }
+
         if self.is_cell_temperature_high(
             &telemetry.temperature["intake"],
             &telemetry.temperature["exhaust"],
         ) {
-            self.add_error(ErrorCode::WarnCellTemp);
+            self.add_error(ErrorCode::WarnTempDiff);
         }
 
         if self.is_displacement_sensor_out_limit(&telemetry.displacement_sensors) {
@@ -417,6 +432,34 @@ impl ErrorHandler {
             || is_out_limit_load
     }
 
+    /// The temperature is out of range or not.
+    ///
+    /// # Arguments
+    /// * `temperatures`: The temperature values in degree Celsius.
+    /// * `is_cell`: Is the temperature for cell or not. If not, it is for
+    ///   mirror.
+    ///
+    /// # Returns
+    /// True if any of the temperature values is out of range. Otherwise,
+    /// False.
+    fn is_temperature_out_of_range(&self, temperatures: &[f64], is_cell: bool) -> bool {
+        let (min_value, max_value) = if is_cell {
+            (
+                self.config_control_loop.min_value_temperature_cell,
+                self.config_control_loop.max_value_temperature_cell,
+            )
+        } else {
+            (
+                self.config_control_loop.min_value_temperature_mirror,
+                self.config_control_loop.max_value_temperature_mirror,
+            )
+        };
+
+        temperatures
+            .iter()
+            .any(|value| self.is_out_limit(*value, min_value, max_value))
+    }
+
     /// The cell temperature is high or not.
     ///
     /// # Arguments
@@ -433,8 +476,7 @@ impl ErrorHandler {
     /// The displacement sensor value is out of limit or not.
     ///
     /// # Arguments
-    /// * `displacement_sensors`: The displacement sensor values in
-    ///   millimeters.
+    /// * `displacement_sensors`: The displacement sensor values in micron.
     ///
     /// # Returns
     /// True if the displacement sensor value is out of limit. Otherwise,
@@ -446,15 +488,13 @@ impl ErrorHandler {
         let config = &self.config_control_loop;
         for displacement_sensor in ["thetaZ", "deltaZ"] {
             if let Some(values) = displacement_sensors.get(displacement_sensor) {
-                for value in values {
-                    if self.is_out_limit(
+                return values.iter().any(|value| {
+                    self.is_out_limit(
                         *value,
                         config.min_value_displacement_sensor,
                         config.max_value_displacement_sensor,
-                    ) {
-                        return true;
-                    }
-                }
+                    )
+                });
             }
         }
 
@@ -860,7 +900,7 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    use crate::constants::{NUM_ACTUATOR, NUM_IMS};
+    use crate::constants::{NUM_ACTUATOR, NUM_IMS, NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_RING};
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
         TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
@@ -982,8 +1022,15 @@ mod tests {
         telemetry.inclinometer.insert(String::from("raw"), 361.0);
 
         telemetry
+            .temperature
+            .insert(String::from("ring"), vec![85.0; NUM_TEMPERATURE_RING]);
+        telemetry
+            .temperature
+            .insert(String::from("exhaust"), vec![85.0; NUM_TEMPERATURE_EXHAUST]);
+
+        telemetry
             .displacement_sensors
-            .insert(String::from("thetaZ"), vec![41.0; NUM_IMS]);
+            .insert(String::from("thetaZ"), vec![41000.0; NUM_IMS]);
 
         telemetry
             .ilc_error_codes
@@ -997,6 +1044,9 @@ mod tests {
             ErrorCode::FaultExcessiveForce,
             ErrorCode::FaultAxialActuatorEncoderRange,
             ErrorCode::FaultTangentActuatorEncoderRange,
+            ErrorCode::WarnMirrorTempSensor,
+            ErrorCode::WarnCellTemp,
+            ErrorCode::WarnTempDiff,
             ErrorCode::WarnDisplacementSensorRange,
             ErrorCode::FaultInclinometerRange,
             ErrorCode::FaultIlcStateTransition,
@@ -1135,6 +1185,32 @@ mod tests {
         tangent_force_error[1] = -2000.0;
 
         assert!(error_handler.is_tangent_force_error_out_limit(&tangent_force_error));
+    }
+
+    #[test]
+    fn test_is_temperature_out_of_range() {
+        let error_handler = create_error_handler();
+        let config = &error_handler.config_control_loop;
+
+        assert!(!error_handler.is_temperature_out_of_range(&vec![10.0, 25.0], true));
+        assert!(error_handler.is_temperature_out_of_range(
+            &vec![config.min_value_temperature_cell - 1.0, 25.0],
+            true
+        ));
+        assert!(error_handler.is_temperature_out_of_range(
+            &vec![25.0, config.max_value_temperature_cell + 1.0],
+            true
+        ));
+
+        assert!(!error_handler.is_temperature_out_of_range(&vec![25.0, 25.0], false));
+        assert!(error_handler.is_temperature_out_of_range(
+            &vec![config.min_value_temperature_mirror - 1.0, 25.0],
+            false
+        ));
+        assert!(error_handler.is_temperature_out_of_range(
+            &vec![25.0, config.max_value_temperature_mirror + 1.0],
+            false
+        ));
     }
 
     #[test]
