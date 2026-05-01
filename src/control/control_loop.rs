@@ -1102,7 +1102,7 @@ mod tests {
 
         assert_relative_eq!(
             telemetry.forces["measured"][0],
-            216.2038167,
+            216.2038116,
             epsilon = EPSILON
         );
 
@@ -1122,7 +1122,7 @@ mod tests {
 
         assert_relative_eq!(
             telemetry.forces["measured"][0],
-            216.4099693,
+            216.4099731,
             epsilon = EPSILON
         );
 
@@ -1137,7 +1137,7 @@ mod tests {
 
         assert_relative_eq!(
             telemetry.forces["measured"][0],
-            190.5481269,
+            190.5481262,
             epsilon = EPSILON
         );
     }
@@ -1410,7 +1410,7 @@ mod tests {
 
         assert_relative_eq!(
             force_updated - force_original,
-            4.55580783,
+            4.55581665,
             epsilon = EPSILON
         );
     }
@@ -1425,11 +1425,11 @@ mod tests {
         assert_relative_eq_vector(
             &telemetry.forces["hardpointCorrection"][0..5],
             &vec![
-                -6.38991131,
-                -6.34897354,
-                -6.27481481,
-                -6.17066679,
-                -6.04108298,
+                -6.38990992,
+                -6.34897308,
+                -6.27481530,
+                -6.17066822,
+                -6.04108531,
             ],
             EPSILON,
         );
@@ -1442,11 +1442,11 @@ mod tests {
         telemetry = stabilize_control_loop(&mut control_loop, &mut data_acquisition);
 
         let expected_hardpoint_correction_force = vec![
-            -10.87706161,
-            -11.19361034,
-            -11.33033979,
-            -11.28121744,
-            -11.04842581,
+            -10.87705694,
+            -11.19360608,
+            -11.33033609,
+            -11.28121441,
+            -11.04842354,
         ];
         assert_relative_eq_vector(
             &telemetry.forces["hardpointCorrection"][0..5],
@@ -1477,9 +1477,9 @@ mod tests {
         telemetry = stabilize_control_loop(&mut control_loop, &mut data_acquisition);
 
         let expected_hardpoint_correction_reset = vec![
-            -6.37788502,
-            -6.32490499,
-            -6.24109329,
+            -6.37788600,
+            -6.32490551,
+            -6.24109349,
             -6.13010428,
             -5.99678962,
         ];

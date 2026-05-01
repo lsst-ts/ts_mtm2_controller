@@ -29,6 +29,7 @@ use crate::enums::{
     ClosedLoopControlMode, DataAcquisitionMode, InclinationTelemetrySource, InnerLoopControlMode,
     PowerSystemState, PowerType,
 };
+use crate::power::config_power::ConfigPower;
 use ts_control_utils::utility::get_parameter;
 
 pub struct Event;
@@ -219,10 +220,10 @@ impl Event {
     ///
     /// # Returns
     /// The message of the configuration.
-    pub fn get_message_config(config: &Config) -> Value {
+    pub fn get_message_config(config_control_loop: &Config, config_power: &ConfigPower) -> Value {
         // TODO: Some of these values are hardcoded temporarily. They should be
         // read from the configuration file.
-        let control_parameters_file = Path::new(&config.filename);
+        let control_parameters_file = Path::new(&config_control_loop.filename);
 
         let mut control_parameters = String::new();
         if let Some(file_name) = control_parameters_file.file_name() {
@@ -232,7 +233,7 @@ impl Event {
         }
 
         let mut lut_parameters = String::new();
-        if let Some(file_name) = Path::new(&config.lut.dir_name).file_name() {
+        if let Some(file_name) = Path::new(&config_control_loop.lut.dir_name).file_name() {
             if let Some(name) = file_name.to_str() {
                 lut_parameters = name.to_string();
             }
@@ -244,21 +245,21 @@ impl Event {
             "version": "v1.0",
             "controlParameters": control_parameters,
             "lutParameters": lut_parameters,
-            "powerWarningMotor": 5.0,
-            "powerFaultMotor": 10.0,
-            "powerThresholdMotor": 20.0,
-            "powerWarningComm": 5.0,
-            "powerFaultComm": 10.0,
-            "powerThresholdComm": 10.0,
+            "powerWarningMotor": config_power.warning_voltage_level,
+            "powerFaultMotor": config_power.fault_voltage_level,
+            "powerThresholdMotor": config_power.excessive_current_motor,
+            "powerWarningComm": config_power.warning_voltage_level,
+            "powerFaultComm": config_power.fault_voltage_level,
+            "powerThresholdComm": config_power.excessive_current_communication,
             "inPositionAxial": get_parameter::<f64>(control_parameters_file, "in_position_threshold_axial"),
             "inPositionTangent": get_parameter::<f64>(control_parameters_file, "in_position_threshold_tangent"),
             "inPositionSample": get_parameter::<f64>(control_parameters_file, "in_position_window_size"),
             "timeoutSal": 15.0,
             "timeoutCrio": 1.0,
             "timeoutIlc": 3,
-            "inclinometerDelta": config.max_angle_difference,
-            "inclinometerDiffEnabled": config.enable_angle_comparison,
-            "cellTemperatureDelta": config.max_cell_temperature_difference,
+            "inclinometerDelta": config_control_loop.max_angle_difference,
+            "inclinometerDiffEnabled": config_control_loop.enable_angle_comparison,
+            "cellTemperatureDelta": config_control_loop.max_cell_temperature_difference,
         })
     }
 
@@ -371,10 +372,7 @@ impl Event {
     ///
     /// # Returns
     /// The message of the inner-loop control mode.
-    pub fn get_message_inner_loop_control_mode(
-        address: usize,
-        mode: InnerLoopControlMode,
-    ) -> Value {
+    pub fn get_message_inner_loop_control_mode(address: u8, mode: InnerLoopControlMode) -> Value {
         json!({
             "id": "innerLoopControlMode",
             "address": address,
@@ -594,9 +592,10 @@ mod tests {
 
     #[test]
     fn test_get_message_config() {
-        let config = create_config();
+        let config_control_loop = create_config();
+        let config_power = ConfigPower::new();
         assert_eq!(
-            Event::get_message_config(&config),
+            Event::get_message_config(&config_control_loop, &config_power),
             json!({
             "id": "config",
             "configuration": "config",

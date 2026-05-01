@@ -19,10 +19,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info};
+use log::{error, info, warn};
 use std::path::Path;
 
-use crate::constants::{NUM_ACTUATOR, NUM_IMS};
+use crate::constants::{
+    NUM_ACTUATOR, NUM_IMS, NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
+};
 use crate::daq::{
     config_data_acquisition::ConfigDataAcquisition, inner_loop_controller::InnerLoopController,
 };
@@ -283,13 +285,7 @@ impl DataAcquisition {
             .insert(String::from("raw"), inclinometer_angle);
 
         // Check the ILC stale data
-        //
-        // TODO: OSW-2036. Improve the MockInnerLoopController to be more
-        // realistic. Then, remove the bypass for the ILC stale data check in
-        // simulation mode.
-        if !self.is_simulation_mode() {
-            self.check_ilc_stale_data(&mut telemetry);
-        }
+        self.check_ilc_stale_data(&mut telemetry);
 
         // Cache the latest telemetry data
         self._latest_telemetry = telemetry;
@@ -306,12 +302,64 @@ impl DataAcquisition {
     /// # Panics
     /// If not in simulation mode.
     fn get_ilc_data_actuator(&mut self) -> (Vec<u8>, Vec<i32>, Vec<f64>) {
+        // Set the ILC data for the simulation mode.
         if let Some(plant) = &mut self.plant {
-            plant.get_actuator_ilc_data()
-        } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            plant.set_actuator_ilc_data()
         }
+
+        // Get the ILC data for each actuator.
+        let mut statuses = vec![0; NUM_ACTUATOR];
+        let mut encoder_counts = vec![0; NUM_ACTUATOR];
+        let mut forces = vec![0.0; NUM_ACTUATOR];
+
+        let mut frame_payload = Vec::new();
+        for idx in 0..NUM_ACTUATOR {
+            if let Some(frame_request) = self._ilc.get_frame_get_force_and_status(idx) {
+                if let Some(plant) = &mut self.plant {
+                    frame_payload = plant.request_ilc(frame_request);
+                } else {
+                    // Update the hardware.
+                    panic!("Not implemented yet.");
+                }
+
+                self.record_ilc_exception_code(&frame_payload, frame_request);
+            }
+
+            if let Some((status, encoder_count, force)) =
+                self._ilc.get_force_and_status_from_frame(&frame_payload)
+            {
+                statuses[idx] = status;
+                encoder_counts[idx] = encoder_count;
+                forces[idx] = force as f64;
+            } else {
+                // Use the cached ILC data if the ILC data is not valid.
+                encoder_counts[idx] = self._latest_telemetry.ilc_encoders[idx];
+                forces[idx] = self._latest_telemetry.forces["measured"][idx]
+            }
+        }
+
+        (statuses, encoder_counts, forces)
+    }
+
+    /// Record the inner-loop controller (ILC) exception code.
+    ///
+    /// # Arguments
+    /// * `frame_payload` - The payload of response frame from the ILC.
+    /// * `frame_request` - The request frame sent to the ILC.
+    ///
+    /// # Returns
+    /// `true` if an exception code was recorded, `false` otherwise.
+    fn record_ilc_exception_code(&self, frame_payload: &[u8], frame_request: &[u8]) -> bool {
+        if frame_payload.len() == 1 {
+            warn!(
+                "Received the ILC exception code: {} for the request frame {:?}.",
+                frame_payload[0], frame_request
+            );
+
+            return true;
+        }
+
+        false
     }
 
     /// Get the temperature inner-loop controller (ILC) data.
@@ -322,17 +370,97 @@ impl DataAcquisition {
     ///
     /// # Panics
     /// If not in simulation mode.
-    fn get_ilc_data_temperature(&self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
-        if let Some(plant) = &self.plant {
-            (
-                plant.temperature_ring.clone(),
-                plant.temperature_intake.clone(),
-                plant.temperature_exhaust.clone(),
-            )
-        } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+    fn get_ilc_data_temperature(&mut self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        // Set the ILC data for the simulation mode.
+        if let Some(plant) = &mut self.plant {
+            plant.set_monitor_ilc_temperature();
         }
+
+        // Get the ILC data for each temperature sensor.
+        let mut temperatures =
+            [0.0; NUM_TEMPERATURE_RING + NUM_TEMPERATURE_INTAKE + NUM_TEMPERATURE_EXHAUST];
+        const NUM_TEMPERATURE_PER_FRAME: usize = 4;
+        const NUM_TEMPERATURE_SENSOR: usize = 4;
+
+        let mut frame_payload = Vec::new();
+        let mut successful_indices = vec![];
+        for idx in 0..NUM_TEMPERATURE_SENSOR {
+            if let Some(frame_request) = self._ilc.get_frame_temperature(idx) {
+                if let Some(plant) = &mut self.plant {
+                    frame_payload = plant.request_ilc(frame_request);
+                } else {
+                    // Update the hardware.
+                    panic!("Not implemented yet.");
+                }
+
+                self.record_ilc_exception_code(&frame_payload, frame_request);
+            }
+
+            if let Some(temperature) = self._ilc.get_temperature_from_frame(&frame_payload) {
+                temperatures
+                    [idx * NUM_TEMPERATURE_PER_FRAME..(idx + 1) * NUM_TEMPERATURE_PER_FRAME]
+                    .copy_from_slice(&temperature);
+                successful_indices.push(idx);
+            }
+        }
+
+        self.rearrange_temperature_sensor_readings(&successful_indices, &temperatures)
+    }
+
+    /// Rearrange the temperature sensor readings.
+    ///
+    /// # Arguments
+    /// * `indices` - The indices of the successfully read temperature sensors.
+    /// * `readings` - The raw readings from the frames of inner-loop
+    ///   controller (ILC).
+    ///
+    /// # Returns
+    /// A tuple containing the ring, intake, and exhaust temperatures in degree
+    /// Celsius.
+    fn rearrange_temperature_sensor_readings(
+        &self,
+        indices: &[usize],
+        readings: &[f32],
+    ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let mut ring = self._latest_telemetry.temperature["ring"].clone();
+        let mut intake = self._latest_telemetry.temperature["intake"].clone();
+        let mut exhaust = self._latest_telemetry.temperature["exhaust"].clone();
+
+        // The mapping is:
+        // 0: Mirror (LG2): LG2-1, LG2-2, LG2-3, LG2-4
+        // 1: Cell: Intake-1, Exhaust-1, Exhaust-2, Intake-2
+        // 2: Mirror (LG4): LG4-1, LG4-2, LG4-3, LG4-4
+        // 3: Mirror (LG3): LG3-1, LG3-2, LG3-3, LG3-4
+        indices.iter().for_each(|idx| match *idx {
+            0 => {
+                ring[0] = readings[0] as f64;
+                ring[1] = readings[1] as f64;
+                ring[2] = readings[2] as f64;
+                ring[3] = readings[3] as f64;
+            }
+            1 => {
+                intake[0] = readings[4] as f64;
+                intake[1] = readings[7] as f64;
+
+                exhaust[0] = readings[5] as f64;
+                exhaust[1] = readings[6] as f64;
+            }
+            2 => {
+                ring[8] = readings[8] as f64;
+                ring[9] = readings[9] as f64;
+                ring[10] = readings[10] as f64;
+                ring[11] = readings[11] as f64;
+            }
+            3 => {
+                ring[4] = readings[12] as f64;
+                ring[5] = readings[13] as f64;
+                ring[6] = readings[14] as f64;
+                ring[7] = readings[15] as f64;
+            }
+            _ => {}
+        });
+
+        (ring, intake, exhaust)
     }
 
     /// Get the displacement inner-loop controller (ILC) data.
@@ -343,13 +471,62 @@ impl DataAcquisition {
     ///
     /// # Panics
     /// If not in simulation mode.
-    fn get_ilc_data_displacement(&self) -> (Vec<f64>, Vec<f64>) {
-        if self.is_simulation_mode() {
-            (vec![0.0; NUM_IMS], vec![0.0; NUM_IMS])
+    fn get_ilc_data_displacement(&mut self) -> (Vec<f64>, Vec<f64>) {
+        let frame_request = self._ilc.get_frame_displacement();
+
+        let frame_payload;
+        if let Some(plant) = &mut self.plant {
+            // Set the displacement sensor values for the simulation mode.
+            plant.set_monitor_ilc_displacement();
+
+            // Get the displacement sensor values as a frame.
+            frame_payload = plant.request_ilc(frame_request);
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
         }
+
+        self.record_ilc_exception_code(&frame_payload, frame_request);
+
+        if let Some(displacement) = self._ilc.get_displacement_from_frame(&frame_payload) {
+            self.rearrange_displacement_sensor_readings_and_unit(&displacement)
+        } else {
+            // Use the cached displacement values if the ILC data is not valid.
+            (
+                self._latest_telemetry.displacement_sensors["thetaZ"].clone(),
+                self._latest_telemetry.displacement_sensors["deltaZ"].clone(),
+            )
+        }
+    }
+
+    /// Rearrange the displacement sensor readings and convert the unit from mm
+    /// to micron.
+    ///
+    /// # Arguments
+    /// * `readings` - The raw readings from the frame of inner-loop controller
+    ///   (ILC).
+    ///
+    /// # Returns
+    /// A tuple containing the theta-Z and delta-Z displacement sensor readings
+    /// in micron.
+    fn rearrange_displacement_sensor_readings_and_unit(
+        &self,
+        readings: &[f32],
+    ) -> (Vec<f64>, Vec<f64>) {
+        // The displacement sensors are stored in the array. The order is:
+        // A5TZ (0), A5DZ (1), A6TZ (2), A6DZ (3), A3TZ (4), A3DZ (5)
+        // A4TZ (6), A4DZ (7), A1TZ (8), A1DZ (9), A2TZ (10), A2DZ (11)
+        const MM_TO_UM: f64 = 1000.0;
+
+        let mut theta_z = vec![0.0; NUM_IMS];
+        let mut delta_z = vec![0.0; NUM_IMS];
+        let order_theta_z = [8, 10, 4, 6, 0, 2];
+        for (idx, idx_theta_z) in order_theta_z.iter().enumerate() {
+            theta_z[idx] = (readings[*idx_theta_z] as f64) * MM_TO_UM;
+            delta_z[idx] = (readings[*idx_theta_z + 1] as f64) * MM_TO_UM;
+        }
+
+        (theta_z, delta_z)
     }
 
     /// Get the inclinometer inner-loop controller (ILC) data.
@@ -359,12 +536,28 @@ impl DataAcquisition {
     ///
     /// # Panics
     /// If not in simulation mode.
-    fn get_ilc_data_inclinometer(&self) -> f64 {
-        if let Some(plant) = &self.plant {
-            plant.inclinometer_angle
+    fn get_ilc_data_inclinometer(&mut self) -> f64 {
+        let frame_request = self._ilc.get_frame_inclinometer();
+
+        let frame_payload;
+        if let Some(plant) = &mut self.plant {
+            // Set the inclinometer value for the simulation mode.
+            plant.set_monitor_ilc_inclinometer();
+
+            // Get the inclinometer as a frame.
+            frame_payload = plant.request_ilc(frame_request);
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
+        }
+
+        self.record_ilc_exception_code(&frame_payload, frame_request);
+
+        if let Some(inclinometer_angle) = self._ilc.get_inclinometer_from_frame(&frame_payload) {
+            inclinometer_angle as f64
+        } else {
+            // Use the cached inclinometer value if the ILC data is not valid.
+            self._latest_telemetry.inclinometer["raw"]
         }
     }
 
@@ -484,25 +677,53 @@ impl DataAcquisition {
     /// Always Some with the new mode or unknown if not successful.
     pub fn set_ilc_mode(
         &mut self,
-        address: usize,
+        address: u8,
         mode: InnerLoopControlMode,
     ) -> Option<InnerLoopControlMode> {
+        let frame_request = self._ilc.create_frame_set_mode(address, mode);
+
+        let mut frame_payload = Vec::new();
         if self.is_simulation_mode() {
             if let Some(plant) = &mut self.plant {
-                let new_mode = plant.set_ilc_mode(address, mode);
-                self.event_queue
-                    .add_event(Event::get_message_inner_loop_control_mode(
-                        address, new_mode,
-                    ));
-
-                return Some(new_mode);
-            }
+                frame_payload = plant.request_ilc(&frame_request);
+            };
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
         }
 
-        Some(InnerLoopControlMode::Unknown)
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        self.get_ilc_mode_and_add_event(address, &frame_payload)
+    }
+
+    /// Get the mode of the inner-loop controller (ILC) and add the related
+    /// event.
+    ///
+    /// # Arguments
+    /// * `address` - The address of ILC.
+    /// * `frame` - Response frame that contains the ILC mode.
+    ///
+    /// # Returns
+    /// Some with the current mode if successful. Otherwise, Some with
+    /// unknown.
+    fn get_ilc_mode_and_add_event(
+        &mut self,
+        address: u8,
+        frame: &[u8],
+    ) -> Option<InnerLoopControlMode> {
+        let ilc_mode = match self._ilc.get_ilc_mode_from_frame(frame) {
+            Some(mode) => mode,
+            None => InnerLoopControlMode::Unknown,
+        };
+
+        // Publish the event for the ILC mode change.
+        self.event_queue
+            .add_event(Event::get_message_inner_loop_control_mode(
+                address, ilc_mode,
+            ));
+
+        Some(ilc_mode)
     }
 
     /// Get the mode of the inner-loop controller (ILC).
@@ -512,21 +733,22 @@ impl DataAcquisition {
     ///
     /// # Returns
     /// Always Some with the current mode or unknown if not successful.
-    pub fn get_ilc_mode(&mut self, address: usize) -> Option<InnerLoopControlMode> {
-        if self.is_simulation_mode() {
-            if let Some(plant) = &self.plant {
-                let mode = plant.get_ilc_mode(address);
-                self.event_queue
-                    .add_event(Event::get_message_inner_loop_control_mode(address, mode));
+    pub fn get_ilc_mode(&mut self, address: u8) -> Option<InnerLoopControlMode> {
+        let frame_request = self._ilc.create_frame_get_mode(address);
 
-                return Some(mode);
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
             }
         } else {
             // Update the hardware.
             panic!("Not implemented yet.");
         }
 
-        Some(InnerLoopControlMode::Unknown)
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        self.get_ilc_mode_and_add_event(address, &frame_payload)
     }
 
     /// Move the actuator steps.
@@ -538,7 +760,7 @@ impl DataAcquisition {
     ///
     /// # Returns
     /// Some if the actuator steps are moved successfully. Otherwise, None.
-    pub fn move_actuator_steps(&mut self, seq_id: i32, actuator_steps: &[i32]) -> Option<()> {
+    pub fn move_actuator_steps(&mut self, seq_id: i32, actuator_steps: &[i8]) -> Option<()> {
         // Check the input
         if actuator_steps.len() != NUM_ACTUATOR {
             error!(
@@ -559,8 +781,9 @@ impl DataAcquisition {
 
         // Do the actuator movement.
         self._seq_id_move_actuator_steps = seq_id;
+        let frame_request = self._ilc.create_frame_move_steps(actuator_steps);
         if let Some(plant) = &mut self.plant {
-            plant.move_actuator_steps(actuator_steps);
+            plant.request_ilc(&frame_request);
 
             Some(())
         } else {
@@ -587,6 +810,7 @@ mod tests {
 
     use approx::assert_relative_eq;
     use serde_json::json;
+    use ts_control_utils::utility::assert_relative_eq_vector;
 
     use crate::mock::mock_constants::{
         PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
@@ -596,6 +820,7 @@ mod tests {
     use ts_control_utils::enums::BitEnum;
 
     const EPSILON: f64 = 1e-7;
+    const EPSILON_F32: f64 = 1e-6;
 
     fn create_data_acquisition(is_simulation_mode: bool) -> DataAcquisition {
         let mut data_acquisition = DataAcquisition::new(is_simulation_mode);
@@ -775,29 +1000,91 @@ mod tests {
     fn test_get_telemetry_ilc() {
         let mut data_acquisition = create_data_acquisition(true);
         data_acquisition._seq_id_move_actuator_steps = 1;
-        if let Some(plant) = &mut data_acquisition.plant {
-            plant.power_system_communication.is_power_on = true;
-        }
 
-        data_acquisition.get_telemetry_ilc();
         let telemetry = data_acquisition.get_telemetry_ilc();
 
         assert_eq!(telemetry.seq_id_move_actuator_steps, 1);
 
         assert_relative_eq!(
             telemetry.forces["measured"][0],
-            216.2038166,
+            216.2038116,
             epsilon = EPSILON
         );
-        assert_eq!(telemetry.ilc_status[0], 16);
+        assert_eq!(telemetry.ilc_status[0], 0);
 
-        assert_eq!(telemetry.temperature["ring"][0], PLANT_TEMPERATURE_LOW);
-        assert_eq!(telemetry.temperature["intake"][0], PLANT_TEMPERATURE_LOW);
-        assert_eq!(telemetry.temperature["exhaust"][0], PLANT_TEMPERATURE_HIGH);
+        assert_relative_eq!(
+            telemetry.temperature["ring"][0],
+            PLANT_TEMPERATURE_LOW,
+            epsilon = EPSILON_F32
+        );
+        assert_relative_eq!(
+            telemetry.temperature["intake"][0],
+            PLANT_TEMPERATURE_LOW,
+            epsilon = EPSILON_F32
+        );
+        assert_relative_eq!(
+            telemetry.temperature["exhaust"][0],
+            PLANT_TEMPERATURE_HIGH,
+            epsilon = EPSILON_F32
+        );
 
         assert_eq!(telemetry.inclinometer["raw"], 90.0);
 
         assert_eq!(data_acquisition._latest_telemetry, telemetry);
+    }
+
+    #[test]
+    fn test_record_ilc_exception_code() {
+        let data_acquisition = create_data_acquisition(true);
+
+        let frame_request = [0x01, 0x02];
+
+        assert!(data_acquisition.record_ilc_exception_code(&[0x01], &frame_request));
+        assert!(!data_acquisition.record_ilc_exception_code(&[0x01, 0x02], &frame_request));
+    }
+
+    #[test]
+    fn test_rearrange_temperature_sensor_readings() {
+        let data_acquisition = create_data_acquisition(true);
+
+        let readings = [
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ];
+        let indices = [0, 1, 2, 3];
+        let (ring, intake, exhaust) =
+            data_acquisition.rearrange_temperature_sensor_readings(&indices, &readings);
+
+        assert_relative_eq_vector(
+            &ring,
+            &vec![
+                1.0, 2.0, 3.0, 4.0, 13.0, 14.0, 15.0, 16.0, 9.0, 10.0, 11.0, 12.0,
+            ],
+            EPSILON,
+        );
+        assert_relative_eq_vector(&intake, &vec![5.0, 8.0], EPSILON);
+        assert_relative_eq_vector(&exhaust, &vec![6.0, 7.0], EPSILON);
+    }
+
+    #[test]
+    fn test_rearrange_displacement_sensor_readings_and_unit() {
+        let data_acquisition = create_data_acquisition(true);
+
+        let readings = [
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ];
+        let (theta_z, delta_z) =
+            data_acquisition.rearrange_displacement_sensor_readings_and_unit(&readings);
+
+        assert_relative_eq_vector(
+            &theta_z,
+            &vec![9000.0, 11000.0, 5000.0, 7000.0, 1000.0, 3000.0],
+            EPSILON,
+        );
+        assert_relative_eq_vector(
+            &delta_z,
+            &vec![10000.0, 12000.0, 6000.0, 8000.0, 2000.0, 4000.0],
+            EPSILON,
+        );
     }
 
     #[test]

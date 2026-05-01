@@ -23,9 +23,11 @@ use std::collections::HashMap;
 
 use log::error;
 use serde_json::Value;
+use strum::IntoEnumIterator;
+use ts_control_utils::enums::BitEnum;
 
 use crate::enums::{
-    CommandStatus, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
+    CommandStatus, DigitalInput, DigitalOutput, DigitalOutputStatus, PowerSystemState, PowerType,
 };
 use crate::error_handler::ErrorHandler;
 use crate::event_queue::EventQueue;
@@ -59,6 +61,11 @@ pub struct PowerSystem {
     _command_status: HashMap<PowerType, Option<PowerCommandStatus>>,
     // Power command result
     _command_result: HashMap<PowerType, Option<Value>>,
+    // Sum of the breaker bit value of digital input for the communication
+    // power.
+    _sum_breaker_bit_value_communication: u32,
+    // Sum of the breaker bit value of digital input for the motor power.
+    _sum_breaker_bit_value_motor: u32,
 }
 
 impl PowerSystem {
@@ -114,7 +121,32 @@ impl PowerSystem {
                 (PowerType::Motor, None),
                 (PowerType::Communication, None),
             ]),
+
+            _sum_breaker_bit_value_communication: Self::get_sum_breaker_bit_value(
+                PowerType::Communication,
+            ),
+            _sum_breaker_bit_value_motor: Self::get_sum_breaker_bit_value(PowerType::Motor),
         }
+    }
+
+    /// Get the sum of the breaker bit value of digital input for the given
+    /// power type.
+    ///
+    /// # Arguments
+    /// * `power_type` - Power type.
+    ///
+    /// # Returns
+    /// Sum of the breaker bit value of digital input.
+    fn get_sum_breaker_bit_value(power_type: PowerType) -> u32 {
+        let name = if power_type == PowerType::Motor {
+            "MotorPowerBreaker"
+        } else {
+            "CommunicationPowerBreaker"
+        };
+
+        DigitalInput::iter()
+            .filter(|digital_input| format!("{:?}", digital_input).contains(name))
+            .fold(0, |sum, digital_input| sum + digital_input.bit_value())
     }
 
     /// Check if there are any actions to apply to the hardware.
@@ -526,6 +558,30 @@ impl PowerSystem {
         power_processed.insert(String::from("motorCurrent"), motor_current_calibrated);
 
         telemetry.power_processed = power_processed;
+
+        // Update the digital input based on the processed voltages.
+        self.update_digital_input_based_on_voltage(telemetry);
+    }
+
+    /// Update the digital input based on the processed voltages.
+    ///
+    /// # Arguments
+    /// * `processed_telemetry` - Processed telemetry data.
+    fn update_digital_input_based_on_voltage(&self, processed_telemetry: &mut TelemetryPower) {
+        let mut digital_input = processed_telemetry.digital_input;
+
+        let breaker_operating_voltage = self.config.breaker_operating_voltage;
+        if processed_telemetry.power_processed["commVoltage"] < breaker_operating_voltage {
+            // Communication breakers
+            digital_input |= self._sum_breaker_bit_value_communication;
+        }
+
+        if processed_telemetry.power_processed["motorVoltage"] < breaker_operating_voltage {
+            // Motor breakers
+            digital_input |= self._sum_breaker_bit_value_motor;
+        }
+
+        processed_telemetry.digital_input = digital_input;
     }
 }
 
@@ -621,6 +677,18 @@ mod tests {
         .for_each(|digital_output| {
             plant.switch_digital_output(*digital_output, DigitalOutputStatus::BinaryHighLevel);
         });
+    }
+
+    #[test]
+    fn test_get_sum_breaker_bit_value() {
+        assert_eq!(
+            PowerSystem::get_sum_breaker_bit_value(PowerType::Communication),
+            0b11111000000001000000000000000
+        );
+        assert_eq!(
+            PowerSystem::get_sum_breaker_bit_value(PowerType::Motor),
+            0b111111111000000
+        );
     }
 
     #[test]
@@ -1002,5 +1070,45 @@ mod tests {
 
         assert_eq!(telemetry.power_processed["commCurrent"], 1.0);
         assert_eq!(telemetry.power_processed["motorCurrent"], 5.0);
+    }
+
+    #[test]
+    fn test_update_digital_input_based_on_voltage() {
+        let power_system = create_power_system().0;
+
+        // Should keep the same
+        let mut telemetry = TelemetryPower::new();
+        telemetry.power_processed.insert(
+            String::from("commVoltage"),
+            power_system.config.breaker_operating_voltage,
+        );
+        telemetry.power_processed.insert(
+            String::from("motorVoltage"),
+            power_system.config.breaker_operating_voltage,
+        );
+
+        let digital_input = 0b1000000;
+        telemetry.digital_input = digital_input;
+
+        power_system.update_digital_input_based_on_voltage(&mut telemetry);
+
+        assert_eq!(telemetry.digital_input, digital_input);
+
+        // Should be updated
+        telemetry
+            .power_processed
+            .insert(String::from("commVoltage"), 0.0);
+        telemetry
+            .power_processed
+            .insert(String::from("motorVoltage"), 0.0);
+
+        power_system.update_digital_input_based_on_voltage(&mut telemetry);
+
+        assert_eq!(
+            telemetry.digital_input,
+            digital_input
+                | power_system._sum_breaker_bit_value_communication
+                | power_system._sum_breaker_bit_value_motor
+        );
     }
 }

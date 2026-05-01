@@ -34,6 +34,10 @@ pub const PLANT_VOLTAGE: f64 = 24.0;
 pub const PLANT_CURRENT_COMMUNICATION: f64 = 6.5;
 pub const PLANT_CURRENT_MOTOR: f64 = 1.7;
 
+// Mock code of the inner-loop controller (ILC).
+pub const MOCK_CODE_ILC_ERROR: u8 = 0xC1;
+pub const MOCK_CODE_ILC_EXCEPTION: u8 = 0x03;
+
 // Test values
 pub const TEST_DIGITAL_OUTPUT_NO_POWER: u8 = 0x1C;
 pub const TEST_DIGITAL_OUTPUT_POWER_COMM: u8 = 0x1E;

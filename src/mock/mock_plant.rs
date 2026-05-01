@@ -25,9 +25,9 @@ use std::vec;
 use nalgebra::{DMatrix, SMatrix, SVector};
 
 use crate::constants::{
-    NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_IMS_READING, NUM_INNER_LOOP_CONTROLLER,
-    NUM_SPACE_DEGREE_OF_FREEDOM, NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE,
-    NUM_TEMPERATURE_RING,
+    CODE_STEP_MOTOR_BROADCAST, NUM_ACTUATOR, NUM_AXIAL_ACTUATOR, NUM_IMS_READING,
+    NUM_INNER_LOOP_CONTROLLER, NUM_SPACE_DEGREE_OF_FREEDOM, NUM_TEMPERATURE_EXHAUST,
+    NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
 };
 use crate::control::math_tool::correct_inclinometer_angle;
 use crate::enums::{
@@ -56,7 +56,8 @@ pub struct MockPlant {
     pub inclinometer_angle: f64,
     _inclinometer_offset: f64,
     _mirror_weight_kg: f64,
-    // Ring temperature in degree Celsius.
+    // Ring temperature in degree Celsius. The order is: [LG2-1, LG2-2, LG2-3,
+    // LG2-4, LG3-1, LG3-2, LG3-3, LG3-4, LG4-1, LG4-2, LG4-3, LG4-4].
     pub temperature_ring: Vec<f64>,
     // Intake temperature in degree Celsius.
     pub temperature_intake: Vec<f64>,
@@ -319,17 +320,64 @@ impl MockPlant {
         );
     }
 
-    /// Get the inner-loop controller (ILC) data of 78 actuators.
-    ///
-    /// # Returns
-    /// A tuple containing the ILC status, actuator encoders, and actuator
-    /// forces.
-    pub fn get_actuator_ilc_data(&mut self) -> (Vec<u8>, Vec<i32>, Vec<f64>) {
-        (
-            self.get_actuator_ilc_status(),
-            self.get_actuator_encoders(),
-            self.get_actuator_forces(),
-        )
+    /// Set the inclinometer value in the monitor inner-loop controller (ILC)
+    /// data.
+    pub fn set_monitor_ilc_inclinometer(&mut self) {
+        self._ilcs[NUM_INNER_LOOP_CONTROLLER - 1].monitor_values =
+            vec![self.inclinometer_angle as f32];
+    }
+
+    /// Set the displacement values in the monitor inner-loop controller (ILC)
+    /// data.
+    pub fn set_monitor_ilc_displacement(&mut self) {
+        self._ilcs[NUM_INNER_LOOP_CONTROLLER - 2].monitor_values = vec![0.0; NUM_IMS_READING];
+    }
+
+    /// Set the temperature values in the monitor inner-loop controller (ILC)
+    /// data.
+    pub fn set_monitor_ilc_temperature(&mut self) {
+        let ring = &self.temperature_ring;
+        let intake = &self.temperature_intake;
+        let exhaust = &self.temperature_exhaust;
+
+        // The mapping is:
+        // 0: Mirror (LG2): LG2-1, LG2-2, LG2-3, LG2-4
+        // 1: Cell: Intake-1, Exhaust-1, Exhaust-2, Intake-2
+        // 2: Mirror (LG4): LG4-1, LG4-2, LG4-3, LG4-4
+        // 3: Mirror (LG3): LG3-1, LG3-2, LG3-3, LG3-4
+        self._ilcs[NUM_ACTUATOR].monitor_values = vec![
+            ring[0] as f32,
+            ring[1] as f32,
+            ring[2] as f32,
+            ring[3] as f32,
+        ];
+        self._ilcs[NUM_ACTUATOR + 1].monitor_values = vec![
+            intake[0] as f32,
+            exhaust[0] as f32,
+            exhaust[1] as f32,
+            intake[1] as f32,
+        ];
+        self._ilcs[NUM_ACTUATOR + 2].monitor_values = vec![
+            ring[8] as f32,
+            ring[9] as f32,
+            ring[10] as f32,
+            ring[11] as f32,
+        ];
+        self._ilcs[NUM_ACTUATOR + 3].monitor_values = vec![
+            ring[4] as f32,
+            ring[5] as f32,
+            ring[6] as f32,
+            ring[7] as f32,
+        ];
+    }
+
+    /// Set the inner-loop controller (ILC) data of 78 actuators.
+    pub fn set_actuator_ilc_data(&mut self) {
+        let encoders = self.get_actuator_encoders();
+        let forces = self.get_actuator_forces();
+        for idx in 0..NUM_ACTUATOR {
+            self._ilcs[idx].update_encoder_and_force(encoders[idx], forces[idx]);
+        }
     }
 
     /// Get the actuator encoder values.
@@ -347,7 +395,7 @@ impl MockPlant {
     ///
     /// # Returns
     /// A vector of actuator forces in Newton.
-    fn get_actuator_forces(&self) -> Vec<f64> {
+    pub fn get_actuator_forces(&self) -> Vec<f64> {
         let forces = self
             ._actuator_force_weight
             .iter()
@@ -362,6 +410,56 @@ impl MockPlant {
     pub fn reset_actuator_steps(&mut self) {
         self.actuator_steps = vec![0; NUM_ACTUATOR];
         self._actuator_force_step = vec![0.0; NUM_ACTUATOR];
+    }
+
+    /// Request the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame containing the command and
+    ///   parameters.
+    ///
+    /// # Returns
+    /// The payload of the response frame from the mock ILC.
+    pub fn request_ilc(&mut self, frame_request: &[u8]) -> Vec<u8> {
+        if frame_request[1] == CODE_STEP_MOTOR_BROADCAST {
+            for idx in 0..NUM_ACTUATOR {
+                self._ilcs[idx].request(frame_request);
+            }
+
+            // Apply the steps. Convert the u8 to i8 first to get the negative
+            // values and then convert to i32 for calculation.
+            let start_index = 3;
+            let steps = (0..NUM_ACTUATOR)
+                .map(|idx| (frame_request[start_index + idx] as i8) as i32)
+                .collect::<Vec<i32>>();
+
+            self.move_actuator_steps(&steps);
+
+            Vec::new()
+        } else {
+            // To zero-based address by subtracting 1 from the first byte of the
+            // request frame.
+            let frame_response = self._ilcs[(frame_request[0] - 1) as usize].request(frame_request);
+
+            // Only send the payload.
+            self.get_ilc_payload(&frame_response)
+        }
+    }
+
+    /// Get the payload of the mock inner-loop controller (ILC) response frame.
+    ///
+    /// # Notes
+    /// This is based on the Rec_Data_to_Host.vi in the ts_mtm2_cell.
+    ///
+    /// # Arguments
+    /// * `frame_response` - The response frame from the mock ILC.
+    ///
+    /// # Returns
+    /// The payload of the mock ILC response frame.
+    fn get_ilc_payload(&self, frame_response: &[u8]) -> Vec<u8> {
+        // Do not return the first 2 bytes (address and function code) and the
+        // final 2 bytes (CRC checksum).
+        frame_response[2..frame_response.len() - 2].to_vec()
     }
 
     /// Move the actuator steps.
@@ -403,47 +501,14 @@ impl MockPlant {
             });
     }
 
-    /// Get the status of 78 actuator inner-loop controllers.
-    ///
-    /// # Returns
-    /// A vector of the status of 78 actuator inner-loop controllers.
-    fn get_actuator_ilc_status(&mut self) -> Vec<u8> {
-        let mut ilc_status = vec![0; NUM_ACTUATOR];
-        if self.power_system_communication.is_power_on {
-            for (idx, ilc) in self._ilcs.iter_mut().enumerate() {
-                if idx < NUM_ACTUATOR {
-                    ilc_status[idx] = ilc.get_status();
-                }
-            }
-        }
-
-        ilc_status
-    }
-
-    /// Set the mode of the inner-loop controller (ILC).
+    /// Get the mode of the inner-loop controller (ILC) by the 0-based address.
     ///
     /// # Arguments
-    /// * `address` - The address of ILC.
-    /// * `mode` - The mode to be set.
+    /// * `address` - The 0-based address of the ILC.
     ///
-    /// # Returns
-    /// Current ILC mode.
-    pub fn set_ilc_mode(
-        &mut self,
-        address: usize,
-        mode: InnerLoopControlMode,
-    ) -> InnerLoopControlMode {
-        self._ilcs[address].set_mode(mode)
-    }
-
-    /// Get the mode of the inner-loop controller (ILC).
-    ///
-    /// # Arguments
-    /// * `address` - The address of ILC.
-    ///
-    /// # Returns
-    /// ILC mode.
-    pub fn get_ilc_mode(&self, address: usize) -> InnerLoopControlMode {
+    /// Returns
+    /// The mode of the ILC.
+    pub fn get_ilc_mode_by_address(&self, address: usize) -> InnerLoopControlMode {
         self._ilcs[address].mode
     }
 
@@ -496,6 +561,7 @@ mod tests {
     use approx::assert_relative_eq;
 
     use crate::control::math_tool::calculate_position_ims;
+    use crate::daq::inner_loop_controller::InnerLoopController;
     use crate::mock::mock_constants::{
         TEST_DIGITAL_INPUT_NO_POWER, TEST_DIGITAL_INPUT_POWER_COMM,
         TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
@@ -760,14 +826,71 @@ mod tests {
     }
 
     #[test]
-    fn test_get_actuator_ilc_data() {
+    fn test_set_monitor_ilc_inclinometer() {
+        let mut mock_plant = create_mock_plant();
+        mock_plant.inclinometer_angle = 123.45;
+
+        mock_plant.set_monitor_ilc_inclinometer();
+
+        assert_eq!(
+            mock_plant._ilcs[NUM_INNER_LOOP_CONTROLLER - 1].monitor_values[0],
+            mock_plant.inclinometer_angle as f32
+        );
+    }
+
+    #[test]
+    fn test_set_monitor_ilc_displacement() {
         let mut mock_plant = create_mock_plant();
 
-        let (ilc_status, encoders, forces) = mock_plant.get_actuator_ilc_data();
+        mock_plant.set_monitor_ilc_displacement();
 
-        assert_eq!(ilc_status.len(), NUM_ACTUATOR);
-        assert_eq!(encoders.len(), NUM_ACTUATOR);
-        assert_eq!(forces.len(), NUM_ACTUATOR);
+        assert_eq!(
+            mock_plant._ilcs[NUM_INNER_LOOP_CONTROLLER - 2].monitor_values,
+            vec![0.0; NUM_IMS_READING]
+        );
+    }
+
+    #[test]
+    fn test_set_monitor_ilc_temperature() {
+        let mut mock_plant = create_mock_plant();
+        mock_plant.temperature_ring = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ];
+        mock_plant.temperature_intake = vec![13.0, 14.0];
+        mock_plant.temperature_exhaust = vec![15.0, 16.0];
+
+        mock_plant.set_monitor_ilc_temperature();
+
+        assert_eq!(
+            mock_plant._ilcs[NUM_ACTUATOR].monitor_values,
+            vec![1.0, 2.0, 3.0, 4.0]
+        );
+        assert_eq!(
+            mock_plant._ilcs[NUM_ACTUATOR + 1].monitor_values,
+            vec![13.0, 15.0, 16.0, 14.0]
+        );
+        assert_eq!(
+            mock_plant._ilcs[NUM_ACTUATOR + 2].monitor_values,
+            vec![9.0, 10.0, 11.0, 12.0]
+        );
+        assert_eq!(
+            mock_plant._ilcs[NUM_ACTUATOR + 3].monitor_values,
+            vec![5.0, 6.0, 7.0, 8.0]
+        );
+    }
+
+    #[test]
+    fn test_set_actuator_ilc_data() {
+        let mut mock_plant = create_mock_plant();
+
+        mock_plant.set_actuator_ilc_data();
+
+        let encoders = mock_plant.get_actuator_encoders();
+        let forces = mock_plant.get_actuator_forces();
+        for idx in 0..NUM_ACTUATOR {
+            assert_eq!(mock_plant._ilcs[idx].data.encoder_count, encoders[idx]);
+            assert_eq!(mock_plant._ilcs[idx].data.force, -forces[idx] as f32);
+        }
     }
 
     #[test]
@@ -792,6 +915,122 @@ mod tests {
 
         assert_relative_eq!(forces[0], 218.3329167, epsilon = EPSILON);
         assert_relative_eq!(forces[1], 216.2329167, epsilon = EPSILON);
+    }
+
+    #[test]
+    fn test_request_ilc_move_actuator_steps() {
+        let mut mock_plant = create_mock_plant();
+        let mut ilc = InnerLoopController::new();
+
+        // Test the data type conversion from i8 to u8 and then to i32
+        let mut steps = vec![0; NUM_ACTUATOR];
+        steps[0] = 1;
+        steps[1] = -1;
+        steps[2] = 127;
+        steps[3] = -128;
+        steps[4] = -127;
+        steps[NUM_ACTUATOR - 1] = 1;
+
+        let mut frame = ilc.create_frame_move_steps(&steps);
+        mock_plant.request_ilc(&frame);
+
+        assert_eq!(mock_plant.actuator_steps[0], 1);
+        assert_eq!(mock_plant.actuator_steps[1], -1);
+        assert_eq!(mock_plant.actuator_steps[2], 127);
+        assert_eq!(mock_plant.actuator_steps[3], -128);
+        assert_eq!(mock_plant.actuator_steps[4], -127);
+        assert_eq!(mock_plant.actuator_steps[NUM_ACTUATOR - 1], 1);
+
+        for idx in 1..20 {
+            frame = ilc.create_frame_move_steps(&steps);
+            mock_plant.request_ilc(&frame);
+
+            let expected_communication_counter = (idx % 16) << 4;
+            assert_eq!(
+                mock_plant._ilcs[0].data.status,
+                expected_communication_counter
+            );
+            assert_eq!(
+                mock_plant._ilcs[NUM_ACTUATOR - 1].data.status,
+                expected_communication_counter
+            );
+        }
+    }
+
+    #[test]
+    fn test_request_ilc_set_mode() {
+        let mut mock_plant = create_mock_plant();
+        let ilc = InnerLoopController::new();
+
+        let address = 3;
+        let mode = InnerLoopControlMode::Disabled;
+        assert_eq!(
+            mock_plant.request_ilc(&ilc.create_frame_set_mode(address, mode)),
+            [0, InnerLoopController::get_mode_value(mode) as u8]
+        );
+        assert_eq!(mock_plant.get_ilc_mode_by_address(address as usize), mode);
+    }
+
+    #[test]
+    fn test_request_ilc_get_mode() {
+        let mut mock_plant = create_mock_plant();
+        let ilc = InnerLoopController::new();
+
+        let address = 3;
+        let mode = InnerLoopControlMode::Disabled;
+        mock_plant.request_ilc(&ilc.create_frame_set_mode(address, mode));
+
+        assert_eq!(
+            mock_plant.request_ilc(&ilc.create_frame_get_mode(address)),
+            [0, InnerLoopController::get_mode_value(mode) as u8]
+        );
+        assert_eq!(mock_plant.get_ilc_mode_by_address(address as usize), mode);
+    }
+
+    #[test]
+    fn test_request_ilc_actuator_data() {
+        let mut mock_plant = create_mock_plant();
+
+        let address = 1;
+        mock_plant._ilcs[address].update_communication_counter(1);
+        mock_plant._ilcs[address].update_encoder_and_force(123, 456.78);
+
+        let ilc = InnerLoopController::new();
+        let frame_request = ilc.get_frame_get_force_and_status(address).unwrap();
+        let frame_response = mock_plant.request_ilc(frame_request);
+
+        let (status, encoder, force) = ilc
+            .get_force_and_status_from_frame(&frame_response)
+            .unwrap();
+
+        assert_eq!(status, 0b0001_0000);
+        assert_eq!(encoder, 123);
+        assert_eq!(force, 456.78);
+    }
+
+    #[test]
+    fn test_request_ilc_monitor_data() {
+        let mut mock_plant = create_mock_plant();
+        mock_plant.inclinometer_angle = 12.34;
+        mock_plant.set_monitor_ilc_inclinometer();
+
+        let ilc = InnerLoopController::new();
+        let monitor_values = mock_plant.request_ilc(ilc.get_frame_inclinometer());
+
+        assert_eq!(
+            ilc.get_inclinometer_from_frame(&monitor_values).unwrap(),
+            mock_plant.inclinometer_angle as f32
+        );
+    }
+
+    #[test]
+    fn test_get_ilc_payload() {
+        let mock_plant = create_mock_plant();
+
+        let frame_response = [1, 2, 3, 4, 5];
+        let payload = mock_plant.get_ilc_payload(&frame_response);
+
+        assert_eq!(payload, vec![3]);
     }
 
     #[test]
@@ -843,43 +1082,6 @@ mod tests {
 
         assert_eq!(mock_plant.actuator_steps[0], 0);
         assert_eq!(mock_plant._actuator_force_step[0], 0.0);
-    }
-
-    #[test]
-    fn test_get_actuator_ilc_status() {
-        let mut mock_plant = create_mock_plant();
-
-        // No communication power
-        assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
-
-        // With communication power
-        mock_plant.switch_digital_output(
-            DigitalOutput::CommunicationPower,
-            DigitalOutputStatus::BinaryHighLevel,
-        );
-
-        assert_eq!(mock_plant.get_actuator_ilc_status(), vec![0; NUM_ACTUATOR]);
-        assert_eq!(mock_plant.get_actuator_ilc_status(), vec![16; NUM_ACTUATOR]);
-    }
-
-    #[test]
-    fn test_set_ilc_mode() {
-        let mut mock_plant = create_mock_plant();
-
-        let mode = InnerLoopControlMode::Disabled;
-
-        assert_eq!(mock_plant.set_ilc_mode(3, mode), mode);
-    }
-
-    #[test]
-    fn test_get_ilc_mode() {
-        let mut mock_plant = create_mock_plant();
-
-        let address = 3;
-        let mode = InnerLoopControlMode::Disabled;
-        mock_plant.set_ilc_mode(address, mode);
-
-        assert_eq!(mock_plant.get_ilc_mode(address), mode);
     }
 
     #[test]

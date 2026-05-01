@@ -244,8 +244,10 @@ impl Controller {
 
         let result = self.send_config_to_control_loop_and_update(config.clone());
         if result.is_some() {
-            self.event_queue
-                .add_event(Event::get_message_config(&config));
+            self.event_queue.add_event(Event::get_message_config(
+                &config,
+                &self.error_handler.config_power,
+            ));
         }
 
         result
@@ -390,7 +392,7 @@ impl Controller {
         let mut events = Vec::new();
 
         // Check the cell temperature high warning.
-        let is_cell_temperature_high = self.error_handler.has_error(ErrorCode::WarnCellTemp);
+        let is_cell_temperature_high = self.error_handler.has_error(ErrorCode::WarnTempDiff);
         if let Some(()) = self.update_interal_status_cell_temperature_high(is_cell_temperature_high)
         {
             events.push(Event::get_message_cell_temperature_high_warning(
@@ -1028,7 +1030,10 @@ mod tests {
                         .config_control_loop
                         .enabled_faults_mask
                 ),
-                Event::get_message_config(&controller.error_handler.config_control_loop),
+                Event::get_message_config(
+                    &controller.error_handler.config_control_loop,
+                    &controller.error_handler.config_power
+                ),
             ],
         );
     }
@@ -1173,7 +1178,7 @@ mod tests {
     fn test_get_error_handler_events() {
         let mut controller = create_controller().0;
 
-        controller.error_handler.add_error(ErrorCode::WarnCellTemp);
+        controller.error_handler.add_error(ErrorCode::WarnTempDiff);
         controller.error_handler.ilc.insert(
             String::from("limit_switch_retract"),
             HashSet::from([1, 2, 3]),

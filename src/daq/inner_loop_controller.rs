@@ -129,12 +129,13 @@ impl InnerLoopController {
     ///
     /// # Arguments
     /// * `crc` - The CRC calculator to compute the checksum.
-    /// * `frame` - The frame to be updated with the CRC checksum.
+    /// * `frame` - The frame to be updated with the CRC checksum (final two
+    ///   bytes).
     ///
     /// # Panics
     /// Panics if the frame length is less than 3 bytes, as at least 1 byte of
     /// data and 2 bytes for CRC are required.
-    fn calculate_crc_and_update_frame(crc: &Crc<u16>, frame: &mut [u8]) {
+    pub fn calculate_crc_and_update_frame(crc: &Crc<u16>, frame: &mut [u8]) {
         let length = frame.len();
         if length < 3 {
             panic!("Modbus frame must have at least 3 bytes to accommodate data and CRC.");
@@ -243,8 +244,26 @@ impl InnerLoopController {
         let mut frame = [0; 6];
         frame[0] = Self::to_one_based_address(address);
         frame[1] = CODE_ILC_MODE;
+        frame[2..4].copy_from_slice(&Self::get_mode_value(mode).to_be_bytes());
 
-        let mode_value: u16 = match mode {
+        Self::calculate_crc_and_update_frame(&self._crc, &mut frame);
+
+        frame
+    }
+
+    /// Get the inner-loop controller (ILC) mode value.
+    ///
+    /// # Notes
+    /// This function should be consistent with
+    /// `Self::get_mode_from_mode_value()`.
+    ///
+    /// # Arguments
+    /// * `mode` - The mode to be set for the ILC.
+    ///
+    /// # Returns
+    /// The mode value corresponding to the given ILC mode.
+    pub fn get_mode_value(mode: InnerLoopControlMode) -> u16 {
+        match mode {
             InnerLoopControlMode::Standby => 0x0000,
             InnerLoopControlMode::Disabled => 0x0001,
             InnerLoopControlMode::Enabled => 0x0002,
@@ -252,12 +271,31 @@ impl InnerLoopController {
             InnerLoopControlMode::Fault => 0x0004,
             InnerLoopControlMode::ClearFaults => 0x0005,
             _ => 0xFFFF, // No change - respond with the current mode
-        };
-        frame[2..4].copy_from_slice(&mode_value.to_be_bytes());
+        }
+    }
 
-        Self::calculate_crc_and_update_frame(&self._crc, &mut frame);
-
-        frame
+    /// Get the inner-loop controller (ILC) mode from a mode value.
+    ///
+    /// # Notes
+    /// This function should be consistent with `Self::get_mode_value()`.
+    ///
+    /// # Arguments
+    /// * `value` - The mode value to be translated to ILC mode.
+    ///
+    /// # Returns
+    /// The ILC mode corresponding to the given mode value. If the mode value
+    /// is not recognized, it returns `InnerLoopControlMode::Unknown`.
+    pub fn get_mode_from_value(value: u16) -> InnerLoopControlMode {
+        match value {
+            0x0000 => InnerLoopControlMode::Standby,
+            0x0001 => InnerLoopControlMode::Disabled,
+            0x0002 => InnerLoopControlMode::Enabled,
+            0x0003 => InnerLoopControlMode::FirmwareUpdate,
+            0x0004 => InnerLoopControlMode::Fault,
+            0x0005 => InnerLoopControlMode::ClearFaults,
+            0xFFFF => InnerLoopControlMode::NoChange,
+            _ => InnerLoopControlMode::Unknown,
+        }
     }
 
     /// Create a frame to broadcast step motor command to all stepper
@@ -311,19 +349,9 @@ impl InnerLoopController {
             return None;
         }
 
-        let mode_value = u16::from_be_bytes([frame[0], frame[1]]);
-
-        // Should match self.create_frame_set_mode().
-        match mode_value {
-            0x0000 => Some(InnerLoopControlMode::Standby),
-            0x0001 => Some(InnerLoopControlMode::Disabled),
-            0x0002 => Some(InnerLoopControlMode::Enabled),
-            0x0003 => Some(InnerLoopControlMode::FirmwareUpdate),
-            0x0004 => Some(InnerLoopControlMode::Fault),
-            0x0005 => Some(InnerLoopControlMode::ClearFaults),
-            0xFFFF => Some(InnerLoopControlMode::NoChange),
-            _ => Some(InnerLoopControlMode::Unknown),
-        }
+        Some(Self::get_mode_from_value(u16::from_be_bytes([
+            frame[0], frame[1],
+        ])))
     }
 
     /// Get the force and status from a received frame.
@@ -607,6 +635,78 @@ mod tests {
         assert_eq!(
             frame_unknown,
             [address + 1, CODE_ILC_MODE, 0xFF, 0xFF, 0x50, 0xB0]
+        );
+    }
+
+    #[test]
+    fn test_get_mode_value() {
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::Standby),
+            0x0000
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::Disabled),
+            0x0001
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::Enabled),
+            0x0002
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::FirmwareUpdate),
+            0x0003
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::Fault),
+            0x0004
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::ClearFaults),
+            0x0005
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::NoChange),
+            0xFFFF
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_value(InnerLoopControlMode::Unknown),
+            0xFFFF
+        );
+    }
+
+    #[test]
+    fn test_get_mode_from_value() {
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x0000),
+            InnerLoopControlMode::Standby
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x0001),
+            InnerLoopControlMode::Disabled
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x0002),
+            InnerLoopControlMode::Enabled
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x0003),
+            InnerLoopControlMode::FirmwareUpdate
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x0004),
+            InnerLoopControlMode::Fault
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x0005),
+            InnerLoopControlMode::ClearFaults
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0xFFFF),
+            InnerLoopControlMode::NoChange
+        );
+        assert_eq!(
+            InnerLoopController::get_mode_from_value(0x1234),
+            InnerLoopControlMode::Unknown
         );
     }
 
