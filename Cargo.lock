@@ -716,6 +716,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ni-fpga-interface"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "643de909972bd134753f3e28963fbd08702cfdec3e363621f7d00a250e81b557"
+dependencies = [
+ "libc",
+ "paste",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -952,6 +962,7 @@ dependencies = [
  "kiddo",
  "log",
  "nalgebra",
+ "ni-fpga-interface",
  "serde",
  "serde_json",
  "signal-hook",
