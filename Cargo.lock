@@ -90,7 +90,7 @@ checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -408,6 +408,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
+name = "fehler"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5729fe49ba028cd550747b6e62cd3d841beccab5390aa398538c31a2d983635"
+dependencies = [
+ "fehler-macros",
+]
+
+[[package]]
+name = "fehler-macros"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccb5acb1045ebbfa222e2c50679e392a71dd77030b78fb0189f2d9c5974400f9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -712,7 +732,36 @@ checksum = "254a5372af8fc138e36684761d3c0cdb758a4410e938babcff1c860ce14ddbfc"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
+]
+
+[[package]]
+name = "nifpga-dll"
+version = "0.3.0"
+source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=tickets%2FOSW-1832#9185fdceb99aef97d44aaf6eefae2af462cf1321"
+dependencies = [
+ "fehler",
+ "libc",
+ "nifpga-dll-sys",
+ "nifpga-dll-type-macro",
+]
+
+[[package]]
+name = "nifpga-dll-sys"
+version = "0.3.0"
+source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=tickets%2FOSW-1832#9185fdceb99aef97d44aaf6eefae2af462cf1321"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "nifpga-dll-type-macro"
+version = "0.3.0"
+source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=tickets%2FOSW-1832#9185fdceb99aef97d44aaf6eefae2af462cf1321"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -861,7 +910,7 @@ dependencies = [
  "pest_meta",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -893,7 +942,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -952,6 +1001,7 @@ dependencies = [
  "kiddo",
  "log",
  "nalgebra",
+ "nifpga-dll",
  "serde",
  "serde_json",
  "signal-hook",
@@ -1052,7 +1102,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -1180,7 +1230,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
- "syn",
+ "syn 2.0.116",
+]
+
+[[package]]
+name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -1317,7 +1378,7 @@ checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -1358,7 +1419,7 @@ dependencies = [
 [[package]]
 name = "ts_control_utils"
 version = "0.1.0"
-source = "git+https://github.com/lsst-ts/ts_control_utils.git?branch=develop#0ac484bfe97bf66ded8cbef49dc573879a1ecaf0"
+source = "git+https://github.com/lsst-ts/ts_control_utils.git?branch=develop#c35cfb9ea92c98c60c72ac4608404cfad2407677"
 dependencies = [
  "approx",
  "config",
@@ -1484,7 +1545,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
  "wasm-bindgen-shared",
 ]
 
@@ -1571,7 +1632,7 @@ checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -1582,7 +1643,7 @@ checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -1663,7 +1724,7 @@ dependencies = [
  "heck",
  "indexmap",
  "prettyplease",
- "syn",
+ "syn 2.0.116",
  "wasm-metadata",
  "wit-bindgen-core",
  "wit-component",
@@ -1679,7 +1740,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
  "wit-bindgen-core",
  "wit-bindgen-rust",
 ]
@@ -1749,7 +1810,7 @@ checksum = "d8a8d209fdf45cf5138cbb5a506f6b52522a25afccc534d1475dad8e31105c6a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.116",
 ]
 
 [[package]]
