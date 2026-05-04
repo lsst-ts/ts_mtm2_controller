@@ -11,6 +11,7 @@ opt-level = 3
 
 [dependencies]
 ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
+nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "tickets/OSW-1832" }
 approx = "0.5"
 chrono = "0.4.43"
 clap = { version = "4.5.60", features = ["cargo"] }
