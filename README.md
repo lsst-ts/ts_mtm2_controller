@@ -26,6 +26,24 @@ To get more information, do:
 cargo run -- -h
 ```
 
+To run the test FPGA code, do:
+
+```bash
+cargo run --bin test_fpga
+```
+
+On Linux targets (for example cRIO), the build compiles `fpga/NiFpga.c` (with
+`fpga/NiFpga.h`) as the C API shim. That shim dynamically loads
+`libNiFpga.so` at runtime.
+
+If `libNiFpga.so` is not in the default loader paths, set `LD_LIBRARY_PATH`
+before running:
+
+```bash
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
+cargo run --bin test_fpga
+```
+
 ## Build the Executable
 
 Do the following to build the executable:
