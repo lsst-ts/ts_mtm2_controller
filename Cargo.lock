@@ -994,6 +994,7 @@ name = "run_m2"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "cc",
  "chrono",
  "clap",
  "crc",
