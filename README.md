@@ -15,7 +15,7 @@ ulimit -s unlimited
 To run the application in the simulation mode by `cargo`, do:
 
 ```bash
-cargo run -- -s
+cargo run --bin run_m2 -- -s
 ```
 
 You can interrupt the running application by `ctrl` + `c`.
@@ -23,7 +23,20 @@ You can interrupt the running application by `ctrl` + `c`.
 To get more information, do:
 
 ```bash
-cargo run -- -h
+cargo run --bin run_m2 -- -h
+```
+
+To run the test FPGA code in the cRIO, do:
+
+```bash
+cargo run --features fpga --bin test_fpga
+```
+
+The system should look for the `/usr/lib/x86_64-linux-gnu/libNiFpga.so` by itself at run time.
+If not, do:
+
+```bash
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
 ```
 
 ## Build the Executable
@@ -35,6 +48,13 @@ cargo build --release
 ```
 
 This will generate an optimized executable in the `target/release/` directory, which is suitable for distribution.
+
+## FPGA Files
+
+You should put the FPGA files in the `fpga/` directory.
+They are generated from the bifile of [ts_mtm2_cell](https://github.com/lsst-ts/ts_mtm2_cell).
+See [FPGA Interface C API User Manual](https://www.ni.com/docs/en-US/bundle/fpga-interface-c/page/user-manual-welcome.html) for more details.
+You can also see the page: [A little C with your Rust](https://docs.rust-embedded.org/book/interoperability/c-with-rust.html) for the interoperation between the Rust and C library.
 
 ## Deployment
 
@@ -105,6 +125,20 @@ To generate the `junit.xml` (ouput path is `target/nextest/ci/junit.xml`), do:
 
 ```bash
 cargo nextest run --profile ci
+```
+
+To run the FPGA related test in cRIO, add the `--features fpga` flag when running the test.
+For example, you can run the tests in the cRIO with:
+
+```bash
+cargo test fpga_hardware --features fpga -- --test-threads=1
+```
+
+Note we need to use the flag `--test-threads=1` here to make sure the system to run the test one by one.
+Otherwise, you might get the error code: -52010:
+
+```text
+A required resource was not properly initialized. This could occur if NiFpga_Initialize was not called or a required NiFpga_IrqContext was not reserved.
 ```
 
 ## Software Architecture
