@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ts_control_utils::utility::{get_parameter, get_parameter_array};
 
@@ -34,6 +34,12 @@ pub struct ConfigDataAcquisition {
     // Bypassed actuator ILC list (0-based) to check the error reported by ILC
     // directly.
     pub bypassed_actuator_ilcs: Vec<usize>,
+    // NI FPGA bitfile path.
+    pub path_bitfile: PathBuf,
+    // NI FPGA header file path.
+    pub path_header: PathBuf,
+    // Resource of the NI FPGA.
+    pub fpga_resource: String,
 }
 
 impl ConfigDataAcquisition {
@@ -42,7 +48,8 @@ impl ConfigDataAcquisition {
     /// # Returns
     /// A new ConfigDataAcquisition object.
     pub fn new() -> Self {
-        let filepath = Path::new("config/parameters_daq.yaml");
+        let filepath: &Path = Path::new("config/parameters_daq.yaml");
+        let fpga_directory = Path::new("fpga");
 
         Self {
             frequency_loop: get_parameter(filepath, "frequency_loop"),
@@ -53,6 +60,10 @@ impl ConfigDataAcquisition {
                 filepath,
                 "bypassed_actuator_ilcs",
             ),
+
+            path_bitfile: fpga_directory.join(get_parameter::<String>(filepath, "name_bitfile")),
+            path_header: fpga_directory.join(get_parameter::<String>(filepath, "name_header")),
+            fpga_resource: get_parameter(filepath, "fpga_resource"),
         }
     }
 }
