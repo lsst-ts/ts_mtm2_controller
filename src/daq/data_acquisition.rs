@@ -26,7 +26,8 @@ use crate::constants::{
     NUM_ACTUATOR, NUM_IMS, NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
 };
 use crate::daq::{
-    config_data_acquisition::ConfigDataAcquisition, inner_loop_controller::InnerLoopController,
+    config_data_acquisition::ConfigDataAcquisition, fpga_wrapper::FpgaWrapper,
+    inner_loop_controller::InnerLoopController,
 };
 use crate::enums::{
     DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
@@ -57,6 +58,9 @@ pub struct DataAcquisition {
     // The counts of stale data for each actuator ILC. This is used to check if
     // the ILC data is stale for too long.
     _actuator_ilc_stale_data_counts: Vec<i32>,
+    // FPGA wrapper. This is used to communicate with the FPGA in the real
+    // hardware mode.
+    _fpga: FpgaWrapper,
     // Plant model
     pub plant: Option<MockPlant>,
 }
@@ -72,6 +76,8 @@ impl DataAcquisition {
     /// # Returns
     /// A new instance of DataAcquisition.
     pub fn new(is_simulation_mode: bool) -> Self {
+        let config = ConfigDataAcquisition::new();
+
         // Plant model
         let plant = if is_simulation_mode {
             // Use the M2 stiffness matrix here intentionally to match the
@@ -88,7 +94,9 @@ impl DataAcquisition {
         };
 
         Self {
-            config: ConfigDataAcquisition::new(),
+            _fpga: FpgaWrapper::new(config.path_header.as_path()),
+
+            config,
 
             event_queue: EventQueue::new(),
 
