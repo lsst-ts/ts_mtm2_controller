@@ -10,9 +10,12 @@ opt-level = 0
 [profile.release]
 opt-level = 3
 
+[features]
+fpga = ["dep:nifpga-dll"]
+
 [dependencies]
 ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
-nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "tickets/OSW-1832" }
+nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "tickets/OSW-1832", optional = true }
 approx = "0.5"
 chrono = "0.4.43"
 clap = { version = "4.5.60", features = ["cargo"] }
@@ -32,3 +35,8 @@ crc = "3.4.0"
 
 [build-dependencies]
 cc = "1.1"
+
+[[bin]]
+name = "test_fpga"
+path = "src/bin/test_fpga.rs"
+required-features = ["fpga"]
