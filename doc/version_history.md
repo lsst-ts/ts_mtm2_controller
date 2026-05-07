@@ -1,5 +1,16 @@
 # Version History
 
+0.4.5
+
+- Add the FPGA files.
+- Add the dependencies of `cc` and `nifpga-dll`.
+- Add the `build.rs`.
+- Add the FPGA informations to `parameters_daq.yaml`.
+- Add the `fpga_wrapper.rs`.
+- Add the `test_fpga.rs`.
+- Update the `data_acquisition.rs`.
+- Update the `README.md` and `class_diagram.md.`.
+
 0.4.4
 
 - Add the `PowerSystem.update_digital_input_based_on_voltage()`.
