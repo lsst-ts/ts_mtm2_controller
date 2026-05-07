@@ -139,6 +139,7 @@ DataAcquisitionProcess ..> Telemetry
 CommandDataAcquisition --> DataAcquisition
 
 DataAcquisition *-- ConfigDataAcquisition
+DataAcquisition *-- FpgaWrapper
 DataAcquisition o-- MockPlant
 DataAcquisition *-- EventQueue
 DataAcquisition *-- InnerLoopController
