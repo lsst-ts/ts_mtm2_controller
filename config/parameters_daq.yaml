@@ -16,3 +16,13 @@ actuator_ilc_stale_data_limit: 10
 # Bypassed actuator ILC list (0-based) to check the error reported by ILC
 # directly. Any ILC in this list should be set to be hardpoint.
 bypassed_actuator_ilcs: []
+
+# NI FPGA bitfile name in the "fpga/" directory.
+name_bitfile: "NiFpga_portSerialMasterSlave.lvbitx"
+
+# NI specific FPGA header file name in the "fpga/" directory, which should be
+# similar to the bitfile name.
+name_header: "NiFpga_portSerialMasterSlave.h"
+
+# Resource of the NI FPGA. You can find it from the LabVIEW project or NI MAX.
+fpga_resource: "RIO0"

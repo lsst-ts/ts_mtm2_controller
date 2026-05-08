@@ -2,6 +2,7 @@
 name = "run_m2"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [profile.dev]
 opt-level = 0
@@ -9,8 +10,12 @@ opt-level = 0
 [profile.release]
 opt-level = 3
 
+[features]
+fpga = ["dep:nifpga-dll"]
+
 [dependencies]
 ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
+nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "develop", optional = true }
 approx = "0.5"
 chrono = "0.4.43"
 clap = { version = "4.5.60", features = ["cargo"] }
@@ -27,3 +32,11 @@ strum_macros = "0.26.4"
 tempfile = "3.25.0"
 time = "0.3.47"
 crc = "3.4.0"
+
+[build-dependencies]
+cc = "1.1"
+
+[[bin]]
+name = "test_fpga"
+path = "src/bin/test_fpga.rs"
+required-features = ["fpga"]
