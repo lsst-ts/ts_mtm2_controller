@@ -701,8 +701,8 @@ mod tests {
             )
             .is_some());
         assert_eq!(
-            controller.error_handler.config_control_loop.lut.dir_name,
-            "config/lut/optical"
+            Path::new(&controller.error_handler.config_control_loop.lut.dir_name),
+            Path::new("config/lut/optical")
         );
     }
 
