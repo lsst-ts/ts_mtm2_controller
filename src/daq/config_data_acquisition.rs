@@ -40,6 +40,14 @@ pub struct ConfigDataAcquisition {
     pub path_header: PathBuf,
     // Resource of the NI FPGA.
     pub fpga_resource: String,
+    // The number of depth requested in the DAQ FIFO (power and digital input
+    // data).
+    pub requested_depth_in_fifo_daq: usize,
+    // The number of depth requested in the inbound and outbound FIFOs for the
+    // ILC communication.
+    pub requested_depth_in_fifo_inbound_outbound: usize,
+    // Buffer time to clear the DAQ FIFO in milliseconds.
+    pub buffer_time_to_clear_fifo_daq: u64,
 }
 
 impl ConfigDataAcquisition {
@@ -64,6 +72,17 @@ impl ConfigDataAcquisition {
             path_bitfile: fpga_directory.join(get_parameter::<String>(filepath, "name_bitfile")),
             path_header: fpga_directory.join(get_parameter::<String>(filepath, "name_header")),
             fpga_resource: get_parameter(filepath, "fpga_resource"),
+
+            requested_depth_in_fifo_daq: get_parameter(filepath, "requested_depth_in_fifo_daq"),
+            requested_depth_in_fifo_inbound_outbound: get_parameter(
+                filepath,
+                "requested_depth_in_fifo_inbound_outbound",
+            ),
+
+            buffer_time_to_clear_fifo_daq: get_parameter::<i32>(
+                filepath,
+                "buffer_time_to_clear_fifo_daq",
+            ) as u64,
         }
     }
 }
