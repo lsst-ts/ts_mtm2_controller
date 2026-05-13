@@ -26,3 +26,17 @@ name_header: "NiFpga_portSerialMasterSlave.h"
 
 # Resource of the NI FPGA. You can find it from the LabVIEW project or NI MAX.
 fpga_resource: "RIO0"
+
+# The number of depth requested in the DAQ FIFO (power and digital input
+# data). The number of elements for each data writing in FPGA loop is 9. Note
+# the actual depth of the FIFO might be larger than this value, which depends
+# on the FPGA design. 
+requested_depth_in_fifo_daq: 90
+
+# The number of depth requested in the inbound and outbound FIFOs for the ILC
+# communication. Note the actual depth of the FIFO might be larger than this
+# value, which depends on the FPGA design. 
+requested_depth_in_fifo_inbound_outbound: 1023
+
+# Buffer time to clear the DAQ FIFO in milliseconds.
+buffer_time_to_clear_fifo_daq: 5
