@@ -31,7 +31,6 @@ use crate::daq::{
 };
 use crate::enums::{
     DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
-    PowerType,
 };
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
@@ -177,50 +176,58 @@ impl DataAcquisition {
         let mut telemetry = TelemetryPower::new();
 
         // Raw power data
-        let (comm_voltage, comm_current) = self.get_power(PowerType::Communication);
-        telemetry
-            .power_raw
-            .insert(String::from("commVoltage"), comm_voltage);
-        telemetry
-            .power_raw
-            .insert(String::from("commCurrent"), comm_current);
+        if let Some((motor_current, comm_current, motor_voltage, comm_voltage, digital_input)) =
+            self.get_power_and_digital_input()
+        {
+            telemetry
+                .power_raw
+                .insert(String::from("motorCurrent"), motor_current);
+            telemetry
+                .power_raw
+                .insert(String::from("commCurrent"), comm_current);
 
-        let (motor_voltage, motor_current) = self.get_power(PowerType::Motor);
-        telemetry
-            .power_raw
-            .insert(String::from("motorVoltage"), motor_voltage);
-        telemetry
-            .power_raw
-            .insert(String::from("motorCurrent"), motor_current);
+            telemetry
+                .power_raw
+                .insert(String::from("motorVoltage"), motor_voltage);
+            telemetry
+                .power_raw
+                .insert(String::from("commVoltage"), comm_voltage);
 
-        // Digital output and input
+            telemetry.digital_input = digital_input;
+        };
+
+        // Digital output
         telemetry.digital_output = self.get_digital_output();
-        telemetry.digital_input = self.get_digital_input();
 
         telemetry
     }
 
-    /// Get the power.
-    ///
-    /// # Arguments
-    /// * `power_type` - Power type.
+    /// Get the power and digital input.
     ///
     /// # Returns
-    /// A tuple of the power. The first element is the voltage in volt and the
-    /// second element is the current in ampere.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
-    fn get_power(&mut self, power_type: PowerType) -> (f64, f64) {
-        if let Some(plant) = &mut self.plant {
-            if power_type == PowerType::Motor {
-                plant.power_system_motor.get_voltage_and_current()
-            } else {
-                plant.power_system_communication.get_voltage_and_current()
+    /// A tuple of the power and digital input. The first element is the motor
+    /// current in ampere, the second element is the communication current in
+    /// ampere, the third element is the motor voltage in volt, the fourth
+    /// element is the communication voltage in volt, and the fifth element is
+    /// the digital input. None if the power and digital input cannot be read.
+    fn get_power_and_digital_input(&mut self) -> Option<(f64, f64, f64, f64, u32)> {
+        match &mut self.plant {
+            Some(plant) => {
+                let (motor_voltage, motor_current) =
+                    plant.power_system_motor.get_voltage_and_current();
+                let (comm_voltage, comm_current) =
+                    plant.power_system_communication.get_voltage_and_current();
+
+                Some((
+                    motor_current,
+                    comm_current,
+                    motor_voltage,
+                    comm_voltage,
+                    plant.get_digital_input(),
+                ))
             }
-        } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+
+            None => self._fpga.read_power_and_digital_input(),
         }
     }
 
@@ -228,31 +235,11 @@ impl DataAcquisition {
     ///
     /// # Returns
     /// The digital output.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
     fn get_digital_output(&self) -> u8 {
         if let Some(plant) = &self.plant {
             plant.digital_output
         } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
-        }
-    }
-
-    /// Get the digital input.
-    ///
-    /// # Returns
-    /// The digital input.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
-    fn get_digital_input(&self) -> u32 {
-        if let Some(plant) = &self.plant {
-            plant.get_digital_input()
-        } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            self._fpga.digital_output
         }
     }
 
@@ -624,6 +611,53 @@ impl DataAcquisition {
         }
     }
 
+    /// Initialize the hardware. This is used to open the connection with the
+    /// FPGA and do the related setup in the real hardware mode.
+    pub fn init_hardware(&mut self) {
+        if !self.is_simulation_mode() {
+            let config = &self.config;
+
+            // Open the FPGA session.
+            self._fpga.open(&config.path_bitfile, &config.fpga_resource);
+
+            // Log the current setting of ModBus serial configuration.
+            self._fpga.log_serial_config();
+
+            // Update the loop rate.
+            // 1 second = 1,000,000 microsecond.
+            let loop_rate = (1000000.0 / config.frequency_loop) as u32;
+            self._fpga.write_data_loop_rate(loop_rate);
+
+            // Open the FPGA FIFO.
+            self._fpga.open_fifo(
+                config.requested_depth_in_fifo_daq,
+                config.requested_depth_in_fifo_inbound_outbound,
+            );
+
+            // Clear the DAQ FIFO to make sure there is no stale data in the
+            // FIFO before starting the data acquisition.
+            let delay_time = ((loop_rate / 1000) as u64) + config.buffer_time_to_clear_fifo_daq;
+            self._fpga.clear_fifo_daq(delay_time);
+        }
+    }
+
+    /// Enable or disable to capture the power data.
+    ///
+    /// # Arguments
+    /// * `enable` - A boolean indicating whether to enable to capture the
+    ///   power data.
+    pub fn enable_capture_power_data(&self, enable: bool) {
+        if !self.is_simulation_mode() {
+            match self
+                ._fpga
+                .write_control_value("controlEnableCapture", enable)
+            {
+                Some(()) => (),
+                None => error!("Failed to enable to capture the power data: {:?}", enable),
+            }
+        }
+    }
+
     /// Initialize the default digital output.
     pub fn init_default_digital_output(&mut self) {
         self.set_default_digital_output(DigitalOutputStatus::BinaryHighLevel);
@@ -658,9 +692,6 @@ impl DataAcquisition {
     ///
     /// # Returns
     /// Some if the digital output is switched successfully.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
     pub fn switch_digital_output(
         &mut self,
         digital_output: DigitalOutput,
@@ -671,7 +702,7 @@ impl DataAcquisition {
 
             Some(())
         } else {
-            panic!("Not implemented yet.");
+            self._fpga.switch_digital_output(digital_output, status)
         }
     }
 
@@ -820,6 +851,7 @@ mod tests {
     use serde_json::json;
     use ts_control_utils::utility::assert_relative_eq_vector;
 
+    use crate::mock::mock_constants::PLANT_VOLTAGE;
     use crate::mock::mock_constants::{
         PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
         TEST_DIGITAL_OUTPUT_NO_POWER, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
@@ -969,39 +1001,11 @@ mod tests {
         );
         assert_eq!(telemetry.digital_input, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR);
 
-        assert_eq!(
-            telemetry.power_raw["commVoltage"],
-            data_acquisition.get_power(PowerType::Communication).0
-        );
+        assert_eq!(telemetry.power_raw["commVoltage"], PLANT_VOLTAGE);
         assert!(telemetry.power_raw["commCurrent"] > 0.0);
 
-        assert_eq!(
-            telemetry.power_raw["motorVoltage"],
-            data_acquisition.get_power(PowerType::Motor).0
-        );
+        assert_eq!(telemetry.power_raw["motorVoltage"], PLANT_VOLTAGE);
         assert!(telemetry.power_raw["motorCurrent"] > 0.0);
-    }
-
-    #[test]
-    fn test_get_power() {
-        let mut data_acquisition = create_data_acquisition(true);
-
-        // Power is off
-        let mut voltage = data_acquisition.get_power(PowerType::Motor).0;
-
-        assert_eq!(voltage, 0.0);
-
-        // Power is on
-        data_acquisition.switch_digital_output(
-            DigitalOutput::MotorPower,
-            DigitalOutputStatus::BinaryHighLevel,
-        );
-
-        for _ in 0..2 {
-            voltage = data_acquisition.get_power(PowerType::Motor).0;
-        }
-
-        assert_ne!(voltage, 0.0);
     }
 
     #[test]
