@@ -32,6 +32,7 @@ strum_macros = "0.26.4"
 tempfile = "3.25.0"
 time = "0.3.47"
 crc = "3.4.0"
+fixed = "1.31.0"
 
 [build-dependencies]
 cc = "1.1"
