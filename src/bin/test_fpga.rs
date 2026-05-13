@@ -23,6 +23,7 @@ use log::info;
 use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
 
 use run_m2::daq::{config_data_acquisition::ConfigDataAcquisition, fpga_wrapper::FpgaWrapper};
+use run_m2::enums::{DigitalOutput, DigitalOutputStatus};
 
 fn main() {
     // Set up the logger
@@ -53,7 +54,10 @@ fn main() {
     );
 
     // Set the value to true
-    let _ = fpga_wrapper.write_control_value(name, true);
+    fpga_wrapper.switch_digital_output(
+        DigitalOutput::CommunicationPower,
+        DigitalOutputStatus::BinaryHighLevel,
+    );
 
     // Read the value back
     control_bool_ilc_comm_power_on = fpga_wrapper.read_control_value(name).unwrap();
@@ -63,7 +67,10 @@ fn main() {
     );
 
     // Set the value back to false
-    let _ = fpga_wrapper.write_control_value(name, false);
+    fpga_wrapper.switch_digital_output(
+        DigitalOutput::CommunicationPower,
+        DigitalOutputStatus::BinaryLowLevel,
+    );
 
     // Read the value back
     control_bool_ilc_comm_power_on = fpga_wrapper.read_control_value(name).unwrap();
@@ -74,6 +81,59 @@ fn main() {
 
     // Log the serial configuration
     fpga_wrapper.log_serial_config();
+
+    // Write the data loop rate in the FPGA
+    fpga_wrapper.write_data_loop_rate(200);
+
+    // Open the FIFO
+    fpga_wrapper.open_fifo(
+        config.requested_depth_in_fifo_daq,
+        config.requested_depth_in_fifo_inbound_outbound,
+    );
+
+    // Check the capture of the DAQ FIFO
+    let mut control_enable_capture = fpga_wrapper
+        .read_control_value("controlEnableCapture")
+        .unwrap();
+    info!(
+        "NiFpga_portSerialMasterSlave_ControlBool_Enable_Capture (init): {}",
+        control_enable_capture
+    );
+
+    // Turn off the capture
+    fpga_wrapper.write_control_value("controlEnableCapture", false);
+
+    control_enable_capture = fpga_wrapper
+        .read_control_value("controlEnableCapture")
+        .unwrap();
+    info!(
+        "NiFpga_portSerialMasterSlave_ControlBool_Enable_Capture (after write): {}",
+        control_enable_capture
+    );
+
+    // Clear all the elements in FIFO
+    info!("Clear all the elements in the DAQ FIFO...");
+    fpga_wrapper.clear_fifo_daq(1000);
+
+    // Enable the capture again
+    fpga_wrapper.write_control_value("controlEnableCapture", true);
+
+    // Sleep for 1000 millisecond to allow some data to be captured
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Disable the capture again
+    fpga_wrapper.write_control_value("controlEnableCapture", false);
+
+    // Sleep for 1000 millisecond to make sure all the data is captured in the loop
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Check the DAQ FIFO is full or not
+    let fifo_full = fpga_wrapper.is_daq_fifo_full().unwrap();
+    info!("Is the DAQ FIFO full? {}", fifo_full);
+
+    // Read the power data from the FIFO
+    let power_data = fpga_wrapper.read_power_and_digital_input().unwrap();
+    info!("Power data read from the DAQ FIFO: {:?}", power_data);
 
     info!("End of FPGA test.");
 }
