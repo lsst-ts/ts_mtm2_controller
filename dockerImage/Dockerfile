@@ -12,7 +12,8 @@ USER root
 
 # Install the dependencies
 RUN rustup component add llvm-tools clippy \
-    && cargo install cargo-nextest cargo-llvm-cov
+    && cargo install cargo-nextest --locked \
+    && cargo install cargo-llvm-cov
 
 # Change the user mode
 RUN chmod -R 777 /usr/local/cargo

@@ -168,7 +168,10 @@ impl DataAcquisitionProcess {
     pub fn run(&mut self) {
         info!("Data acquisition loop is running.");
 
+        self.daq.init_hardware();
         self.daq.init_default_digital_output();
+
+        self.daq.enable_capture_power_data(true);
 
         // Max counter to toggle the closed-loop control bit.
         let config = &self.daq.config;
@@ -249,6 +252,8 @@ impl DataAcquisitionProcess {
                 sleep(Duration::from_millis(period_loop - cycle_time));
             }
         }
+
+        self.daq.enable_capture_power_data(false);
 
         self.daq.end_default_digital_output();
 
