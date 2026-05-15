@@ -204,6 +204,10 @@ impl PowerSystem {
 
         // Return the current state if the power is already on
         if self.is_powered_on(power_type) {
+            self._command_result.insert(
+                power_type,
+                Some(acknowledge_command(CommandStatus::Success, sequence_id)),
+            );
             return Some(PowerSystemState::PoweredOn);
         }
 
@@ -286,6 +290,10 @@ impl PowerSystem {
 
         // Return the current state if the power is already off
         if self.is_powered_off(power_type) {
+            self._command_result.insert(
+                power_type,
+                Some(acknowledge_command(CommandStatus::Success, sequence_id)),
+            );
             return Some(PowerSystemState::PoweredOff);
         }
 
@@ -729,6 +737,7 @@ mod tests {
         let (mut power_system, mut plant) = create_power_system();
         assert!(!power_system.subsystem[&PowerType::Motor].is_power_on);
 
+        // First time to power on the system
         assert_eq!(
             power_system.power_on(PowerType::Motor, 1),
             Some(PowerSystemState::PoweringOn)
@@ -766,6 +775,16 @@ mod tests {
                     PowerSystemState::PoweredOn
                 ),
             ]
+        );
+
+        // Second time to power on the system when the system is already on
+        assert_eq!(
+            power_system.power_on(PowerType::Motor, 2),
+            Some(PowerSystemState::PoweredOn)
+        );
+        assert_eq!(
+            run_until_done(PowerType::Motor, &mut power_system, &mut plant),
+            Some(acknowledge_command(CommandStatus::Success, 2))
         );
     }
 
@@ -888,6 +907,7 @@ mod tests {
         power_system.power_on(PowerType::Motor, 1);
         assert!(power_system._command_status[&PowerType::Motor].is_some());
 
+        // First time to power off the system
         assert_eq!(
             power_system.power_off(PowerType::Motor, 2),
             Some(PowerSystemState::PoweringOff)
@@ -925,6 +945,17 @@ mod tests {
                     PowerSystemState::PoweredOff
                 )
             ]
+        );
+
+        // Second time to power off the system when the system is already off
+        assert_eq!(
+            power_system.power_off(PowerType::Motor, 3),
+            Some(PowerSystemState::PoweredOff)
+        );
+
+        assert_eq!(
+            run_until_done(PowerType::Motor, &mut power_system, &mut plant),
+            Some(acknowledge_command(CommandStatus::Success, 3))
         );
     }
 
