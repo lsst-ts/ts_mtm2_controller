@@ -1,5 +1,18 @@
 # Version History
 
+0.4.6
+
+- Update the dependency of `nifpga-dll`.
+- Add the dependency of `fixed`.
+- Update the dependencies to the latest ones.
+- Fix the `Dockerfile` for the installation of `cargo-nextest`.
+- Fix the path in Windows in `command_controller.rs`.
+- Update the `parameters_daq.yaml` to add the FIFO configuration.
+- Update the **ConfigDataAcquisition**.
+- Support the FIFO and read fixed-point in **FpgaWrapper**.
+- Update the **DataAcquisition** and **DataAcquisitionProcess** to read the power data.
+- Update the `test_fpga.rs`.
+
 0.4.5
 
 - Add the FPGA files.
