@@ -171,11 +171,13 @@ impl DataAcquisition {
     /// Get the power telemetry data.
     ///
     /// # Returns
-    /// Telemetry data.
-    pub fn get_telemetry_power(&mut self) -> TelemetryPower {
+    /// A tuple of the power telemetry data and a boolean indicating whether
+    /// the data is valid or not.
+    pub fn get_telemetry_power(&mut self) -> (TelemetryPower, bool) {
         let mut telemetry = TelemetryPower::new();
 
         // Raw power data
+        let mut is_valid = false;
         if let Some((motor_current, comm_current, motor_voltage, comm_voltage, digital_input)) =
             self.get_power_and_digital_input()
         {
@@ -194,12 +196,14 @@ impl DataAcquisition {
                 .insert(String::from("commVoltage"), comm_voltage);
 
             telemetry.digital_input = digital_input;
+
+            // Digital output
+            telemetry.digital_output = self.get_digital_output();
+
+            is_valid = true;
         };
 
-        // Digital output
-        telemetry.digital_output = self.get_digital_output();
-
-        telemetry
+        (telemetry, is_valid)
     }
 
     /// Get the power and digital input.
@@ -993,7 +997,7 @@ mod tests {
         run_until_breaker_enabled(&mut data_acquisition.plant.as_mut().unwrap().power_system_motor);
 
         // Get the telemetry data
-        let telemetry = data_acquisition.get_telemetry_power();
+        let (telemetry, is_valid) = data_acquisition.get_telemetry_power();
 
         assert_eq!(
             telemetry.digital_output,
@@ -1006,6 +1010,8 @@ mod tests {
 
         assert_eq!(telemetry.power_raw["motorVoltage"], PLANT_VOLTAGE);
         assert!(telemetry.power_raw["motorCurrent"] > 0.0);
+
+        assert!(is_valid);
     }
 
     #[test]
