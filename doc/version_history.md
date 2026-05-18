@@ -1,5 +1,11 @@
 # Version History
 
+0.4.7
+
+- Fix the **PowerSystem** to return the power command result if the system is already on/off.
+- Update the `DataAcquisition.get_telemetry_power()` to out the information that the power telemetry is valid or not.
+- Update the `DataAcquisitionProcess.run()` to only send the valid power telemetry.
+
 0.4.6
 
 - Update the dependency of `nifpga-dll`.
