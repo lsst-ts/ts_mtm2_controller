@@ -48,6 +48,10 @@ pub struct ConfigDataAcquisition {
     pub requested_depth_in_fifo_inbound_outbound: usize,
     // Buffer time to clear the DAQ FIFO in milliseconds.
     pub buffer_time_to_clear_fifo_daq: u64,
+    // Pace to write the data to ILC in ticks.
+    pub write_fifo_pace_ticks: u16,
+    // Timeout for the interrupt request (IRQ) in milliseconds.
+    pub timeout_irq: u32,
 }
 
 impl ConfigDataAcquisition {
@@ -83,6 +87,9 @@ impl ConfigDataAcquisition {
                 filepath,
                 "buffer_time_to_clear_fifo_daq",
             ) as u64,
+
+            write_fifo_pace_ticks: get_parameter::<i32>(filepath, "write_fifo_pace_ticks") as u16,
+            timeout_irq: get_parameter::<i32>(filepath, "timeout_irq") as u32,
         }
     }
 }
