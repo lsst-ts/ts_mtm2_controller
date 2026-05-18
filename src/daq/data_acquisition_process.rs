@@ -222,9 +222,10 @@ impl DataAcquisitionProcess {
 
             // Send the telemetry and ignore the error.
             // Always send the power telemetry data.
-            let _ = self
-                ._sender_telemetry_to_power
-                .try_send(self.daq.get_telemetry_power());
+            let (telemetry_power, is_valid) = self.daq.get_telemetry_power();
+            if is_valid {
+                let _ = self._sender_telemetry_to_power.try_send(telemetry_power);
+            }
 
             // When the system is not in idle mode, there is the ILC
             // telemetry data to send.
