@@ -73,3 +73,11 @@ pub const CODE_MONITOR_SENSOR: u8 = 0x54;
 // Broadcast address for all ILCs. This is used to send the step command to all
 // actuator ILCs at once.
 pub const BROADCAST_ADDRESS: u8 = 248;
+
+// Number of the ILC ports.
+pub const NUMBER_ILC_PORT: u8 = 4;
+
+// Interrupt request (IRQ) number for the ILC communication.
+// The portSerialMasterSlave.vi in ts_mtm2_cell uses the bit 1 in Interrupt.
+// Therefore, the IRQ number is 2^1 = 2.
+pub const IRQ_NUMBER_ILC: u32 = 2;
