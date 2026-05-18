@@ -31,6 +31,7 @@ use crate::daq::{
 };
 use crate::enums::{
     DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
+    ModbusMode,
 };
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
@@ -617,20 +618,30 @@ impl DataAcquisition {
 
     /// Initialize the hardware. This is used to open the connection with the
     /// FPGA and do the related setup in the real hardware mode.
-    pub fn init_hardware(&mut self) {
+    ///
+    /// # Returns
+    /// Some if the hardware is initialized successfully. Otherwise, None.
+    pub fn init_hardware(&mut self) -> Option<()> {
         if !self.is_simulation_mode() {
             let config = &self.config;
 
             // Open the FPGA session.
             self._fpga.open(&config.path_bitfile, &config.fpga_resource);
 
-            // Log the current setting of ModBus serial configuration.
-            self._fpga.log_serial_config();
-
             // Update the loop rate.
             // 1 second = 1,000,000 microsecond.
             let loop_rate = (1000000.0 / config.frequency_loop) as u32;
-            self._fpga.write_data_loop_rate(loop_rate);
+            self._fpga
+                .write_control_value_u32("controlDataLoopRateInUs", loop_rate)?;
+
+            // Update the FIFO pace (ticks)
+            self._fpga.write_control_value_u16(
+                "controlWriteFifoPaceTicks",
+                config.write_fifo_pace_ticks,
+            )?;
+
+            // Reserve the IRQ context.
+            self._fpga.reserve_irq_context();
 
             // Open the FPGA FIFO.
             self._fpga.open_fifo(
@@ -642,7 +653,14 @@ impl DataAcquisition {
             // FIFO before starting the data acquisition.
             let delay_time = ((loop_rate / 1000) as u64) + config.buffer_time_to_clear_fifo_daq;
             self._fpga.clear_fifo_daq(delay_time);
+
+            // Set the mode of ModBus serial configuration.
+            self._fpga
+                .configure_serial_config(ModbusMode::Rtu, config.timeout_irq)?;
+            self._fpga.log_serial_config()?;
         }
+
+        Some(())
     }
 
     /// Enable or disable to capture the power data.
@@ -654,7 +672,7 @@ impl DataAcquisition {
         if !self.is_simulation_mode() {
             match self
                 ._fpga
-                .write_control_value("controlEnableCapture", enable)
+                .write_control_value_bool("controlEnableCapture", enable)
             {
                 Some(()) => (),
                 None => error!("Failed to enable to capture the power data: {:?}", enable),
