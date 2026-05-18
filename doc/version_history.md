@@ -1,5 +1,18 @@
 # Version History
 
+0.4.7
+
+- Update the dependency of `nifpga-dll`.
+- Fix the **PowerSystem** to return the power command result if the system is already on/off.
+- Add the **NUMBER_ILC_PORT** and **IRQ_NUMBER_ILC** to `constants.rs`.
+- Add the **ModbusMode** and **IlcCommand** in the `enums.rs`.
+- Update the `parameters_daq.yaml`.
+- Update the **ConfigDataAcquisition**.
+- Support the ILC communication and get all the DAQ FIFO data in **FpgaWrapper**.
+- Update the `DataAcquisition.get_telemetry_power()` to out the information that the power telemetry is valid or not and update the `DataAcquisition.init_hardware()` with the twice loop rate, IRQ and ModBus setup.
+- Update the `DataAcquisitionProcess.run()` to only send the valid power telemetry.
+- Update the `test_fpga.rs`.
+
 0.4.6
 
 - Update the dependency of `nifpga-dll`.
