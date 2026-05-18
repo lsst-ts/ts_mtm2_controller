@@ -40,3 +40,10 @@ requested_depth_in_fifo_inbound_outbound: 1023
 
 # Buffer time to clear the DAQ FIFO in milliseconds.
 buffer_time_to_clear_fifo_daq: 5
+
+# Pace to write the data to ILC in ticks. The tick is the unit of time in
+# FPGA, which is determined by the FPGA design.
+write_fifo_pace_ticks: 1
+
+# Timeout for the interrupt request (IRQ) in milliseconds.
+timeout_irq: 50
