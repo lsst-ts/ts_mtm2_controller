@@ -301,11 +301,34 @@ pub enum DigitalInput {
 #[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
 #[repr(i32)]
 pub enum CustomFpgaModbusError {
+    Unknown = -1,
+    None = 0,
     NoRespond = 5010,
     MessageError = 5020,
     Timeout = 5030,
     AddressNotMatched = 5050,
     CrcError = 5060,
+}
+
+/// Modbus mode for the communication with FPGA.
+#[derive(Debug)]
+pub enum ModbusMode {
+    Ascii,
+    Rtu,
+}
+
+/// Command for the inner-loop controller (ILC).
+#[derive(FromRepr, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+pub enum IlcCommand {
+    DoNothing = 0,
+    Read = 1,
+    Write = 2,
+    WriteAndRead = 3,
+    Config = 4,
+    BytesAtPort = 5,
+    Echo = 6,
+    ClearRxBuffer = 7,
 }
 
 #[cfg(test)]
