@@ -779,7 +779,7 @@ dependencies = [
 [[package]]
 name = "nifpga-dll"
 version = "0.3.0"
-source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=develop#cb773ee25b0943cbd1581e9d526d25d1ac5794bf"
+source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=tickets%2FOSW-2298#747caedb9e1400bd8f61b9c9830ade47fd1ec094"
 dependencies = [
  "fehler",
  "libc",
@@ -790,7 +790,7 @@ dependencies = [
 [[package]]
 name = "nifpga-dll-sys"
 version = "0.3.0"
-source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=develop#cb773ee25b0943cbd1581e9d526d25d1ac5794bf"
+source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=tickets%2FOSW-2298#747caedb9e1400bd8f61b9c9830ade47fd1ec094"
 dependencies = [
  "libc",
 ]
@@ -798,7 +798,7 @@ dependencies = [
 [[package]]
 name = "nifpga-dll-type-macro"
 version = "0.3.0"
-source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=develop#cb773ee25b0943cbd1581e9d526d25d1ac5794bf"
+source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=tickets%2FOSW-2298#747caedb9e1400bd8f61b9c9830ade47fd1ec094"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -15,7 +15,7 @@ fpga = ["dep:nifpga-dll"]
 
 [dependencies]
 ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
-nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "develop", optional = true }
+nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "tickets/OSW-2298", optional = true }
 approx = "0.5"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["cargo"] }
