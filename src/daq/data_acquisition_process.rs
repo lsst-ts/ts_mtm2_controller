@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::info;
+use log::{error, info};
 use serde_json::Value;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -168,7 +168,12 @@ impl DataAcquisitionProcess {
     pub fn run(&mut self) {
         info!("Data acquisition loop is running.");
 
-        self.daq.init_hardware();
+        if self.daq.init_hardware().is_none() {
+            error!(
+                "Failed to initialize the hardware. Some functionalities may not work properly."
+            );
+        }
+
         self.daq.init_default_digital_output();
 
         self.daq.enable_capture_power_data(true);
