@@ -28,7 +28,9 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::enums::{DigitalOutput, DigitalOutputStatus, IlcCommand, ModbusMode};
+use crate::enums::{
+    CustomFpgaModbusError, DigitalOutput, DigitalOutputStatus, IlcCommand, ModbusMode,
+};
 use ts_control_utils::enums::BitEnum;
 
 #[cfg(feature = "fpga")]
@@ -342,7 +344,9 @@ impl FpgaWrapper {
     ///
     /// # Note
     /// See the "Serial Config" cluster in the portSerialMasterSlave.vi in
-    /// ts_mtm2_cell.
+    /// ts_mtm2_cell. And see the fpga/NiFpga_portSerialMasterSlave.c for the
+    /// function:
+    /// NiFpga_portSerialMasterSlave_ControlCluster_SerialConfig_UnpackCluster()
     ///
     /// # Arguments
     /// * `value_baud_rate` - The value of the baud rate field.
@@ -486,11 +490,17 @@ impl FpgaWrapper {
     /// * `_timeout` - The timeout in milliseconds to wait for the IRQ.
     ///
     /// # Returns
-    /// Some(()) if the command is successfully sent and the expected IRQ is
-    /// received, or None if the control register is not found, the value
-    /// cannot be written, or the expected IRQ is not received within the
-    /// timeout.
-    pub fn command_ilc(&self, command: IlcCommand, _irq_number: u32, _timeout: u32) -> Option<()> {
+    /// Some(CustomFpgaModbusError) if the command is successfully sent and the
+    /// expected IRQ is received, or None if the control register is not found,
+    /// the value cannot be written, or the expected IRQ is not received within
+    /// the timeout. The CustomFpgaModbusError value indicates the error code
+    /// from the ILC if an error occurs.
+    pub fn command_ilc(
+        &self,
+        command: IlcCommand,
+        _irq_number: u32,
+        _timeout: u32,
+    ) -> Option<CustomFpgaModbusError> {
         self.write_control_value_u16("controlCommandForFpga", command as u16)?;
         #[cfg(feature = "fpga")]
         {
@@ -527,10 +537,109 @@ impl FpgaWrapper {
                     error!("Failed to get the IRQ context.");
                     return None;
                 }
+
+                return self.read_ilc_error_code();
             }
         }
 
-        Some(())
+        Some(CustomFpgaModbusError::None)
+    }
+
+    /// Read the inner-loop controller (ILC) error code from the FPGA after
+    /// sending a command to the ILC.
+    ///
+    /// # Returns
+    /// Some(CustomFpgaModbusError) if the ILC error code is successfully read
+    /// from the FPGA, or None if the control register for the ILC error code
+    /// is not found or the value cannot be read. The CustomFpgaModbusError
+    /// value indicates the error code from the ILC.
+    pub fn read_ilc_error_code(&self) -> Option<CustomFpgaModbusError> {
+        let _register = self.registers.get("indicatorErrorOut")?;
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(session) = self._session.as_ref() {
+                let mut ilc_error = [0; 5];
+                match session.read_array::<u8>(*_register, &mut ilc_error) {
+                    Ok(()) => {
+                        return Some(self.map_ilc_error_code(&ilc_error));
+                    }
+                    Err(error) => {
+                        error!(
+                            "Failed to read the value of the indicator indicatorErrorOut: {}",
+                            error
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+
+        Some(CustomFpgaModbusError::None)
+    }
+
+    /// Map the raw inner-loop controller (ILC) error code read from the FPGA
+    /// into a CustomFpgaModbusError.
+    ///
+    /// # Arguments
+    /// * `ilc_error` - The raw ILC error code read from the FPGA, represented
+    ///   as a byte array of length 5.
+    ///
+    /// Returns
+    /// The mapped CustomFpgaModbusError based on the raw ILC error code. If
+    /// the raw ILC error code indicates no error, returns
+    /// CustomFpgaModbusError::None. If the raw ILC error code indicates an
+    /// error, returns the corresponding CustomFpgaModbusError variant. If the
+    /// raw ILC error code indicates an error but does not match any known
+    /// error code, returns CustomFpgaModbusError::Unknown.
+    pub fn map_ilc_error_code(&self, ilc_error: &[u8; 5]) -> CustomFpgaModbusError {
+        let (has_error, code) = self.map_error_out(ilc_error);
+        if has_error {
+            let error_code =
+                CustomFpgaModbusError::from_repr(code).unwrap_or(CustomFpgaModbusError::Unknown);
+
+            error!(
+                "Received the code value: {} as the ILC error: {:?}",
+                code, error_code
+            );
+            error_code
+        } else {
+            CustomFpgaModbusError::None
+        }
+    }
+
+    /// Map the raw error output read from the FPGA into a tuple of
+    /// (has_error, code).
+    ///
+    /// # Notes
+    /// See the fpga/NiFpga_portSerialMasterSlave.c for the function:
+    /// NiFpga_portSerialMasterSlave_IndicatorCluster_FPGAErrorOut_UnpackCluster()
+    ///
+    /// # Arguments
+    /// * `error_out` - The raw error output read from the FPGA, represented
+    ///   as a byte array of length 5.
+    ///
+    /// # Returns
+    /// A tuple of (has_error, code), where has_error is a boolean
+    /// indicating whether an error is present, and code is the extracted
+    /// error code as a 32-bit integer if has_error is true, or 0 if has_error
+    /// is false.
+    fn map_error_out(&self, error_out: &[u8; 5]) -> (bool, i32) {
+        // Extract the status (1 bit)
+        let has_error = ((error_out[0] >> 7) & 0x1) != 0;
+
+        // Extract the code (32 bits)
+        let mut code: u32 = 0;
+        if has_error {
+            // We must cast to u32 before shifting, otherwise Rust will panic
+            // for trying to shift a u8 by more than 7 bits.
+            code |= ((error_out[0] & 0x7F) as u32) << 25;
+            code |= (error_out[1] as u32) << 17;
+            code |= (error_out[2] as u32) << 9;
+            code |= (error_out[3] as u32) << 1;
+            code |= ((error_out[4] >> 7) & 0x1) as u32;
+        };
+
+        (has_error, code as i32)
     }
 
     /// Reserve an interrupt request (IRQ) context for waiting on IRQs from the
@@ -1266,6 +1375,44 @@ mod tests {
     }
 
     #[test]
+    fn test_map_ilc_error_code() {
+        let fpga_wrapper = create_fpga_wrapper();
+
+        // Test with no error.
+        let ilc_error_no_error = [0b00000000, 0, 0, 0, 0];
+        assert_eq!(
+            fpga_wrapper.map_ilc_error_code(&ilc_error_no_error),
+            CustomFpgaModbusError::None
+        );
+
+        // Test with a known error code.
+        let ilc_error_known = [0b10000000, 0, 0b00001001, 0b11001001, 0b00000000];
+        assert_eq!(
+            fpga_wrapper.map_ilc_error_code(&ilc_error_known),
+            CustomFpgaModbusError::NoRespond
+        );
+
+        // Test with an unknown error code.
+        let ilc_error_unknown = [0b11111111, 0, 0, 0, 0];
+        assert_eq!(
+            fpga_wrapper.map_ilc_error_code(&ilc_error_unknown),
+            CustomFpgaModbusError::Unknown
+        );
+    }
+
+    #[test]
+    fn test_map_error_out() {
+        let fpga_wrapper = create_fpga_wrapper();
+
+        assert_eq!(fpga_wrapper.map_error_out(&[0; 5]), (false, 0));
+        assert_eq!(
+            fpga_wrapper
+                .map_error_out(&[0b10110000, 0b01110000, 0b01111000, 0b01111100, 0b10000000]),
+            (true, 0b01100000_11100000_11110000_11111001)
+        );
+    }
+
+    #[test]
     fn test_switch_digital_output_fail() {
         let mut fpga_wrapper = create_fpga_wrapper();
 
@@ -1453,12 +1600,25 @@ mod tests {
         fn test_command_ilc() {
             let fpga_wrapper = create_fpga_wrapper_and_open(90);
 
-            assert!(fpga_wrapper
-                .command_ilc(IlcCommand::DoNothing, IRQ_NUMBER_ILC, 1000)
-                .is_some());
+            assert_eq!(
+                fpga_wrapper
+                    .command_ilc(IlcCommand::DoNothing, IRQ_NUMBER_ILC, 1000)
+                    .unwrap(),
+                CustomFpgaModbusError::None
+            );
             assert!(fpga_wrapper
                 .command_ilc(IlcCommand::DoNothing, 1, 1000)
                 .is_none());
+        }
+
+        #[test]
+        fn test_read_ilc_error_code() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert_eq!(
+                fpga_wrapper.read_ilc_error_code().unwrap(),
+                CustomFpgaModbusError::None
+            );
         }
 
         #[test]
