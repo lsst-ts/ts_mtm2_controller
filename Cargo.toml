@@ -14,7 +14,7 @@ opt-level = 3
 fpga = ["dep:nifpga-dll"]
 
 [dependencies]
-ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "develop" }
+ts_control_utils = { git = "https://github.com/lsst-ts/ts_control_utils.git", branch = "tickets/OSW-2256" }
 nifpga-dll = { git = "https://github.com/lsst-ts/nifpga-dll-rs.git", branch = "develop", optional = true }
 approx = "0.5"
 chrono = "0.4.44"
@@ -24,7 +24,7 @@ kiddo = "4.2.1"
 log = "0.4.29"
 nalgebra = { version = "0.33.3", features = ["serde-serialize"]}
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 signal-hook = "0.3.18"
 simplelog = "0.12.2"
 strum = "0.26.3"
