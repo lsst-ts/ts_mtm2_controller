@@ -20,6 +20,14 @@ cargo run --bin run_m2 -- -s
 
 You can interrupt the running application by `ctrl` + `c`.
 
+To run the application in the hardware mode by `cargo`, do:
+
+```bash
+cargo run --features fpga --bin run_m2
+```
+
+Since the FPGA bitfile comes from [ts_mtm2_cell](https://github.com/lsst-ts/ts_mtm2_cell), you need to make sure your target model is the same.
+
 To get more information, do:
 
 ```bash
