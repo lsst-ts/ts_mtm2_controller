@@ -31,6 +31,7 @@ use crate::daq::{
 };
 use crate::enums::{
     DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
+    ModbusMode,
 };
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
@@ -171,11 +172,12 @@ impl DataAcquisition {
     /// Get the power telemetry data.
     ///
     /// # Returns
-    /// Telemetry data.
-    pub fn get_telemetry_power(&mut self) -> TelemetryPower {
-        let mut telemetry = TelemetryPower::new();
-
+    /// A tuple of the power telemetry data and a boolean indicating whether
+    /// the data is valid or not.
+    pub fn get_telemetry_power(&mut self) -> (TelemetryPower, bool) {
         // Raw power data
+        let mut telemetry = TelemetryPower::new();
+        let mut is_valid = false;
         if let Some((motor_current, comm_current, motor_voltage, comm_voltage, digital_input)) =
             self.get_power_and_digital_input()
         {
@@ -194,12 +196,14 @@ impl DataAcquisition {
                 .insert(String::from("commVoltage"), comm_voltage);
 
             telemetry.digital_input = digital_input;
+
+            // Digital output
+            telemetry.digital_output = self.get_digital_output();
+
+            is_valid = true;
         };
 
-        // Digital output
-        telemetry.digital_output = self.get_digital_output();
-
-        telemetry
+        (telemetry, is_valid)
     }
 
     /// Get the power and digital input.
@@ -613,20 +617,33 @@ impl DataAcquisition {
 
     /// Initialize the hardware. This is used to open the connection with the
     /// FPGA and do the related setup in the real hardware mode.
-    pub fn init_hardware(&mut self) {
+    ///
+    /// # Returns
+    /// Some if the hardware is initialized successfully. Otherwise, None.
+    pub fn init_hardware(&mut self) -> Option<()> {
         if !self.is_simulation_mode() {
             let config = &self.config;
 
             // Open the FPGA session.
             self._fpga.open(&config.path_bitfile, &config.fpga_resource);
 
-            // Log the current setting of ModBus serial configuration.
-            self._fpga.log_serial_config();
-
-            // Update the loop rate.
+            // Update the loop rate. Use the half of the period of frequency
+            // loop here to make sure we always have the data in the DAQ FIFO.
+            // Note in the FpgaWrapper.read_power_and_digital_input(), we will
+            // try to read all the power data out in the DAQ FIFO.
             // 1 second = 1,000,000 microsecond.
-            let loop_rate = (1000000.0 / config.frequency_loop) as u32;
-            self._fpga.write_data_loop_rate(loop_rate);
+            let loop_rate = (1000000.0 / config.frequency_loop / 2.0) as u32;
+            self._fpga
+                .write_control_value_u32("controlDataLoopRateInUs", loop_rate)?;
+
+            // Update the FIFO pace (ticks)
+            self._fpga.write_control_value_u16(
+                "controlWriteFifoPaceTicks",
+                config.write_fifo_pace_ticks,
+            )?;
+
+            // Reserve the IRQ context.
+            self._fpga.reserve_irq_context();
 
             // Open the FPGA FIFO.
             self._fpga.open_fifo(
@@ -638,7 +655,14 @@ impl DataAcquisition {
             // FIFO before starting the data acquisition.
             let delay_time = ((loop_rate / 1000) as u64) + config.buffer_time_to_clear_fifo_daq;
             self._fpga.clear_fifo_daq(delay_time);
+
+            // Set the mode of Modbus serial configuration.
+            self._fpga
+                .configure_serial_config(ModbusMode::Rtu, config.timeout_irq)?;
+            self._fpga.log_serial_config()?;
         }
+
+        Some(())
     }
 
     /// Enable or disable to capture the power data.
@@ -650,7 +674,7 @@ impl DataAcquisition {
         if !self.is_simulation_mode() {
             match self
                 ._fpga
-                .write_control_value("controlEnableCapture", enable)
+                .write_control_value_bool("controlEnableCapture", enable)
             {
                 Some(()) => (),
                 None => error!("Failed to enable to capture the power data: {:?}", enable),
@@ -993,7 +1017,7 @@ mod tests {
         run_until_breaker_enabled(&mut data_acquisition.plant.as_mut().unwrap().power_system_motor);
 
         // Get the telemetry data
-        let telemetry = data_acquisition.get_telemetry_power();
+        let (telemetry, is_valid) = data_acquisition.get_telemetry_power();
 
         assert_eq!(
             telemetry.digital_output,
@@ -1006,6 +1030,8 @@ mod tests {
 
         assert_eq!(telemetry.power_raw["motorVoltage"], PLANT_VOLTAGE);
         assert!(telemetry.power_raw["motorCurrent"] > 0.0);
+
+        assert!(is_valid);
     }
 
     #[test]

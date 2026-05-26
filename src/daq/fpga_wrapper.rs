@@ -28,11 +28,16 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::enums::{DigitalOutput, DigitalOutputStatus};
+use crate::enums::{
+    CustomFpgaModbusError, DigitalOutput, DigitalOutputStatus, IlcCommand, ModbusMode,
+};
 use ts_control_utils::enums::BitEnum;
 
 #[cfg(feature = "fpga")]
-use nifpga_dll::{ReadFifo, Session, WriteFifo};
+use crate::constants::{IRQ_NUMBER_ILC, NUMBER_ILC_PORT};
+
+#[cfg(feature = "fpga")]
+use nifpga_dll::{Context, ReadFifo, Session, Type, WriteFifo};
 
 #[cfg(feature = "fpga")]
 #[link(name = "nifpga_c_api", kind = "static")]
@@ -60,6 +65,9 @@ pub struct FpgaWrapper {
     #[cfg(feature = "fpga")]
     // Outbound FIFO to send the frame to the ILC
     _fifo_outbound: Option<WriteFifo<u8>>,
+    #[cfg(feature = "fpga")]
+    // Interrupt request (IRQ) context for waiting on the IRQ from the FPGA
+    _irq_context: Option<Context>,
 }
 
 impl FpgaWrapper {
@@ -84,7 +92,10 @@ impl FpgaWrapper {
             "controlEnableCapture",
             "controlSerialConfigResource",
             "controlDataLoopRateInUs",
-            "indicatorDaqFifoFull",
+            "controlPort",
+            "controlCommandForFpga",
+            "controlWriteFifoPaceTicks",
+            "indicatorErrorOut",
             "fifoDaq",
             "fifoInbound",
             "fifoOutbound",
@@ -101,7 +112,10 @@ impl FpgaWrapper {
             "NiFpga_portSerialMasterSlave_ControlBool_EnableCapture",
             "NiFpga_portSerialMasterSlave_ControlCluster_SerialConfig_Resource",
             "NiFpga_portSerialMasterSlave_ControlU32_LoopRateuS",
-            "NiFpga_portSerialMasterSlave_IndicatorBool_DataFIFOFull",
+            "NiFpga_portSerialMasterSlave_ControlU8_Port",
+            "NiFpga_portSerialMasterSlave_ControlU16_CmdforFPGA",
+            "NiFpga_portSerialMasterSlave_ControlU16_WriteFIFOpaceticks",
+            "NiFpga_portSerialMasterSlave_IndicatorCluster_FPGAErrorOut_Resource",
             "NiFpga_portSerialMasterSlave_TargetToHostFifoFxp_DAQ_FIFO_Resource",
             "NiFpga_portSerialMasterSlave_TargetToHostFifoU8_Inbound_FIFO",
             "NiFpga_portSerialMasterSlave_HostToTargetFifoU8_Outbound_FIFO",
@@ -122,6 +136,9 @@ impl FpgaWrapper {
 
             #[cfg(feature = "fpga")]
             _fifo_outbound: None,
+
+            #[cfg(feature = "fpga")]
+            _irq_context: None,
         }
     }
 
@@ -273,9 +290,31 @@ impl FpgaWrapper {
     /// Log the value of the serial config resource in the FPGA.
     ///
     /// # Returns
+    /// Some(()) if the value is successfully logged, or None if the control
+    /// register for the serial config resource is not found or the value
+    /// cannot be read.
+    pub fn log_serial_config(&self) -> Option<()> {
+        let config = self.get_serial_config()?;
+        info!(
+            "{}",
+            self._format_serial_config(
+                u16::from_be_bytes([config[0], config[1]]),
+                config[2],
+                config[3],
+                config[4],
+                config[5],
+            )
+        );
+
+        Some(())
+    }
+
+    /// Get the value of the serial config resource in the FPGA.
+    ///
+    /// # Returns
     /// The value of the serial config resource, or None if the control
     /// register is not found or the value cannot be read.
-    pub fn log_serial_config(&self) -> Option<[u8; 6]> {
+    fn get_serial_config(&self) -> Option<[u8; 6]> {
         let _register = self.registers.get("controlSerialConfigResource")?;
         #[cfg(feature = "fpga")]
         {
@@ -283,16 +322,6 @@ impl FpgaWrapper {
                 let mut config = [0; 6];
                 match session.read_array::<u8>(*_register, &mut config) {
                     Ok(()) => {
-                        info!(
-                            "{}",
-                            self._format_serial_config(
-                                u16::from_be_bytes([config[0], config[1]]),
-                                config[2],
-                                config[3],
-                                config[4],
-                                config[5],
-                            )
-                        );
                         return Some(config);
                     }
                     Err(error) => {
@@ -313,7 +342,9 @@ impl FpgaWrapper {
     ///
     /// # Note
     /// See the "Serial Config" cluster in the portSerialMasterSlave.vi in
-    /// ts_mtm2_cell.
+    /// ts_mtm2_cell. And see the fpga/NiFpga_portSerialMasterSlave.c for the
+    /// function:
+    /// NiFpga_portSerialMasterSlave_ControlCluster_SerialConfig_UnpackCluster()
     ///
     /// # Arguments
     /// * `value_baud_rate` - The value of the baud rate field.
@@ -394,6 +425,264 @@ impl FpgaWrapper {
         )
     }
 
+    /// Configure the serial config resource in the FPGA according to the given
+    /// Modbus mode.
+    ///
+    /// # Arguments
+    /// * `mode` - The Modbus mode to configure the serial config resource
+    ///   for.
+    /// * `_timeout` - The timeout in milliseconds to wait for the interrupt
+    ///   request (IRQ).
+    ///
+    /// # Returns
+    /// Some(()) if the serial config resource is successfully configured, or
+    /// None if the control register is not found or the value cannot be read
+    /// or written.
+    pub fn configure_serial_config(&self, mode: ModbusMode, _timeout: u32) -> Option<()> {
+        // See the self._format_serial_config() for the mapping between the
+        // value of each field in the serial config resource and the actual
+        // data bits.
+        let mut _config = self.get_serial_config()?;
+        match mode {
+            ModbusMode::Ascii => {
+                _config[4] = 2; // 7 data bits
+            }
+            ModbusMode::Rtu => {
+                _config[4] = 3; // 8 data bits
+            }
+        }
+
+        let _register = self.registers.get("controlSerialConfigResource")?;
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(session) = self._session.as_ref() {
+                match session.write_array::<u8>(*_register, &_config) {
+                    Ok(()) => {
+                        info!("Successfully wrote the value of the control controlSerialConfigResource.");
+                    }
+                    Err(error) => {
+                        error!("Failed to write the value of the control controlSerialConfigResource: {}",
+                            error
+                        );
+                        return None;
+                    }
+                }
+            }
+
+            for idx in 1..(NUMBER_ILC_PORT + 1) {
+                self.write_control_value_u8("controlPort", idx)?;
+                let modbus_error =
+                    self.command_ilc(IlcCommand::Config, IRQ_NUMBER_ILC, _timeout)?;
+                if self.has_modbus_error(modbus_error) {
+                    return None;
+                }
+            }
+        }
+
+        Some(())
+    }
+
+    /// Send a command to the inner-loop controller (ILC) and wait for the
+    /// interrupt request (IRQ) from the FPGA indicating the command is
+    /// executed.
+    ///
+    /// # Arguments
+    /// * `command` - The command to send to the ILC.
+    /// * `_irq_number` - The IRQ number to wait for from the FPGA.
+    /// * `_timeout` - The timeout in milliseconds to wait for the IRQ.
+    ///
+    /// # Returns
+    /// Some(CustomFpgaModbusError) if the command is successfully sent and the
+    /// expected IRQ is received, or None if the control register is not found,
+    /// the value cannot be written, or the expected IRQ is not received within
+    /// the timeout. The CustomFpgaModbusError value indicates the error code
+    /// from the ILC if an error occurs.
+    pub fn command_ilc(
+        &self,
+        command: IlcCommand,
+        _irq_number: u32,
+        _timeout: u32,
+    ) -> Option<CustomFpgaModbusError> {
+        self.write_control_value_u16("controlCommandForFpga", command as u16)?;
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(session) = self._session.as_ref() {
+                if let Err(error) = session.acknowledge_irqs(_irq_number) {
+                    error!(
+                        "Failed to acknowledge IRQ number {}: {}",
+                        _irq_number, error
+                    );
+                    return None;
+                }
+
+                if let Some(context) = self._irq_context.as_ref() {
+                    match context.wait_on_irqs(_irq_number, _timeout) {
+                        Ok((irqs_asserted, is_timed_out)) => {
+                            if irqs_asserted != _irq_number {
+                                error!("Received an IRQ, but it is not the expected IRQ number {}. Actual IRQs asserted: {}.",
+                                    _irq_number, irqs_asserted
+                                );
+                                return None;
+                            }
+
+                            if is_timed_out {
+                                error!("Timed out while waiting for IRQ number {}.", _irq_number);
+                                return None;
+                            }
+                        }
+                        Err(error) => {
+                            error!("Failed to wait for IRQ number {}: {}", _irq_number, error);
+                            return None;
+                        }
+                    }
+                } else {
+                    error!("Failed to get the IRQ context.");
+                    return None;
+                }
+
+                return self.read_ilc_error_code();
+            }
+        }
+
+        Some(CustomFpgaModbusError::Unknown)
+    }
+
+    /// Read the inner-loop controller (ILC) error code from the FPGA after
+    /// sending a command to the ILC.
+    ///
+    /// # Returns
+    /// Some(CustomFpgaModbusError) if the ILC error code is successfully read
+    /// from the FPGA, or None if the control register for the ILC error code
+    /// is not found or the value cannot be read. The CustomFpgaModbusError
+    /// value indicates the error code from the ILC.
+    pub fn read_ilc_error_code(&self) -> Option<CustomFpgaModbusError> {
+        let _register = self.registers.get("indicatorErrorOut")?;
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(session) = self._session.as_ref() {
+                let mut ilc_error = [0; 5];
+                match session.read_array::<u8>(*_register, &mut ilc_error) {
+                    Ok(()) => {
+                        return Some(self.map_ilc_error_code(&ilc_error));
+                    }
+                    Err(error) => {
+                        error!(
+                            "Failed to read the value of the indicator indicatorErrorOut: {}",
+                            error
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+
+        Some(CustomFpgaModbusError::Unknown)
+    }
+
+    /// Map the raw inner-loop controller (ILC) error code read from the FPGA
+    /// into a CustomFpgaModbusError.
+    ///
+    /// # Arguments
+    /// * `ilc_error` - The raw ILC error code read from the FPGA, represented
+    ///   as a byte array of length 5.
+    ///
+    /// Returns
+    /// The mapped CustomFpgaModbusError based on the raw ILC error code. If
+    /// the raw ILC error code indicates no error, returns
+    /// CustomFpgaModbusError::None. If the raw ILC error code indicates an
+    /// error, returns the corresponding CustomFpgaModbusError variant. If the
+    /// raw ILC error code indicates an error but does not match any known
+    /// error code, returns CustomFpgaModbusError::Unknown.
+    pub fn map_ilc_error_code(&self, ilc_error: &[u8; 5]) -> CustomFpgaModbusError {
+        let (has_error, code) = self.map_error_out(ilc_error);
+        if has_error {
+            let error_code =
+                CustomFpgaModbusError::from_repr(code).unwrap_or(CustomFpgaModbusError::Unknown);
+
+            error!(
+                "Received the code value: {} as the ILC error: {:?}",
+                code, error_code
+            );
+            error_code
+        } else {
+            CustomFpgaModbusError::None
+        }
+    }
+
+    /// Map the raw error output read from the FPGA into a tuple of
+    /// (has_error, code).
+    ///
+    /// # Notes
+    /// See the fpga/NiFpga_portSerialMasterSlave.c for the function:
+    /// NiFpga_portSerialMasterSlave_IndicatorCluster_FPGAErrorOut_UnpackCluster()
+    ///
+    /// # Arguments
+    /// * `error_out` - The raw error output read from the FPGA, represented
+    ///   as a byte array of length 5.
+    ///
+    /// # Returns
+    /// A tuple of (has_error, code), where has_error is a boolean
+    /// indicating whether an error is present, and code is the extracted
+    /// error code as a 32-bit integer if has_error is true, or 0 if has_error
+    /// is false.
+    fn map_error_out(&self, error_out: &[u8; 5]) -> (bool, i32) {
+        // Extract the status (1 bit)
+        let has_error = ((error_out[0] >> 7) & 0x1) != 0;
+
+        // Extract the code (32 bits)
+        let mut code: u32 = 0;
+        if has_error {
+            // We must cast to u32 before shifting, otherwise Rust will panic
+            // for trying to shift a u8 by more than 7 bits.
+            code |= ((error_out[0] & 0x7F) as u32) << 25;
+            code |= (error_out[1] as u32) << 17;
+            code |= (error_out[2] as u32) << 9;
+            code |= (error_out[3] as u32) << 1;
+            code |= ((error_out[4] >> 7) & 0x1) as u32;
+        };
+
+        (has_error, code as i32)
+    }
+
+    /// Check if the given Modbus error code from the inner-loop controller
+    /// (ILC) indicates an error.
+    ///
+    /// # Arguments
+    /// * `modbus_error` - The Modbus error code from the ILC, represented as
+    ///   a CustomFpgaModbusError.
+    ///
+    /// # Returns
+    /// true if the given Modbus error code indicates an error, or false if the
+    /// given Modbus error code indicates no error.
+    pub fn has_modbus_error(&self, modbus_error: CustomFpgaModbusError) -> bool {
+        modbus_error != CustomFpgaModbusError::None
+    }
+
+    /// Reserve an interrupt request (IRQ) context for waiting on IRQs from the
+    /// FPGA.
+    ///
+    /// # Panics
+    /// Panics if the IRQ context cannot be reserved.
+    pub fn reserve_irq_context(&mut self) {
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(session) = self._session.as_ref() {
+                match session.reserve_irq_context() {
+                    Ok(context) => {
+                        info!("Successfully reserved the IRQ context.");
+                        self._irq_context = Some(context);
+                    }
+                    Err(error) => {
+                        Self::log_error_and_panic(&format!(
+                            "Failed to reserve the IRQ context: {}.",
+                            error
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     /// Open the FIFO in the FPGA.
     ///
     /// # Arguments
@@ -464,7 +753,11 @@ impl FpgaWrapper {
         }
     }
 
-    /// Read the value of a control register in the FPGA.
+    /// Read the boolean value of a control register in the FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
     ///
     /// # Arguments
     /// * `name` - The name of the control register to read the value of.
@@ -472,20 +765,209 @@ impl FpgaWrapper {
     /// # Returns
     /// The value of the control register, or None if the control register is
     /// not found or the value cannot be read.
-    pub fn read_control_value(&self, name: &str) -> Option<bool> {
-        let _register = self.registers.get(name)?;
-        #[cfg(feature = "fpga")]
-        {
-            if let Some(session) = self._session.as_ref() {
-                match session.read::<bool>(*_register) {
-                    Ok(value) => return Some(value),
-                    Err(error) => {
-                        error!(
-                            "Failed to read the value of the control {}: {}",
-                            name, error
-                        );
-                        return None;
-                    }
+    pub fn read_control_value_bool(&self, name: &str) -> Option<bool> {
+        self.read_control_value::<bool>(name)
+    }
+
+    /// Read the 8-bit unsigned integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to read the value of.
+    ///
+    /// # Returns
+    /// The value of the control register, or None if the control register is
+    /// not found or the value cannot be read.
+    pub fn read_control_value_u8(&self, name: &str) -> Option<u8> {
+        self.read_control_value::<u8>(name)
+    }
+
+    /// Read the 16-bit unsigned integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to read the value of.
+    ///
+    /// # Returns
+    /// The value of the control register, or None if the control register is
+    /// not found or the value cannot be read.
+    pub fn read_control_value_u16(&self, name: &str) -> Option<u16> {
+        self.read_control_value::<u16>(name)
+    }
+
+    /// Read the 32-bit unsigned integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to read the value of.
+    ///
+    /// # Returns
+    /// The value of the control register, or None if the control register is
+    /// not found or the value cannot be read.
+    pub fn read_control_value_u32(&self, name: &str) -> Option<u32> {
+        self.read_control_value::<u32>(name)
+    }
+
+    /// Read the value of a control register in the FPGA.
+    ///
+    /// # Notes
+    /// Keep this function private so that the public API does not expose the
+    /// generic bound from nifpga-dll.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to read the value of.
+    ///
+    /// # Returns
+    /// The value of the control register, or None if the control register is
+    /// not found or the value cannot be read.
+    #[cfg(feature = "fpga")]
+    fn read_control_value<T: Type>(&self, name: &str) -> Option<T> {
+        let register = self.registers.get(name)?;
+        if let Some(session) = self._session.as_ref() {
+            match session.read::<T>(*register) {
+                Ok(value) => return Some(value),
+                Err(error) => {
+                    error!(
+                        "Failed to read the value of the control {}: {}",
+                        name, error
+                    );
+                    return None;
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Read the value of a control register in the FPGA.
+    ///
+    /// # Notes
+    /// This stub keeps non-fpga builds independent from nifpga-dll.
+    ///
+    /// # Arguments
+    /// * `_name` - The name of the control register to read the value of.
+    ///
+    /// # Returns
+    /// The value of the control register, or None if the control register is
+    /// not found or the value cannot be read.
+    #[cfg(not(feature = "fpga"))]
+    fn read_control_value<T>(&self, _name: &str) -> Option<T> {
+        None
+    }
+
+    /// Write the boolean value of a control register in the FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to write the value of.
+    /// * `value` - The value to write to the control register.
+    ///
+    /// # Returns
+    /// Some(()) if the value is successfully written to the control register,
+    /// or None if the control register is not found or the value cannot be
+    /// written.
+    pub fn write_control_value_bool(&self, name: &str, value: bool) -> Option<()> {
+        self.write_control_value::<bool>(name, value)
+    }
+
+    /// Write the 8-bit unsigned integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to write the value of.
+    /// * `value` - The value to write to the control register.
+    ///
+    /// # Returns
+    /// Some(()) if the value is successfully written to the control register,
+    /// or None if the control register is not found or the value cannot be
+    /// written.
+    pub fn write_control_value_u8(&self, name: &str, value: u8) -> Option<()> {
+        self.write_control_value::<u8>(name, value)
+    }
+
+    /// Write the 16-bit unsigned integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to write the value of.
+    /// * `value` - The value to write to the control register.
+    ///
+    /// # Returns
+    /// Some(()) if the value is successfully written to the control register,
+    /// or None if the control register is not found or the value cannot be
+    /// written.
+    pub fn write_control_value_u16(&self, name: &str, value: u16) -> Option<()> {
+        self.write_control_value::<u16>(name, value)
+    }
+
+    /// Write the 32-bit unsigned integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to write the value of.
+    /// * `value` - The value to write to the control register.
+    ///
+    /// # Returns
+    /// Some(()) if the value is successfully written to the control register,
+    /// or None if the control register is not found or the value cannot be
+    /// written.
+    pub fn write_control_value_u32(&self, name: &str, value: u32) -> Option<()> {
+        self.write_control_value::<u32>(name, value)
+    }
+
+    /// Write the value of a control register in the FPGA.
+    ///
+    /// # Notes
+    /// Keep this function private so that the public API does not expose the
+    /// generic bound from nifpga-dll.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to write the value of.
+    /// * `value` - The value to write to the control register.
+    ///
+    /// # Returns
+    /// Some(()) if the value is successfully written to the control register,
+    /// or None if the control register is not found or the value cannot be
+    /// written.
+    #[cfg(feature = "fpga")]
+    fn write_control_value<T: Type>(&self, name: &str, value: T) -> Option<()> {
+        let register = self.registers.get(name)?;
+        if let Some(session) = self._session.as_ref() {
+            match session.write::<T>(*register, value) {
+                Ok(_) => return Some(()),
+                Err(error) => {
+                    error!(
+                        "Failed to write the value of the control {}: {}",
+                        name, error
+                    );
+                    return None;
                 }
             }
         }
@@ -495,32 +977,19 @@ impl FpgaWrapper {
 
     /// Write the value of a control register in the FPGA.
     ///
+    /// # Notes
+    /// This stub keeps non-fpga builds independent from nifpga-dll.
+    ///
     /// # Arguments
-    /// * `name` - The name of the control register to write the value of.
+    /// * `_name` - The name of the control register to write the value of.
     /// * `_value` - The value to write to the control register.
     ///
     /// # Returns
     /// Some(()) if the value is successfully written to the control register,
     /// or None if the control register is not found or the value cannot be
     /// written.
-    pub fn write_control_value(&self, name: &str, _value: bool) -> Option<()> {
-        let _register = self.registers.get(name)?;
-        #[cfg(feature = "fpga")]
-        {
-            if let Some(session) = self._session.as_ref() {
-                match session.write::<bool>(*_register, _value) {
-                    Ok(_) => return Some(()),
-                    Err(error) => {
-                        error!(
-                            "Failed to write the value of the control {}: {}",
-                            name, error
-                        );
-                        return None;
-                    }
-                }
-            }
-        }
-
+    #[cfg(not(feature = "fpga"))]
+    fn write_control_value<T>(&self, _name: &str, _value: T) -> Option<()> {
         None
     }
 
@@ -558,7 +1027,7 @@ impl FpgaWrapper {
             }
         };
 
-        match self.write_control_value(name, value) {
+        match self.write_control_value_bool(name, value) {
             Some(()) => {
                 match value {
                     true => self.digital_output |= digital_output.bit_value(),
@@ -578,47 +1047,6 @@ impl FpgaWrapper {
         }
     }
 
-    /// Write the data loop rate in the FPGA.
-    ///
-    /// # Notes
-    /// This loop rate is defined in the portSerialMasterSlave.vi in
-    /// ts_mtm2_cell. See the control: Loop Rate (uS). Instead of the name of
-    /// rate, it is the period of the loop in microseconds actually. Keep this
-    /// name to be consistent with the name of the control in the FPGA, but it
-    /// may be confusing. Be careful when using this function.
-    ///
-    /// # Arguments
-    /// * `_rate` - The data loop rate in microseconds to write to the control
-    ///   register.
-    ///
-    /// # Returns
-    /// Some(()) if the value is successfully written to the control register,
-    /// or None if the control register is not found or the value cannot be
-    /// written.
-    pub fn write_data_loop_rate(&self, _rate: u32) -> Option<()> {
-        let _register = self.registers.get("controlDataLoopRateInUs")?;
-        #[cfg(feature = "fpga")]
-        {
-            if let Some(session) = self._session.as_ref() {
-                match session.write::<u32>(*_register, _rate) {
-                    Ok(_) => {
-                        info!(
-                            "Successfully wrote the data loop rate {} us to the control register.",
-                            _rate
-                        );
-                        return Some(());
-                    }
-                    Err(error) => {
-                        error!("Failed to write the data loop rate: {}", error);
-                        return None;
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
     /// Clear the DAQ FIFO in the FPGA by reading all the remaining elements in
     /// the FIFO.
     ///
@@ -633,7 +1061,7 @@ impl FpgaWrapper {
     pub fn clear_fifo_daq(&self, delay_time: u64) {
         // After disabling the capture, wait for the FPGA to complete one cycle
         // (plus some timing margin).
-        self.write_control_value("controlEnableCapture", false);
+        self.write_control_value_bool("controlEnableCapture", false);
         sleep(Duration::from_millis(delay_time));
 
         // Read the elements in the FIFO until there is no element remaining.
@@ -696,15 +1124,6 @@ impl FpgaWrapper {
         None
     }
 
-    /// Check if the DAQ FIFO in the FPGA is full.
-    ///
-    /// # Returns
-    /// Some(true) if the FIFO is full, Some(false) if the FIFO is not full,
-    /// or None if the FIFO is not found or the value cannot be read.
-    pub fn is_daq_fifo_full(&self) -> Option<bool> {
-        self.read_control_value("indicatorDaqFifoFull")
-    }
-
     /// Read the power and digital input data from the DAQ FIFO in the FPGA.
     ///
     /// # Returns
@@ -716,10 +1135,19 @@ impl FpgaWrapper {
         let elements_remaining = self.read_fifo_elements_daq(0, 0)?.1;
         // FPGA code writes 9 elements for each data point of power and digital
         // input.
-        let number_elements_to_read = 9;
-        if elements_remaining >= number_elements_to_read {
-            let elements = self.read_fifo_elements_daq(number_elements_to_read, 0)?.0;
-            return Some(self.process_power_data(&elements));
+        const NUMBER_ELEMENTS_TO_READ: usize = 9;
+        if elements_remaining >= NUMBER_ELEMENTS_TO_READ {
+            // Round down to the nearest multiple of NUMBER_ELEMENTS_TO_READ to
+            // make sure we read the complete data points.
+            let number_to_take =
+                (elements_remaining / NUMBER_ELEMENTS_TO_READ) * NUMBER_ELEMENTS_TO_READ;
+            let elements = self.read_fifo_elements_daq(number_to_take, 0)?.0;
+
+            // Process the last complete data points in the elements read from
+            // the FIFO.
+            return Some(self.process_power_data(
+                &elements[(number_to_take - NUMBER_ELEMENTS_TO_READ)..number_to_take],
+            ));
         }
 
         None
@@ -851,6 +1279,12 @@ impl Drop for FpgaWrapper {
             }
 
             info!("Closed the FIFOs.");
+
+            if self._irq_context.is_some() {
+                self._irq_context = None;
+            }
+
+            info!("Closed the IRQ context.");
         }
     }
 }
@@ -874,7 +1308,7 @@ mod tests {
     fn test_new() {
         let fpga_wrapper = create_fpga_wrapper();
 
-        assert_eq!(fpga_wrapper.registers.len(), 15);
+        assert_eq!(fpga_wrapper.registers.len(), 18);
     }
 
     #[test]
@@ -903,27 +1337,31 @@ mod tests {
             FpgaWrapper::get_register(
                 header_path,
                 "NiFpga_portSerialMasterSlave_ControlBool_EnableCapture"
-            ),
-            Some(0x1803E)
+            )
+            .unwrap(),
+            0x1803E
         );
         assert_eq!(
-            FpgaWrapper::get_register(header_path, "NiFpga_portSerialMasterSlave_ControlBool_stop"),
-            Some(0x18046)
+            FpgaWrapper::get_register(header_path, "NiFpga_portSerialMasterSlave_ControlBool_stop")
+                .unwrap(),
+            0x18046
         );
         assert_eq!(
             FpgaWrapper::get_register(
                 header_path,
                 "NiFpga_portSerialMasterSlave_TargetToHostFifoU8_Inbound_FIFO"
-            ),
-            Some(3)
+            )
+            .unwrap(),
+            3
         );
 
         assert_eq!(
             FpgaWrapper::get_register(
                 header_path,
                 "NiFpga_portSerialMasterSlave_ControlCluster_SerialConfig_Resource"
-            ),
-            Some(0x18004)
+            )
+            .unwrap(),
+            0x18004
         );
 
         assert!(FpgaWrapper::get_register(header_path, "NonExistentRegister").is_none());
@@ -950,6 +1388,53 @@ mod tests {
             message,
             "Serial config - Baud rate: 921.6 kbps, Parity: None, Flow control: None, Data bits: 8, Stop bits: 1."
         );
+    }
+
+    #[test]
+    fn test_map_ilc_error_code() {
+        let fpga_wrapper = create_fpga_wrapper();
+
+        // Test with no error.
+        let ilc_error_no_error = [0b00000000, 0, 0, 0, 0];
+        assert_eq!(
+            fpga_wrapper.map_ilc_error_code(&ilc_error_no_error),
+            CustomFpgaModbusError::None
+        );
+
+        // Test with a known error code.
+        let ilc_error_known = [0b10000000, 0, 0b00001001, 0b11001001, 0b00000000];
+        assert_eq!(
+            fpga_wrapper.map_ilc_error_code(&ilc_error_known),
+            CustomFpgaModbusError::NoRespond
+        );
+
+        // Test with an unknown error code.
+        let ilc_error_unknown = [0b11111111, 0, 0, 0, 0];
+        assert_eq!(
+            fpga_wrapper.map_ilc_error_code(&ilc_error_unknown),
+            CustomFpgaModbusError::Unknown
+        );
+    }
+
+    #[test]
+    fn test_map_error_out() {
+        let fpga_wrapper = create_fpga_wrapper();
+
+        assert_eq!(fpga_wrapper.map_error_out(&[0; 5]), (false, 0));
+        assert_eq!(
+            fpga_wrapper
+                .map_error_out(&[0b10110000, 0b01110000, 0b01111000, 0b01111100, 0b10000000]),
+            (true, 0b01100000_11100000_11110000_11111001)
+        );
+    }
+
+    #[test]
+    fn test_has_modbus_error() {
+        let fpga_wrapper = create_fpga_wrapper();
+
+        assert!(!fpga_wrapper.has_modbus_error(CustomFpgaModbusError::None));
+        assert!(fpga_wrapper.has_modbus_error(CustomFpgaModbusError::NoRespond));
+        assert!(fpga_wrapper.has_modbus_error(CustomFpgaModbusError::Unknown));
     }
 
     #[test]
@@ -1077,34 +1562,25 @@ mod tests {
     mod fpga_hardware {
         use super::*;
 
+        use crate::constants::IRQ_NUMBER_ILC;
+
         fn create_fpga_wrapper_and_open(depth: usize) -> FpgaWrapper {
             let mut fpga_wrapper = create_fpga_wrapper();
 
             let config = ConfigDataAcquisition::new();
             fpga_wrapper.open(&config.path_bitfile, &config.fpga_resource);
+            fpga_wrapper.reserve_irq_context();
             fpga_wrapper.open_fifo(depth, depth);
 
             fpga_wrapper
         }
 
-        fn read_data_loop_rate(fpga_wrapper: &FpgaWrapper) -> Option<u32> {
-            let register = fpga_wrapper.registers.get("controlDataLoopRateInUs")?;
-            if let Some(session) = fpga_wrapper._session.as_ref() {
-                match session.read::<u32>(*register) {
-                    Ok(value) => return Some(value),
-                    Err(_) => return None,
-                }
-            }
-
-            None
-        }
-
         fn capture_data_in_fifo_daq(fpga_wrapper: &FpgaWrapper) {
-            fpga_wrapper.write_data_loop_rate(200);
+            fpga_wrapper.write_control_value_u32("controlDataLoopRateInUs", 200);
 
-            fpga_wrapper.write_control_value("controlEnableCapture", true);
+            fpga_wrapper.write_control_value_bool("controlEnableCapture", true);
             sleep(Duration::from_millis(100));
-            fpga_wrapper.write_control_value("controlEnableCapture", false);
+            fpga_wrapper.write_control_value_bool("controlEnableCapture", false);
         }
 
         #[test]
@@ -1115,50 +1591,98 @@ mod tests {
         }
 
         #[test]
-        fn test_log_serial_config() {
+        fn test_get_serial_config() {
             let fpga_wrapper = create_fpga_wrapper_and_open(90);
 
-            assert_eq!(fpga_wrapper.log_serial_config(), Some([0, 20, 0, 0, 3, 0]));
+            assert_eq!(
+                fpga_wrapper.get_serial_config().unwrap(),
+                [0, 20, 0, 0, 3, 0]
+            );
         }
 
         #[test]
-        fn test_read_control_value() {
+        fn test_configure_serial_config() {
             let fpga_wrapper = create_fpga_wrapper_and_open(90);
 
+            assert!(fpga_wrapper
+                .configure_serial_config(ModbusMode::Ascii, 50)
+                .is_some());
             assert_eq!(
-                fpga_wrapper.read_control_value("controlMod4Ch7"),
-                Some(false)
+                fpga_wrapper.get_serial_config().unwrap(),
+                [0, 20, 0, 0, 2, 0]
             );
-            assert!(fpga_wrapper.read_control_value("noThisControl").is_none());
+
+            assert!(fpga_wrapper
+                .configure_serial_config(ModbusMode::Rtu, 50)
+                .is_some());
+            assert_eq!(
+                fpga_wrapper.get_serial_config().unwrap(),
+                [0, 20, 0, 0, 3, 0]
+            );
         }
 
         #[test]
-        fn test_write_control_value() {
+        fn test_command_ilc() {
             let fpga_wrapper = create_fpga_wrapper_and_open(90);
 
             assert_eq!(
-                fpga_wrapper.read_control_value("controlMod4Ch7"),
+                fpga_wrapper
+                    .command_ilc(IlcCommand::DoNothing, IRQ_NUMBER_ILC, 1000)
+                    .unwrap(),
+                CustomFpgaModbusError::None
+            );
+            assert!(fpga_wrapper
+                .command_ilc(IlcCommand::DoNothing, 1, 1000)
+                .is_none());
+        }
+
+        #[test]
+        fn test_read_ilc_error_code() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert_eq!(
+                fpga_wrapper.read_ilc_error_code().unwrap(),
+                CustomFpgaModbusError::None
+            );
+        }
+
+        #[test]
+        fn test_read_control_value_bool() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert_eq!(
+                fpga_wrapper.read_control_value_bool("controlMod4Ch7"),
                 Some(false)
             );
+            assert!(fpga_wrapper
+                .read_control_value_bool("noThisControl")
+                .is_none());
+        }
+
+        #[test]
+        fn test_write_control_value_bool() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert!(!fpga_wrapper
+                .read_control_value_bool("controlMod4Ch7")
+                .unwrap());
 
             assert!(fpga_wrapper
-                .write_control_value("controlMod4Ch7", true)
+                .write_control_value_bool("controlMod4Ch7", true)
                 .is_some());
-            assert_eq!(
-                fpga_wrapper.read_control_value("controlMod4Ch7"),
-                Some(true)
-            );
+            assert!(fpga_wrapper
+                .read_control_value_bool("controlMod4Ch7")
+                .unwrap());
 
             assert!(fpga_wrapper
-                .write_control_value("controlMod4Ch7", false)
+                .write_control_value_bool("controlMod4Ch7", false)
                 .is_some());
-            assert_eq!(
-                fpga_wrapper.read_control_value("controlMod4Ch7"),
-                Some(false)
-            );
+            assert!(!fpga_wrapper
+                .read_control_value_bool("controlMod4Ch7")
+                .unwrap());
 
             assert!(fpga_wrapper
-                .write_control_value("noThisControl", false)
+                .write_control_value_bool("noThisControl", false)
                 .is_none());
         }
 
@@ -1234,29 +1758,6 @@ mod tests {
         }
 
         #[test]
-        fn test_write_data_loop_rate() {
-            let fpga_wrapper = create_fpga_wrapper_and_open(90);
-
-            let current_loop_rate = read_data_loop_rate(&fpga_wrapper).unwrap();
-
-            assert!(fpga_wrapper
-                .write_data_loop_rate(2 * current_loop_rate)
-                .is_some());
-            assert_eq!(
-                read_data_loop_rate(&fpga_wrapper).unwrap(),
-                2 * current_loop_rate
-            );
-
-            assert!(fpga_wrapper
-                .write_data_loop_rate(current_loop_rate)
-                .is_some());
-            assert_eq!(
-                read_data_loop_rate(&fpga_wrapper).unwrap(),
-                current_loop_rate
-            );
-        }
-
-        #[test]
         fn test_clear_fifo_daq() {
             let fpga_wrapper = create_fpga_wrapper_and_open(90);
 
@@ -1273,15 +1774,6 @@ mod tests {
             capture_data_in_fifo_daq(&fpga_wrapper);
 
             assert!(fpga_wrapper.read_fifo_elements_daq(0, 0).unwrap().1 >= 4500);
-        }
-
-        #[test]
-        fn test_is_daq_fifo_full() {
-            let fpga_wrapper = create_fpga_wrapper_and_open(90);
-
-            capture_data_in_fifo_daq(&fpga_wrapper);
-
-            assert_eq!(fpga_wrapper.is_daq_fifo_full(), Some(true));
         }
 
         #[test]
