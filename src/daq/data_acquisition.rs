@@ -31,7 +31,6 @@ use crate::daq::{
 };
 use crate::enums::{
     DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
-    ModbusMode,
 };
 use crate::event_queue::EventQueue;
 use crate::mock::mock_plant::MockPlant;
@@ -297,9 +296,6 @@ impl DataAcquisition {
     /// # Returns
     /// A tuple containing the ILC status, actuator encoders, and actuator
     /// forces in Newton.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
     fn get_ilc_data_actuator(&mut self) -> (Vec<u8>, Vec<i32>, Vec<f64>) {
         // Set the ILC data for the simulation mode.
         if let Some(plant) = &mut self.plant {
@@ -317,8 +313,19 @@ impl DataAcquisition {
                 if let Some(plant) = &mut self.plant {
                     frame_payload = plant.request_ilc(frame_request);
                 } else {
-                    // Update the hardware.
-                    panic!("Not implemented yet.");
+                    let config = &self.config;
+                    match self._fpga.request_ilc(
+                        frame_request,
+                        1,
+                        config.payload_byte["force_and_status"],
+                        config.latency["force_and_status"],
+                        config.timeout_irq,
+                    ) {
+                        Some(payload) => frame_payload = payload,
+                        None => {
+                            frame_payload = Vec::new();
+                        }
+                    }
                 }
 
                 self.record_ilc_exception_code(&frame_payload, frame_request);
@@ -366,9 +373,6 @@ impl DataAcquisition {
     /// # Returns
     /// A tuple containing the ring, intake, and exhaust temperatures in degree
     /// Celsius.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
     fn get_ilc_data_temperature(&mut self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         // Set the ILC data for the simulation mode.
         if let Some(plant) = &mut self.plant {
@@ -388,8 +392,19 @@ impl DataAcquisition {
                 if let Some(plant) = &mut self.plant {
                     frame_payload = plant.request_ilc(frame_request);
                 } else {
-                    // Update the hardware.
-                    panic!("Not implemented yet.");
+                    let config = &self.config;
+                    match self._fpga.request_ilc(
+                        frame_request,
+                        1,
+                        config.payload_byte["temperature"],
+                        config.latency["temperature"],
+                        config.timeout_irq,
+                    ) {
+                        Some(payload) => frame_payload = payload,
+                        None => {
+                            frame_payload = Vec::new();
+                        }
+                    }
                 }
 
                 self.record_ilc_exception_code(&frame_payload, frame_request);
@@ -467,9 +482,6 @@ impl DataAcquisition {
     /// # Returns
     /// A tuple containing the theta-Z and delta-Z displacement sensor readings
     /// in micron.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
     fn get_ilc_data_displacement(&mut self) -> (Vec<f64>, Vec<f64>) {
         let frame_request = self._ilc.get_frame_displacement();
 
@@ -481,8 +493,18 @@ impl DataAcquisition {
             // Get the displacement sensor values as a frame.
             frame_payload = plant.request_ilc(frame_request);
         } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            match self._fpga.request_ilc(
+                frame_request,
+                1,
+                self.config.payload_byte["displacement"],
+                self.config.latency["displacement"],
+                self.config.timeout_irq,
+            ) {
+                Some(payload) => frame_payload = payload,
+                None => {
+                    frame_payload = Vec::new();
+                }
+            }
         }
 
         self.record_ilc_exception_code(&frame_payload, frame_request);
@@ -532,9 +554,6 @@ impl DataAcquisition {
     ///
     /// # Returns
     /// The inclinometer angle in degrees.
-    ///
-    /// # Panics
-    /// If not in simulation mode.
     fn get_ilc_data_inclinometer(&mut self) -> f64 {
         let frame_request = self._ilc.get_frame_inclinometer();
 
@@ -546,8 +565,18 @@ impl DataAcquisition {
             // Get the inclinometer as a frame.
             frame_payload = plant.request_ilc(frame_request);
         } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            match self._fpga.request_ilc(
+                frame_request,
+                1,
+                self.config.payload_byte["inclinometer"],
+                self.config.latency["inclinometer"],
+                self.config.timeout_irq,
+            ) {
+                Some(payload) => frame_payload = payload,
+                None => {
+                    frame_payload = Vec::new();
+                }
+            }
         }
 
         self.record_ilc_exception_code(&frame_payload, frame_request);
@@ -624,42 +653,28 @@ impl DataAcquisition {
         if !self.is_simulation_mode() {
             let config = &self.config;
 
-            // Open the FPGA session.
-            self._fpga.open(&config.path_bitfile, &config.fpga_resource);
-
             // Update the loop rate. Use the half of the period of frequency
             // loop here to make sure we always have the data in the DAQ FIFO.
             // Note in the FpgaWrapper.read_power_and_digital_input(), we will
             // try to read all the power data out in the DAQ FIFO.
             // 1 second = 1,000,000 microsecond.
             let loop_rate = (1000000.0 / config.frequency_loop / 2.0) as u32;
-            self._fpga
-                .write_control_value_u32("controlDataLoopRateInUs", loop_rate)?;
 
-            // Update the FIFO pace (ticks)
-            self._fpga.write_control_value_u16(
-                "controlWriteFifoPaceTicks",
+            // The time in milliseconds to wait after disabling the capture
+            // before reading the elements.
+            let delay_time = ((loop_rate / 1000) as u64) + config.buffer_time_to_clear_fifo_daq;
+
+            self._fpga.init_hardware(
+                &config.path_bitfile,
+                &config.fpga_resource,
+                loop_rate,
                 config.write_fifo_pace_ticks,
-            )?;
-
-            // Reserve the IRQ context.
-            self._fpga.reserve_irq_context();
-
-            // Open the FPGA FIFO.
-            self._fpga.open_fifo(
+                config.timeout_get_next_character,
+                config.timeout_irq,
                 config.requested_depth_in_fifo_daq,
                 config.requested_depth_in_fifo_inbound_outbound,
-            );
-
-            // Clear the DAQ FIFO to make sure there is no stale data in the
-            // FIFO before starting the data acquisition.
-            let delay_time = ((loop_rate / 1000) as u64) + config.buffer_time_to_clear_fifo_daq;
-            self._fpga.clear_fifo_daq(delay_time);
-
-            // Set the mode of Modbus serial configuration.
-            self._fpga
-                .configure_serial_config(ModbusMode::Rtu, config.timeout_irq)?;
-            self._fpga.log_serial_config()?;
+                delay_time,
+            )?;
         }
 
         Some(())
@@ -751,8 +766,14 @@ impl DataAcquisition {
                 frame_payload = plant.request_ilc(&frame_request);
             };
         } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["ilc_mode"],
+                config.latency["ilc_mode"],
+                config.timeout_irq,
+            )?;
         }
 
         self.record_ilc_exception_code(&frame_payload, &frame_request);
@@ -805,8 +826,14 @@ impl DataAcquisition {
                 frame_payload = plant.request_ilc(&frame_request);
             }
         } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["ilc_mode"],
+                config.latency["ilc_mode"],
+                config.timeout_irq,
+            )?;
         }
 
         self.record_ilc_exception_code(&frame_payload, &frame_request);
@@ -847,12 +874,12 @@ impl DataAcquisition {
         let frame_request = self._ilc.create_frame_move_steps(actuator_steps);
         if let Some(plant) = &mut self.plant {
             plant.request_ilc(&frame_request);
-
-            Some(())
         } else {
-            // Update the hardware.
-            panic!("Not implemented yet.");
+            self._fpga
+                .request_ilc(&frame_request, 1, 0, 0, self.config.timeout_irq)?;
         }
+
+        Some(())
     }
 
     /// Toggle the bit for the closed-loop control. This signal is used by the
