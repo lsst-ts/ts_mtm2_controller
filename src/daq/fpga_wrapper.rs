@@ -28,13 +28,11 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::constants::{BROADCAST_ADDRESS, IRQ_NUMBER_ILC, NUMBER_ILC_PORT};
 use crate::enums::{
     CustomFpgaModbusError, DigitalOutput, DigitalOutputStatus, IlcCommand, ModbusMode,
 };
 use ts_control_utils::enums::BitEnum;
-
-#[cfg(feature = "fpga")]
-use crate::constants::{IRQ_NUMBER_ILC, NUMBER_ILC_PORT};
 
 #[cfg(feature = "fpga")]
 use nifpga_dll::{Context, ReadFifo, Session, Type, WriteFifo};
@@ -95,7 +93,12 @@ impl FpgaWrapper {
             "controlPort",
             "controlCommandForFpga",
             "controlWriteFifoPaceTicks",
+            "controlNumberOfBytes",
+            "controlCharTimeoutCount",
+            "controlLatencyCount",
             "indicatorErrorOut",
+            "indicatorBytesAtPort",
+            "indicatorReceivedAddress",
             "fifoDaq",
             "fifoInbound",
             "fifoOutbound",
@@ -115,7 +118,12 @@ impl FpgaWrapper {
             "NiFpga_portSerialMasterSlave_ControlU8_Port",
             "NiFpga_portSerialMasterSlave_ControlU16_CmdforFPGA",
             "NiFpga_portSerialMasterSlave_ControlU16_WriteFIFOpaceticks",
-            "NiFpga_portSerialMasterSlave_IndicatorCluster_FPGAErrorOut_Resource",
+            "NiFpga_portSerialMasterSlave_ControlI32_NumberofBytes",
+            "NiFpga_portSerialMasterSlave_ControlU32_CharTimeoutcount",
+            "NiFpga_portSerialMasterSlave_ControlU32_Latencycount",
+            "NiFpga_portSerialMasterSlave_IndicatorCluster_errorout_Resource",
+            "NiFpga_portSerialMasterSlave_IndicatorU8_BytesatPort",
+            "NiFpga_portSerialMasterSlave_IndicatorU8_Receivedaddress",
             "NiFpga_portSerialMasterSlave_TargetToHostFifoFxp_DAQ_FIFO_Resource",
             "NiFpga_portSerialMasterSlave_TargetToHostFifoU8_Inbound_FIFO",
             "NiFpga_portSerialMasterSlave_HostToTargetFifoU8_Outbound_FIFO",
@@ -222,6 +230,88 @@ impl FpgaWrapper {
         None
     }
 
+    /// Initialize the hardware. This is used to open the connection with the
+    /// FPGA and do the related setup in the real hardware mode.
+    ///
+    /// # Arguments
+    /// * `filepath` - The path to the FPGA bitfile.
+    /// * `resource` - The resource name of the FPGA.
+    /// * `loop_rate` - The loop rate (period) to write the power data to DAQ
+    ///   FIFO in microseconds.
+    /// * `write_fifo_pace_ticks` - Pace to write the data to inner-loop
+    ///   controller (ILC) in ticks.
+    /// * `timeout_get_next_character` - Timeout to get the next character
+    ///   from the ILC in microseconds.
+    /// * `timeout_irq` - Timeout for the interrupt request (IRQ) in
+    ///   milliseconds.
+    /// * `requested_depth_in_fifo_daq` - The number of depth requested in the
+    ///   DAQ FIFO (power and digital input data).
+    /// * `requested_depth_in_fifo_inbound_outbound` - The number of depth
+    ///   requested in the inbound and outbound FIFOs for the ILC
+    ///   communication.
+    /// * `delay_time` - The time in milliseconds to wait after disabling the
+    ///   capture before reading the elements.
+    ///
+    /// # Returns
+    /// Some if the hardware is initialized successfully. Otherwise, None.
+    #[allow(clippy::too_many_arguments)]
+    pub fn init_hardware(
+        &mut self,
+        filepath: &Path,
+        resource: &str,
+        loop_rate: u32,
+        write_fifo_pace_ticks: u16,
+        timeout_get_next_character: u32,
+        timeout_irq: u32,
+        requested_depth_in_fifo_daq: usize,
+        requested_depth_in_fifo_inbound_outbound: usize,
+        delay_time: u64,
+    ) -> Option<()> {
+        // Open the FPGA session.
+        self.open(filepath, resource);
+
+        // Update the loop rate.
+        self.write_control_value_u32("controlDataLoopRateInUs", loop_rate)?;
+
+        // Update the FIFO pace (ticks)
+        self.write_control_value_u16("controlWriteFifoPaceTicks", write_fifo_pace_ticks)?;
+
+        // Update the timeout to get the next character
+        self.write_control_value_u32("controlCharTimeoutCount", timeout_get_next_character)?;
+
+        // Reserve the IRQ context.
+        self.reserve_irq_context();
+
+        // Open the FPGA FIFO.
+        self.open_fifo(
+            requested_depth_in_fifo_daq,
+            requested_depth_in_fifo_inbound_outbound,
+        );
+
+        // Clear the DAQ FIFO to make sure there is no stale data in the
+        // FIFO before starting the data acquisition.
+        self.clear_fifo_daq(delay_time);
+
+        // Clear the Outbound and Inbound FIFOs to make sure there is no
+        // stale data in the FIFOs before commading the ILC.
+        self.clear_fifo_outbound_inbound(timeout_irq)?;
+
+        // Set the mode of Modbus serial configuration.
+        self.configure_serial_config(ModbusMode::Rtu, timeout_irq)?;
+        self.log_serial_config()?;
+
+        // Clear the Rx FIFO of the serial port
+        self.clear_serial_rx_fifo(timeout_irq)?;
+
+        // Clear the number of bytes at the port
+        // The unit of latency count is mircoseconds, so we multiply the
+        // timeout_irq/2 in milliseconds by 1000 to convert it to microseconds.
+        let latency_count = timeout_irq / 2 * 1000;
+        self.clear_bytes_at_port(latency_count, timeout_irq)?;
+
+        Some(())
+    }
+
     /// Open a session to communicate with the FPGA.
     ///
     /// # Arguments
@@ -230,7 +320,7 @@ impl FpgaWrapper {
     ///
     /// # Panics
     /// Panics if the session cannot be opened.
-    pub fn open(&mut self, filepath: &Path, _resource: &str) {
+    fn open(&mut self, filepath: &Path, _resource: &str) {
         // Get the signature of the bitfile
         let signature = self
             .get_signature(filepath)
@@ -293,7 +383,7 @@ impl FpgaWrapper {
     /// Some(()) if the value is successfully logged, or None if the control
     /// register for the serial config resource is not found or the value
     /// cannot be read.
-    pub fn log_serial_config(&self) -> Option<()> {
+    fn log_serial_config(&self) -> Option<()> {
         let config = self.get_serial_config()?;
         info!(
             "{}",
@@ -438,7 +528,7 @@ impl FpgaWrapper {
     /// Some(()) if the serial config resource is successfully configured, or
     /// None if the control register is not found or the value cannot be read
     /// or written.
-    pub fn configure_serial_config(&self, mode: ModbusMode, _timeout: u32) -> Option<()> {
+    fn configure_serial_config(&self, mode: ModbusMode, _timeout: u32) -> Option<()> {
         // See the self._format_serial_config() for the mapping between the
         // value of each field in the serial config resource and the actual
         // data bits.
@@ -497,7 +587,7 @@ impl FpgaWrapper {
     /// the value cannot be written, or the expected IRQ is not received within
     /// the timeout. The CustomFpgaModbusError value indicates the error code
     /// from the ILC if an error occurs.
-    pub fn command_ilc(
+    fn command_ilc(
         &self,
         command: IlcCommand,
         _irq_number: u32,
@@ -600,7 +690,7 @@ impl FpgaWrapper {
                 CustomFpgaModbusError::from_repr(code).unwrap_or(CustomFpgaModbusError::Unknown);
 
             error!(
-                "Received the code value: {} as the ILC error: {:?}",
+                "FPGA received the code value: {} as the ILC error: {:?}",
                 code, error_code
             );
             error_code
@@ -654,7 +744,7 @@ impl FpgaWrapper {
     /// # Returns
     /// true if the given Modbus error code indicates an error, or false if the
     /// given Modbus error code indicates no error.
-    pub fn has_modbus_error(&self, modbus_error: CustomFpgaModbusError) -> bool {
+    fn has_modbus_error(&self, modbus_error: CustomFpgaModbusError) -> bool {
         modbus_error != CustomFpgaModbusError::None
     }
 
@@ -663,7 +753,7 @@ impl FpgaWrapper {
     ///
     /// # Panics
     /// Panics if the IRQ context cannot be reserved.
-    pub fn reserve_irq_context(&mut self) {
+    fn reserve_irq_context(&mut self) {
         #[cfg(feature = "fpga")]
         {
             if let Some(session) = self._session.as_ref() {
@@ -694,7 +784,7 @@ impl FpgaWrapper {
     ///
     /// # Panics
     /// Panics if the FIFO cannot be opened.
-    pub fn open_fifo(&mut self, _depth_daq: usize, _depth_inbound_outbound: usize) {
+    fn open_fifo(&mut self, _depth_daq: usize, _depth_inbound_outbound: usize) {
         #[cfg(feature = "fpga")]
         {
             if let Some(session) = self._session.as_ref() {
@@ -820,6 +910,23 @@ impl FpgaWrapper {
         self.read_control_value::<u32>(name)
     }
 
+    /// Read the 32-bit signed integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to read the value of.
+    ///
+    /// # Returns
+    /// The value of the control register, or None if the control register is
+    /// not found or the value cannot be read.
+    pub fn read_control_value_i32(&self, name: &str) -> Option<i32> {
+        self.read_control_value::<i32>(name)
+    }
+
     /// Read the value of a control register in the FPGA.
     ///
     /// # Notes
@@ -942,6 +1049,25 @@ impl FpgaWrapper {
         self.write_control_value::<u32>(name, value)
     }
 
+    /// Write the 32-bit signed integer value of a control register in the
+    /// FPGA.
+    ///
+    /// # Notes
+    /// This is a thin typed wrapper around a private generic helper. Keeping
+    /// the public API concrete avoids exposing nifpga-dll trait bounds.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the control register to write the value of.
+    /// * `value` - The value to write to the control register.
+    ///
+    /// # Returns
+    /// Some(()) if the value is successfully written to the control register,
+    /// or None if the control register is not found or the value cannot be
+    /// written.
+    pub fn write_control_value_i32(&self, name: &str, value: i32) -> Option<()> {
+        self.write_control_value::<i32>(name, value)
+    }
+
     /// Write the value of a control register in the FPGA.
     ///
     /// # Notes
@@ -1058,7 +1184,7 @@ impl FpgaWrapper {
     /// # Arguments
     /// * `delay_time` - The time in milliseconds to wait after disabling the
     ///   capture before reading the elements.
-    pub fn clear_fifo_daq(&self, delay_time: u64) {
+    fn clear_fifo_daq(&self, delay_time: u64) {
         // After disabling the capture, wait for the FPGA to complete one cycle
         // (plus some timing margin).
         self.write_control_value_bool("controlEnableCapture", false);
@@ -1108,20 +1234,315 @@ impl FpgaWrapper {
     fn read_fifo_elements_daq(&self, _number: usize, _timeout: u32) -> Option<(Vec<u64>, usize)> {
         #[cfg(feature = "fpga")]
         {
-            if let Some(reader) = self._fifo_daq.as_ref() {
-                let mut buffer = vec![0; _number];
-                match reader.read(&mut buffer, _timeout) {
-                    Ok(elements_remaining) => return Some((buffer, elements_remaining)),
-                    Err(error) => {
-                        error!("Failed to read from the DAQ FIFO: {}", error);
+            self.read_fifo_elements(self._fifo_daq.as_ref(), _number, _timeout, "DAQ")
+        }
 
-                        return None;
+        #[cfg(not(feature = "fpga"))]
+        {
+            None
+        }
+    }
+
+    /// Read the elements in a FIFO in the FPGA.
+    ///
+    /// # Arguments
+    /// * `fifo` - The FIFO to read the elements from.
+    /// * `number` - The number of elements to read from the FIFO.
+    /// * `timeout` - The timeout in milliseconds to wait for the elements to be
+    ///   read from the FIFO.
+    /// * `fifo_name` - The name of the FIFO, used for logging.
+    ///
+    /// # Returns
+    /// A tuple containing a vector of the elements read from the FIFO and the
+    /// number of elements remaining, or None if the FIFO is not found or the
+    /// elements cannot be read.
+    #[cfg(feature = "fpga")]
+    fn read_fifo_elements<T: Default + Clone + Type>(
+        &self,
+        fifo: Option<&ReadFifo<T>>,
+        number: usize,
+        timeout: u32,
+        fifo_name: &str,
+    ) -> Option<(Vec<T>, usize)> {
+        let reader = fifo?;
+        let mut buffer = vec![T::default(); number];
+        match reader.read(&mut buffer, timeout) {
+            Ok(elements_remaining) => Some((buffer, elements_remaining)),
+            Err(error) => {
+                error!("Failed to read from the {} FIFO: {}", fifo_name, error);
+                None
+            }
+        }
+    }
+
+    /// Clear the Outbound and Inbound FIFOs in the FPGA.
+    ///
+    /// # Notes
+    /// This function will move all the elements in the Outbound FIFO to the
+    /// Inbound FIFO by the Echo command, and then read all the remaining
+    /// elements in the Inbound FIFO to clear both FIFOs.
+    ///
+    /// # Arguments
+    /// * `timeout` - The timeout in milliseconds to wait for the interrupt
+    ///   request (IRQ).
+    ///
+    /// # Returns
+    /// Some(()) if the Outbound and Inbound FIFOs are successfully cleared, or
+    /// None if any of the FIFOs is not found or any element cannot be read.
+    fn clear_fifo_outbound_inbound(&self, timeout: u32) -> Option<()> {
+        let mut number = 0;
+        loop {
+            self.command_ilc(IlcCommand::Echo, IRQ_NUMBER_ILC, timeout)?;
+            match self.read_fifo_elements_inbound(number, 0) {
+                Some((_, elements_remaining)) => {
+                    number = elements_remaining;
+                    if number == 0 {
+                        return Some(());
                     }
+                }
+                None => {
+                    return None;
+                }
+            }
+        }
+    }
+
+    /// Read the elements in the Inbound FIFO in the FPGA.
+    ///
+    /// # Arguments
+    /// * `_number` - The number of elements to read from the FIFO.
+    /// * `_timeout` - The timeout in milliseconds to wait for the elements to
+    ///   be read from the FIFO.
+    ///
+    /// # Returns
+    /// A tuple containing a vector of the elements read from the FIFO and the
+    /// number of elements remaining, or None if the FIFO is not found or the
+    /// elements cannot be read.
+    fn read_fifo_elements_inbound(
+        &self,
+        _number: usize,
+        _timeout: u32,
+    ) -> Option<(Vec<u8>, usize)> {
+        #[cfg(feature = "fpga")]
+        {
+            self.read_fifo_elements(self._fifo_inbound.as_ref(), _number, _timeout, "Inbound")
+        }
+
+        #[cfg(not(feature = "fpga"))]
+        {
+            None
+        }
+    }
+
+    /// Clear the Rx FIFO buffer of the serial port in the FPGA.
+    ///
+    /// # Arguments
+    /// * `_timeout` - The timeout in milliseconds to wait for the interrupt
+    ///   request (IRQ).
+    ///
+    /// # Returns
+    /// Some(()) if the Rx FIFO buffer is successfully cleared, or None if any
+    /// of the control registers is not found, any value cannot be written, or
+    /// any Modbus error is encountered.
+    fn clear_serial_rx_fifo(&self, _timeout: u32) -> Option<()> {
+        #[cfg(feature = "fpga")]
+        {
+            for idx in 1..(NUMBER_ILC_PORT + 1) {
+                self.write_control_value_u8("controlPort", idx)?;
+                let modbus_error =
+                    self.command_ilc(IlcCommand::ClearRxBuffer, IRQ_NUMBER_ILC, _timeout)?;
+                if self.has_modbus_error(modbus_error) {
+                    return None;
                 }
             }
         }
 
+        Some(())
+    }
+
+    /// Clear the bytes at all the serial ports in the FPGA by reading the
+    /// frames from the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `latency_count` - The maximum latency count to wait for the first
+    ///   character to be received. The unit is microseconds.
+    /// * `timeout` - The timeout in milliseconds to wait for.
+    ///
+    /// # Returns
+    /// Some(()) if the bytes at all the serial ports are successfully cleared,
+    /// or None if any of the control registers is not found, any value cannot
+    /// be written/read, or any Modbus error is encountered.
+    fn clear_bytes_at_port(&self, latency_count: u32, timeout: u32) -> Option<()> {
+        for idx in 1..(NUMBER_ILC_PORT + 1) {
+            let bytes = self.read_bytes_at_port(idx, timeout)?;
+            if bytes > 0 {
+                self.read_ilc_frame(idx, bytes as i32, latency_count, 0, timeout)?;
+            }
+        }
+
+        Some(())
+    }
+
+    /// Read the number of bytes at a serial port.
+    ///
+    /// # Arguments
+    /// * `port` - The 1-based port number.
+    /// * `timeout` - The timeout in milliseconds to wait for the interrupt
+    ///   request (IRQ).
+    ///
+    /// # Returns
+    /// The number of bytes at the serial port, or None if the control register
+    /// for the port is not found, the value cannot be read, or any Modbus
+    /// error is encountered.
+    fn read_bytes_at_port(&self, port: u8, timeout: u32) -> Option<u8> {
+        self.write_control_value_u8("controlPort", port)?;
+        let modbus_error = self.command_ilc(IlcCommand::BytesAtPort, IRQ_NUMBER_ILC, timeout)?;
+        if self.has_modbus_error(modbus_error) {
+            return None;
+        }
+
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(session) = self._session.as_ref() {
+                let bytes_at_port = session
+                    .read::<u8>(self.registers["indicatorBytesAtPort"])
+                    .ok()?;
+                return Some(bytes_at_port);
+            }
+        }
+
         None
+    }
+
+    /// Read the frame from the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `port` - The 1-based port number.
+    /// * `number_of_bytes` - The number of bytes to read from the ILC.
+    /// * `latency_count` - The maximum latency count to wait for the first
+    ///   character to be received. The unit is microseconds.
+    /// * `expected_address` - The expected 1-based ILC address of the received
+    ///   frame, which is used to verify the integrity of the received data. If
+    ///   0 is given, the address check will be skipped.
+    /// * `timeout` - The timeout in milliseconds to wait for.
+    ///
+    /// # Returns
+    /// A vector of the bytes read from the ILC, or None if any of the control
+    /// registers is not found, any value cannot be written/read, or any Modbus
+    /// error is encountered.
+    fn read_ilc_frame(
+        &self,
+        port: u8,
+        number_of_bytes: i32,
+        latency_count: u32,
+        expected_address: u8,
+        timeout: u32,
+    ) -> Option<Vec<u8>> {
+        // Read the ILC frame
+        self.write_control_value_u8("controlPort", port)?;
+        self.write_control_value_i32("controlNumberOfBytes", number_of_bytes)?;
+        self.write_control_value_u32("controlLatencyCount", latency_count)?;
+
+        let modbus_error = self.command_ilc(IlcCommand::Read, IRQ_NUMBER_ILC, timeout)?;
+
+        // Read all the elements in the Inbound FIFO
+        let number = self.read_fifo_elements_inbound(0, 0)?.1;
+        let response = self.read_fifo_elements_inbound(number, timeout)?.0;
+
+        // Check if any Modbus error is indicated by the FPGA.
+        if self.has_modbus_error(modbus_error) {
+            return None;
+        }
+
+        // Check the received address is expected or not.
+        if expected_address != 0 {
+            let received_address = self.read_control_value_u8("indicatorReceivedAddress")?;
+            if received_address != expected_address {
+                // This error code: CustomFpgaModbusError::AddressNotMatched is
+                // defined in "MB FPGA Serial Receive Mark II.vi" in the
+                // ts_mtm2_cell instead of the FPGA code.
+                error!(
+                    "Received address {} does not match expected address {} for port {} with error {:?}.",
+                    received_address, expected_address, port, CustomFpgaModbusError::AddressNotMatched
+                );
+                return None;
+            }
+        }
+
+        Some(response)
+    }
+
+    /// Send a request frame to the inner-loop controller (ILC) and read the
+    /// response frame from the ILC if the request is not a broadcast.
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame containing the command and
+    ///   parameters. The first byte of the frame must be the 1-based ILC
+    ///   address or broadcast address.
+    /// * `port` - The 1-based port number.
+    /// * `number_of_bytes` - The number of bytes to read from the ILC.
+    /// * `latency_count` - The maximum latency count to wait for the first
+    ///   character to be received. The unit is microseconds.
+    /// * `timeout` - The timeout in milliseconds to wait for.
+    ///
+    /// # Returns
+    /// A vector of the bytes read from the ILC if the request is not a
+    /// broadcast, or an empty vector if the request is a broadcast, or None if
+    /// any of the control registers is not found, any value cannot be
+    /// written/read, or any Modbus error is encountered.
+    pub fn request_ilc(
+        &self,
+        frame_request: &[u8],
+        port: u8,
+        number_of_bytes: i32,
+        latency_count: u32,
+        timeout: u32,
+    ) -> Option<Vec<u8>> {
+        let address = frame_request[0];
+        if address == 0 {
+            error!(
+                "The first byte of the frame request must be the 1-based ILC address, but got 0."
+            );
+            return None;
+        }
+
+        self.write_ilc_frame(port, frame_request, timeout)?;
+
+        if address == BROADCAST_ADDRESS {
+            Some(vec![])
+        } else {
+            self.read_ilc_frame(port, number_of_bytes, latency_count, address, timeout)
+        }
+    }
+
+    /// Write the frame to the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `port` - The 1-based port number.
+    /// * `_frame` - The frame data to write.
+    /// * `_timeout` - The timeout in milliseconds to wait for.
+    ///
+    /// # Returns
+    /// Some(()) if the frame is successfully written to the ILC, or None if
+    /// failed.
+    fn write_ilc_frame(&self, port: u8, _frame: &[u8], _timeout: u32) -> Option<()> {
+        self.write_control_value_u8("controlPort", port)?;
+        #[cfg(feature = "fpga")]
+        {
+            if let Some(writer) = self._fifo_outbound.as_ref() {
+                if let Err(error) = writer.write(_frame, _timeout) {
+                    error!("Failed to write to the Outbound FIFO: {}", error);
+                    return None;
+                }
+
+                let modbus_error = self.command_ilc(IlcCommand::Write, IRQ_NUMBER_ILC, _timeout)?;
+                if self.has_modbus_error(modbus_error) {
+                    return None;
+                }
+            }
+        }
+
+        Some(())
     }
 
     /// Read the power and digital input data from the DAQ FIFO in the FPGA.
@@ -1308,7 +1729,7 @@ mod tests {
     fn test_new() {
         let fpga_wrapper = create_fpga_wrapper();
 
-        assert_eq!(fpga_wrapper.registers.len(), 18);
+        assert_eq!(fpga_wrapper.registers.len(), 23);
     }
 
     #[test]
@@ -1558,6 +1979,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_request_ilc_address_zero() {
+        let fpga_wrapper = create_fpga_wrapper();
+
+        assert!(fpga_wrapper.request_ilc(&[0, 1], 1, 3, 1000, 50).is_none());
+    }
+
     #[cfg(feature = "fpga")]
     mod fpga_hardware {
         use super::*;
@@ -1774,6 +2202,98 @@ mod tests {
             capture_data_in_fifo_daq(&fpga_wrapper);
 
             assert!(fpga_wrapper.read_fifo_elements_daq(0, 0).unwrap().1 >= 4500);
+        }
+
+        #[test]
+        fn test_clear_fifo_outbound_inbound() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            // Write the elemenets to the Outbound FIFO and do the echo command
+            // to move the elements to the Inbound FIFO in the FPGA code.
+            let data = [1, 2, 3, 4];
+            if let Some(outbound_fifo) = fpga_wrapper._fifo_outbound.as_ref() {
+                let _ = outbound_fifo.write(&data, 50);
+            }
+            fpga_wrapper.clear_fifo_outbound_inbound(50);
+
+            assert_eq!(fpga_wrapper.read_fifo_elements_inbound(0, 50).unwrap().1, 0);
+        }
+
+        #[test]
+        fn test_read_fifo_elements_inbound() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            // Write the elemenets to the Outbound FIFO and do the echo command
+            // to move the elements to the Inbound FIFO in the FPGA code.
+            let data = [1, 2, 3, 4];
+            if let Some(outbound_fifo) = fpga_wrapper._fifo_outbound.as_ref() {
+                let _ = outbound_fifo.write(&data, 50);
+            }
+            fpga_wrapper.command_ilc(IlcCommand::Echo, IRQ_NUMBER_ILC, 50);
+
+            assert_eq!(
+                fpga_wrapper
+                    .read_fifo_elements_inbound(data.len(), 50)
+                    .unwrap(),
+                (data.to_vec(), 0)
+            );
+        }
+
+        #[test]
+        fn test_clear_serial_rx_fifo() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert!(fpga_wrapper.clear_serial_rx_fifo(50).is_some());
+        }
+
+        #[test]
+        fn test_clear_bytes_at_port() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert!(fpga_wrapper.clear_bytes_at_port(50000, 50).is_some());
+        }
+
+        #[test]
+        fn test_read_bytes_at_port() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert!(fpga_wrapper.read_bytes_at_port(1, 50).is_some());
+        }
+
+        #[test]
+        fn test_read_ilc_frame() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert!(fpga_wrapper.read_ilc_frame(1, 1, 1000, 1, 50).is_none());
+            assert_eq!(
+                fpga_wrapper.read_ilc_error_code().unwrap(),
+                CustomFpgaModbusError::NoRespond
+            );
+        }
+
+        #[test]
+        fn test_request_ilc_broadcast() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert_eq!(
+                fpga_wrapper
+                    .request_ilc(&[BROADCAST_ADDRESS, 1], 1, 3, 1000, 50)
+                    .unwrap(),
+                Vec::<u8>::new()
+            );
+
+            fpga_wrapper.command_ilc(IlcCommand::Echo, IRQ_NUMBER_ILC, 50);
+            assert_eq!(fpga_wrapper.read_fifo_elements_inbound(0, 50).unwrap().1, 0);
+        }
+
+        #[test]
+        fn test_write_ilc_frame() {
+            let fpga_wrapper = create_fpga_wrapper_and_open(90);
+
+            assert!(fpga_wrapper.write_ilc_frame(1, &[0x01, 0x02], 50).is_some());
+
+            fpga_wrapper.command_ilc(IlcCommand::Echo, IRQ_NUMBER_ILC, 50);
+            assert_eq!(fpga_wrapper.read_fifo_elements_inbound(0, 50).unwrap().1, 0);
         }
 
         #[test]
