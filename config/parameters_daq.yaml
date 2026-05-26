@@ -47,3 +47,46 @@ write_fifo_pace_ticks: 1
 
 # Timeout for the interrupt request (IRQ) in milliseconds.
 timeout_irq: 50
+
+# Timeout to get the next character from the ILC in microseconds.
+timeout_get_next_character: 60
+
+# Payload number of bytes to set/get the ILC mode. This does not contain the
+# bytes of cyclic redundancy check (CRC).
+payload_byte_ilc_mode: 4
+
+# Payload number of bytes to get the force and status. This does not contain
+# the bytes of CRC.
+payload_byte_get_force_and_status: 11
+
+# Payload number of bytes to get the temperature values. This does not contain
+# the bytes of CRC.
+payload_byte_get_temperature: 18
+
+# Payload number of bytes to get the displacement values. This does not contain
+# the bytes of CRC.
+payload_byte_get_displacement: 50
+
+# Payload number of bytes to get the inclinometer value. This does not contain
+# the bytes of CRC.
+payload_byte_get_inclinometer: 6
+
+# Latency to set/get the ILC mode in microseconds to wait for the first
+# character from the response of ILC.
+latency_ilc_mode: 320
+
+# Latency to get the force and status in microseconds to wait for the first
+# character from the response of ILC.
+latency_get_force_and_status: 150
+
+# Latency to get the temperature values in microseconds to wait for the first
+# character from the response of ILC.
+latency_get_temperature: 350
+
+# Latency to get the displacement values in microseconds to wait for the first
+# character from the response of ILC.
+latency_get_displacement: 800
+
+# Latency to get the inclinometer value in microseconds to wait for the first
+# character from the response of ILC.
+latency_get_inclinometer: 200
