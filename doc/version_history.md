@@ -1,5 +1,18 @@
 # Version History
 
+0.4.8
+
+- Update the version of `ts_control_utils`.
+- Upgrade the incompatible packages.
+- Update the comment in `parameters_control.yaml`.
+- Add the **timeout_get_next_character**, **payload_byte_xxx**, and **latency_xxx** in `parameters_daq.yaml`.
+- Update the **ConfigDataAcquisition**.
+- Update the `enum.rs`.
+- Support the ILC command in **FpgaWrapper**.
+- Update the `init_hardware()`, `get_ilc_data_actuator()`, `get_ilc_data_temperature()`, `get_ilc_data_displacement()`, `get_ilc_data_inclinometer()`, `get_ilc_mode()`, `set_ilc_mode()`, and `move_actuator_steps()` in **DataAcquisition**.
+- Update the `test_fpga.rs`.
+- Update the `README.md`.
+
 0.4.7
 
 - Update the dependency of `nifpga-dll`.
