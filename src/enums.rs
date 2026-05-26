@@ -305,7 +305,8 @@ pub enum CustomFpgaModbusError {
     None = 0,
     NoRespond = 5010,
     MessageError = 5020,
-    Timeout = 5030,
+    TimeoutRead = 5030,
+    TimeoutWrite = 5040,
     AddressNotMatched = 5050,
     CrcError = 5060,
 }
