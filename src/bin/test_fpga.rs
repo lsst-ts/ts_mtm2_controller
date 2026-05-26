@@ -22,8 +22,9 @@
 use log::info;
 use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
 
+use run_m2::constants::CODE_FORCE_REQUEST;
 use run_m2::daq::{config_data_acquisition::ConfigDataAcquisition, fpga_wrapper::FpgaWrapper};
-use run_m2::enums::{DigitalOutput, DigitalOutputStatus, ModbusMode};
+use run_m2::enums::{DigitalOutput, DigitalOutputStatus};
 
 fn main() {
     // Set up the logger
@@ -40,9 +41,20 @@ fn main() {
 
     let config = ConfigDataAcquisition::new();
     let mut fpga_wrapper = FpgaWrapper::new(config.path_header.as_path());
-    fpga_wrapper.open(&config.path_bitfile, &config.fpga_resource);
 
-    info!("Session opened.");
+    fpga_wrapper.init_hardware(
+        &config.path_bitfile,
+        &config.fpga_resource,
+        200,
+        config.write_fifo_pace_ticks,
+        config.timeout_get_next_character,
+        config.timeout_irq,
+        config.requested_depth_in_fifo_daq,
+        config.requested_depth_in_fifo_inbound_outbound,
+        1000,
+    );
+
+    info!("Hardware initialized.");
 
     // Read the NiFpga_portSerialMasterSlave_ControlBool_ILC_Comm_Power_On
     let name = "controlIlcCommPowerOn";
@@ -79,18 +91,6 @@ fn main() {
         control_bool_ilc_comm_power_on
     );
 
-    // Log the serial configuration
-    fpga_wrapper.log_serial_config();
-
-    // Write the data loop rate in the FPGA
-    fpga_wrapper.write_control_value_u32("controlDataLoopRateInUs", 200);
-
-    // Open the FIFO
-    fpga_wrapper.open_fifo(
-        config.requested_depth_in_fifo_daq,
-        config.requested_depth_in_fifo_inbound_outbound,
-    );
-
     // Check the capture of the DAQ FIFO
     let mut control_enable_capture = fpga_wrapper
         .read_control_value_bool("controlEnableCapture")
@@ -111,10 +111,6 @@ fn main() {
         control_enable_capture
     );
 
-    // Clear all the elements in FIFO
-    info!("Clear all the elements in the DAQ FIFO...");
-    fpga_wrapper.clear_fifo_daq(1000);
-
     // Enable the capture again
     fpga_wrapper.write_control_value_bool("controlEnableCapture", true);
 
@@ -124,25 +120,26 @@ fn main() {
     // Disable the capture again
     fpga_wrapper.write_control_value_bool("controlEnableCapture", false);
 
-    // Sleep for 1000 millisecond to make sure all the data is captured in the loop
+    // Sleep for 1000 millisecond to make sure all the data is captured in the
+    // loop
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Read the power data from the FIFO
     let power_data = fpga_wrapper.read_power_and_digital_input().unwrap();
     info!("Power data read from the DAQ FIFO: {:?}", power_data);
 
-    // Reserve the IRQ context
-    fpga_wrapper.reserve_irq_context();
-
-    // Update the serial config resource to set the Modbus mode to ASCII, and
-    // then set it back to RTU.
-    info!("Configure the serial config resource to set the Modbus mode to ASCII...");
-    fpga_wrapper.configure_serial_config(ModbusMode::Ascii, config.timeout_irq);
-    fpga_wrapper.log_serial_config();
-
-    info!("Configure the serial config resource to set the Modbus mode back to RTU...");
-    fpga_wrapper.configure_serial_config(ModbusMode::Rtu, config.timeout_irq);
-    fpga_wrapper.log_serial_config();
+    // Read the ILC frame (should fail)
+    let ilc_frame = fpga_wrapper.request_ilc(
+        &[0x02, CODE_FORCE_REQUEST, 0x41, 0x21],
+        1,
+        1,
+        1000,
+        config.timeout_irq,
+    );
+    info!(
+        "ILC frame read: {:?}. The None is expected due to no response from the ILC.",
+        ilc_frame
+    );
 
     info!("End of FPGA test.");
 }
