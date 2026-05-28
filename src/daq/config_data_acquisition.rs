@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use ts_control_utils::utility::{get_parameter, get_parameter_array};
@@ -52,6 +53,12 @@ pub struct ConfigDataAcquisition {
     pub write_fifo_pace_ticks: u16,
     // Timeout for the interrupt request (IRQ) in milliseconds.
     pub timeout_irq: u32,
+    // Timeout to get the next character from the ILC in microseconds.
+    pub timeout_get_next_character: u32,
+    // Payload byte for each type of data acquisition.
+    pub payload_byte: HashMap<String, i32>,
+    // Latency for each type of data acquisition in microseconds.
+    pub latency: HashMap<String, u32>,
 }
 
 impl ConfigDataAcquisition {
@@ -83,13 +90,61 @@ impl ConfigDataAcquisition {
                 "requested_depth_in_fifo_inbound_outbound",
             ),
 
-            buffer_time_to_clear_fifo_daq: get_parameter::<i32>(
-                filepath,
-                "buffer_time_to_clear_fifo_daq",
-            ) as u64,
+            buffer_time_to_clear_fifo_daq: get_parameter(filepath, "buffer_time_to_clear_fifo_daq"),
 
-            write_fifo_pace_ticks: get_parameter::<i32>(filepath, "write_fifo_pace_ticks") as u16,
-            timeout_irq: get_parameter::<i32>(filepath, "timeout_irq") as u32,
+            write_fifo_pace_ticks: get_parameter(filepath, "write_fifo_pace_ticks"),
+
+            timeout_irq: get_parameter(filepath, "timeout_irq"),
+            timeout_get_next_character: get_parameter(filepath, "timeout_get_next_character"),
+
+            payload_byte: Self::create_dict(
+                &[
+                    "ilc_mode",
+                    "force_and_status",
+                    "temperature",
+                    "displacement",
+                    "inclinometer",
+                ],
+                &[
+                    get_parameter(filepath, "payload_byte_ilc_mode"),
+                    get_parameter(filepath, "payload_byte_get_force_and_status"),
+                    get_parameter(filepath, "payload_byte_get_temperature"),
+                    get_parameter(filepath, "payload_byte_get_displacement"),
+                    get_parameter(filepath, "payload_byte_get_inclinometer"),
+                ],
+            ),
+            latency: Self::create_dict(
+                &[
+                    "ilc_mode",
+                    "force_and_status",
+                    "temperature",
+                    "displacement",
+                    "inclinometer",
+                ],
+                &[
+                    get_parameter(filepath, "latency_ilc_mode"),
+                    get_parameter(filepath, "latency_get_force_and_status"),
+                    get_parameter(filepath, "latency_get_temperature"),
+                    get_parameter(filepath, "latency_get_displacement"),
+                    get_parameter(filepath, "latency_get_inclinometer"),
+                ],
+            ),
         }
+    }
+
+    /// Create a dictionary from the given keys and values.
+    ///
+    /// # Arguments
+    /// * `keys` - The keys of the dictionary.
+    /// * `values` - The values of the dictionary.
+    ///
+    /// # Returns
+    /// A dictionary created from the given keys and values.
+    fn create_dict<T: Clone>(keys: &[&str], values: &[T]) -> HashMap<String, T> {
+        let mut dict = HashMap::new();
+        for (idx, key) in keys.iter().enumerate() {
+            dict.insert(String::from(*key), values[idx].clone());
+        }
+        dict
     }
 }

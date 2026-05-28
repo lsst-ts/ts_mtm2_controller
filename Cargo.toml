@@ -20,15 +20,15 @@ approx = "0.5"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["cargo"] }
 csv = "1.4.0"
-kiddo = "4.2.1"
+kiddo = "5.3.1"
 log = "0.4.29"
-nalgebra = { version = "0.33.3", features = ["serde-serialize"]}
+nalgebra = { version = "0.34.2", features = ["serde-serialize"]}
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.149"
-signal-hook = "0.3.18"
+serde_json = "1.0.150"
+signal-hook = "0.4.4"
 simplelog = "0.12.2"
-strum = "0.26.3"
-strum_macros = "0.26.4"
+strum = "0.28.0"
+strum_macros = "0.28.0"
 tempfile = "3.27.0"
 time = "0.3.47"
 crc = "3.4.0"

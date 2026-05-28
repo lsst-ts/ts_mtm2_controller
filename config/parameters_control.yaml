@@ -95,7 +95,6 @@ hardpoints: [5, 15, 25, 73, 75, 77]
 control_frequency: 20.0
 
 # Enabled faults mask as a 64-bit unsigned integer.
-# This value should be a hexadecimal number (0x...).
 enabled_faults_mask: 0xff800003fffffff8
 
 # Maximum count that the control loop can be out of time (1/control_frequency).
