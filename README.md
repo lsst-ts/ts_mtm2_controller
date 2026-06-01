@@ -40,12 +40,8 @@ To run the test FPGA code in the cRIO, do:
 cargo run --features fpga --bin test_fpga
 ```
 
-The system should look for the `/usr/lib/x86_64-linux-gnu/libNiFpga.so` by itself at run time.
-If not, do:
-
-```bash
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
-```
+The system should look for the `/usr/lib/x86_64-linux-gnu/libNiFpga.so` by itself at compile time.
+See the [build.rs](build.rs).
 
 ## Build the Executable
 
@@ -62,7 +58,8 @@ This will generate an optimized executable in the `target/release/` directory, w
 You should put the FPGA files in the `fpga/` directory.
 They are generated from the bifile of [ts_mtm2_cell](https://github.com/lsst-ts/ts_mtm2_cell).
 See [FPGA Interface C API User Manual](https://www.ni.com/docs/en-US/bundle/fpga-interface-c/page/user-manual-welcome.html) for more details.
-You can also see the page: [A little C with your Rust](https://docs.rust-embedded.org/book/interoperability/c-with-rust.html) for the interoperation between the Rust and C library.
+Although the raw dynamic library is used and you do not really compile the NI FPGA C code, it is good to have the generated header file ([NiFpga_portSerialMasterSlave.h](fpga/NiFpga_portSerialMasterSlave.h)) to get the register offsets.
+Otherwise, you need to read the NI FPGA bitfile (an xml file) to get the required offsets.
 
 ## Deployment
 
