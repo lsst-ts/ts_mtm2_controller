@@ -37,14 +37,6 @@ use ts_control_utils::enums::BitEnum;
 #[cfg(feature = "fpga")]
 use nifpga_dll::{Context, ReadFifo, Session, Type, WriteFifo};
 
-#[cfg(feature = "fpga")]
-#[link(name = "nifpga_c_api", kind = "static")]
-unsafe extern "C" {}
-
-#[cfg(feature = "fpga")]
-#[link(name = "dl")]
-unsafe extern "C" {}
-
 #[derive(Default)]
 pub struct FpgaWrapper {
     // Registers in the FPGA
