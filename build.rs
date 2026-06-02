@@ -22,19 +22,9 @@
 fn main() {
     // Cargo sets CARGO_FEATURE_<NAME> for enabled features (uppercased).
     if std::env::var_os("CARGO_FEATURE_FPGA").is_some() {
-        println!("cargo:rerun-if-changed=fpga/NiFpga.c");
-        println!("cargo:rerun-if-changed=fpga/NiFpga.h");
-
-        cc::Build::new()
-            .file("fpga/NiFpga.c")
-            .include("fpga")
-            .warnings(true)
-            .compile("nifpga_c_api");
-
-        // Emit explicit link directives to make sure NiFpga_* symbols are resolved.
-        let out_dir = std::env::var("OUT_DIR").unwrap();
-        println!("cargo:rustc-link-search=native={out_dir}");
-        println!("cargo:rustc-link-lib=static=nifpga_c_api");
-        println!("cargo:rustc-link-lib=dylib=dl");
+        // Tell Cargo to search for native libraries in this specific directory
+        println!("cargo:rustc-link-search=native=/usr/lib/x86_64-linux-gnu");
+        // Tell Cargo to link the `libNiFpga.so` dynamic library
+        println!("cargo:rustc-link-lib=dylib=NiFpga");
     }
 }

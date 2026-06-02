@@ -1,5 +1,11 @@
 # Version History
 
+0.4.9
+
+- Update the dependency of `nifpga-dll`.
+- Remove the `cc` dependency and modify the `build.rs`.
+- Remove the C functions in `fpga_wrapper.rs`.
+
 0.4.8
 
 - Update the version of `ts_control_utils`.
