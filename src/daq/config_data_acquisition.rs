@@ -30,11 +30,19 @@ pub struct ConfigDataAcquisition {
     pub frequency_loop: f64,
     // The frequency to toggle the closed-loop control bit in Hz.
     pub frequency_toggle_bit: f64,
-    // The limit of the actuator inner-loop controller (ILC) stale data.
-    pub actuator_ilc_stale_data_limit: i32,
+    // The limit of the inner-loop controller (ILC) stale data.
+    pub ilc_stale_data_limit: i32,
     // Bypassed actuator ILC list (0-based) to check the error reported by ILC
     // directly.
     pub bypassed_actuator_ilcs: Vec<usize>,
+    // Bypass the check of the stale data for inclinometer.
+    pub bypass_check_stale_inclinometer: bool,
+    // Sleep time in microseconds to wait for the ILC action after broadcasting
+    // the global command to all ILCs.
+    pub sleep_time_broadcast_ilc: u64,
+    // Sleep time in microseconds to wait for the ILC to be ready for the next
+    // command.
+    pub sleep_time_ilc_reading: u64,
     // NI FPGA bitfile path.
     pub path_bitfile: PathBuf,
     // NI FPGA header file path.
@@ -74,11 +82,18 @@ impl ConfigDataAcquisition {
             frequency_loop: get_parameter(filepath, "frequency_loop"),
             frequency_toggle_bit: get_parameter(filepath, "frequency_toggle_bit"),
 
-            actuator_ilc_stale_data_limit: get_parameter(filepath, "actuator_ilc_stale_data_limit"),
+            ilc_stale_data_limit: get_parameter(filepath, "ilc_stale_data_limit"),
             bypassed_actuator_ilcs: get_parameter_array::<usize>(
                 filepath,
                 "bypassed_actuator_ilcs",
             ),
+            bypass_check_stale_inclinometer: get_parameter(
+                filepath,
+                "bypass_check_stale_inclinometer",
+            ),
+
+            sleep_time_broadcast_ilc: get_parameter(filepath, "sleep_time_broadcast_ilc"),
+            sleep_time_ilc_reading: get_parameter(filepath, "sleep_time_ilc_reading"),
 
             path_bitfile: fpga_directory.join(get_parameter::<String>(filepath, "name_bitfile")),
             path_header: fpga_directory.join(get_parameter::<String>(filepath, "name_header")),
