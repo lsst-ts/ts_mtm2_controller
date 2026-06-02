@@ -23,7 +23,7 @@ use crc::{Crc, CRC_16_MODBUS};
 
 use crate::constants::{
     BROADCAST_ADDRESS, CODE_FORCE_REQUEST, CODE_ILC_MODE, CODE_MONITOR_SENSOR,
-    CODE_STEP_MOTOR_BROADCAST, NUM_ACTUATOR,
+    CODE_STEP_MOTOR_BROADCAST, NUM_ACTUATOR, NUM_ILC_TEMPERATURE_MONITOR_SENSOR,
 };
 use crate::enums::InnerLoopControlMode;
 
@@ -66,7 +66,6 @@ impl InnerLoopController {
             *frame = Self::create_frame_get_force_and_status(&CRC_ALGORITHM, index as u8);
         }
 
-        const NUM_ILC_TEMPERATURE_MONITOR_SENSOR: usize = 4;
         let mut frames_temperature = [[0; 4]; NUM_ILC_TEMPERATURE_MONITOR_SENSOR];
         for (index, frame) in frames_temperature.iter_mut().enumerate() {
             *frame = Self::create_frame_monitor(&CRC_ALGORITHM, (index + NUM_ACTUATOR) as u8);
@@ -566,6 +565,23 @@ mod tests {
             ilc._frame_inclinometer,
             [0x54, CODE_MONITOR_SENSOR, 0x3E, 0x8F]
         );
+    }
+
+    #[test]
+    fn test_calculate_crc_and_update_frame() {
+        let ilc = InnerLoopController::new();
+
+        // Check the CRC calculation matches the
+        // "MB FPGA Serial Modbus Data Unit to String.vi" in ts_mtm2_cell.
+        let mut frame_1 = [1, 2, 3, 4, 0, 0];
+        InnerLoopController::calculate_crc_and_update_frame(&ilc._crc, &mut frame_1);
+
+        assert_eq!(frame_1, [1, 2, 3, 4, 0xA1, 0x2B]);
+
+        let mut frame_2 = [1, 2, 3, 4, 0, 0, 0];
+        InnerLoopController::calculate_crc_and_update_frame(&ilc._crc, &mut frame_2);
+
+        assert_eq!(frame_2, [1, 2, 3, 4, 0, 0xEA, 0xB8]);
     }
 
     #[should_panic(
