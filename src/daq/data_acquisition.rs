@@ -19,11 +19,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::path::Path;
+use std::thread::sleep;
+use std::time::Duration;
 
 use crate::constants::{
-    NUM_ACTUATOR, NUM_IMS, NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
+    NUM_ACTUATOR, NUM_ILC_TEMPERATURE_MONITOR_SENSOR, NUM_IMS, NUM_INNER_LOOP_CONTROLLER,
+    NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
 };
 use crate::daq::{
     config_data_acquisition::ConfigDataAcquisition, fpga_wrapper::FpgaWrapper,
@@ -54,9 +57,9 @@ pub struct DataAcquisition {
     _seq_id_move_actuator_steps: i32,
     // Inner-loop controller
     _ilc: InnerLoopController,
-    // The counts of stale data for each actuator ILC. This is used to check if
-    // the ILC data is stale for too long.
-    _actuator_ilc_stale_data_counts: Vec<i32>,
+    // The counts of stale data for each ILC. This is used to check if the ILC
+    // data is stale for too long.
+    _ilc_stale_data_counts: Vec<i32>,
     // FPGA wrapper. This is used to communicate with the FPGA in the real
     // hardware mode.
     _fpga: FpgaWrapper,
@@ -105,7 +108,7 @@ impl DataAcquisition {
             _seq_id_move_actuator_steps: 0,
 
             _ilc: InnerLoopController::new(),
-            _actuator_ilc_stale_data_counts: vec![0; NUM_ACTUATOR],
+            _ilc_stale_data_counts: vec![0; NUM_INNER_LOOP_CONTROLLER],
 
             plant,
         }
@@ -157,12 +160,12 @@ impl DataAcquisition {
 
         info!("Set the data acquisition mode to {:?}.", mode);
 
-        // Reset the current actuator ILC stale data counts to 0 when switching
-        // to Idle mode as we do not read the ILC data in Idle mode.
+        // Reset the current ILC stale data counts to 0 when switching to Idle
+        // mode as we do not read the ILC data in Idle mode.
         if mode == DataAcquisitionMode::Idle {
-            self._actuator_ilc_stale_data_counts = vec![0; NUM_ACTUATOR];
+            self._ilc_stale_data_counts = vec![0; NUM_INNER_LOOP_CONTROLLER];
 
-            info!("Reset the current actuator ILC stale data counts to 0.");
+            info!("Reset the current ILC stale data counts to 0.");
         }
 
         Some(())
@@ -257,19 +260,23 @@ impl DataAcquisition {
         telemetry.seq_id_move_actuator_steps = self._seq_id_move_actuator_steps;
 
         // Raw ILC data
-        let (ilc_status, ilc_encoders, forces) = self.get_ilc_data_actuator();
+        let sleep_time_ilc_reading = self.config.sleep_time_ilc_reading;
+        let (ilc_status, ilc_encoders, forces, failed_to_read_actuator) =
+            self.get_ilc_data_actuators(sleep_time_ilc_reading);
         telemetry.forces.insert(String::from("measured"), forces);
         telemetry.ilc_status = ilc_status;
         telemetry.ilc_encoders = ilc_encoders;
 
-        let (ring, intake, exhaust) = self.get_ilc_data_temperature();
+        let (ring, intake, exhaust, failed_to_read_temperature) =
+            self.get_ilc_data_temperature(sleep_time_ilc_reading);
         telemetry.temperature.insert(String::from("ring"), ring);
         telemetry.temperature.insert(String::from("intake"), intake);
         telemetry
             .temperature
             .insert(String::from("exhaust"), exhaust);
 
-        let (theta_z, delta_z) = self.get_ilc_data_displacement();
+        let (theta_z, delta_z, failed_to_read_displacement) =
+            self.get_ilc_data_displacement(sleep_time_ilc_reading);
         telemetry
             .displacement_sensors
             .insert(String::from("thetaZ"), theta_z);
@@ -277,13 +284,26 @@ impl DataAcquisition {
             .displacement_sensors
             .insert(String::from("deltaZ"), delta_z);
 
-        let inclinometer_angle = self.get_ilc_data_inclinometer();
+        let (inclinometer_angle, mut failed_to_read_inclinometer) =
+            self.get_ilc_data_inclinometer(sleep_time_ilc_reading);
         telemetry
             .inclinometer
             .insert(String::from("raw"), inclinometer_angle);
 
+        // Bypass the check of the stale data for inclinometer if configured to
+        // bypass.
+        if self.config.bypass_check_stale_inclinometer && failed_to_read_inclinometer {
+            failed_to_read_inclinometer = false;
+        }
+
         // Check the ILC stale data
-        self.check_ilc_stale_data(&mut telemetry);
+        self.check_ilc_stale_data(
+            &mut telemetry,
+            &failed_to_read_actuator,
+            &failed_to_read_temperature,
+            failed_to_read_displacement,
+            failed_to_read_inclinometer,
+        );
 
         // Cache the latest telemetry data
         self._latest_telemetry = telemetry;
@@ -291,60 +311,119 @@ impl DataAcquisition {
         self._latest_telemetry.clone()
     }
 
-    /// Get the actuator inner-loop controller (ILC) data.
+    /// Get all the actuator inner-loop controller (ILC) data.
+    ///
+    /// # Arguments
+    /// * `sleep_time` - The sleep time in microseconds to wait for the ILC to
+    ///   be ready for the next command.
     ///
     /// # Returns
-    /// A tuple containing the ILC status, actuator encoders, and actuator
-    /// forces in Newton.
-    fn get_ilc_data_actuator(&mut self) -> (Vec<u8>, Vec<i32>, Vec<f64>) {
+    /// A tuple containing the ILC status, actuator encoders, actuator
+    /// forces in Newton, and a vector indicating which actuator sensors failed
+    /// to read.
+    fn get_ilc_data_actuators(
+        &mut self,
+        sleep_time: u64,
+    ) -> (Vec<u8>, Vec<i32>, Vec<f64>, Vec<usize>) {
         // Set the ILC data for the simulation mode.
         if let Some(plant) = &mut self.plant {
             plant.set_actuator_ilc_data()
         }
 
-        // Get the ILC data for each actuator.
+        // Get the ILC data for each actuator and record the failed ILC index.
         let mut statuses = vec![0; NUM_ACTUATOR];
         let mut encoder_counts = vec![0; NUM_ACTUATOR];
         let mut forces = vec![0.0; NUM_ACTUATOR];
-
-        let mut frame_payload = Vec::new();
+        let mut failed_ilc_indices = vec![];
         for idx in 0..NUM_ACTUATOR {
-            if let Some(frame_request) = self._ilc.get_frame_get_force_and_status(idx) {
-                if let Some(plant) = &mut self.plant {
-                    frame_payload = plant.request_ilc(frame_request);
-                } else {
-                    let config = &self.config;
-                    match self._fpga.request_ilc(
-                        frame_request,
-                        1,
-                        config.payload_byte["force_and_status"],
-                        config.latency["force_and_status"],
-                        config.timeout_irq,
-                    ) {
-                        Some(payload) => frame_payload = payload,
-                        None => {
-                            frame_payload = Vec::new();
-                        }
-                    }
+            match self.get_ilc_data_actuator(idx, sleep_time) {
+                Some((status, encoder_count, force)) => {
+                    statuses[idx] = status;
+                    encoder_counts[idx] = encoder_count;
+                    forces[idx] = force;
                 }
-
-                self.record_ilc_exception_code(&frame_payload, frame_request);
-            }
-
-            if let Some((status, encoder_count, force)) =
-                self._ilc.get_force_and_status_from_frame(&frame_payload)
-            {
-                statuses[idx] = status;
-                encoder_counts[idx] = encoder_count;
-                forces[idx] = force as f64;
-            } else {
-                // Use the cached ILC data if the ILC data is not valid.
-                encoder_counts[idx] = self._latest_telemetry.ilc_encoders[idx];
-                forces[idx] = self._latest_telemetry.forces["measured"][idx]
+                None => {
+                    failed_ilc_indices.push(idx);
+                }
             }
         }
 
-        (statuses, encoder_counts, forces)
+        // For the failed ILCs, try to read the ILC data again to see if it is
+        // a transient issue.
+        let mut failed_ilc_indices_after_retry = vec![];
+        for idx in failed_ilc_indices {
+            match self.get_ilc_data_actuator(idx, sleep_time) {
+                Some((status, encoder_count, force)) => {
+                    statuses[idx] = status;
+                    encoder_counts[idx] = encoder_count;
+                    forces[idx] = force;
+                }
+                None => {
+                    failed_ilc_indices_after_retry.push(idx);
+                }
+            }
+        }
+
+        if !failed_ilc_indices_after_retry.is_empty() {
+            debug!(
+                "Failed to read the actuator ILC data for the indices after retrying: {:?}.",
+                failed_ilc_indices_after_retry
+            );
+        }
+
+        // Use the cached ILC data if the ILC data is not valid after retrying.
+        for idx in &failed_ilc_indices_after_retry {
+            encoder_counts[*idx] = self._latest_telemetry.ilc_encoders[*idx];
+            forces[*idx] = self._latest_telemetry.forces["measured"][*idx];
+        }
+
+        (
+            statuses,
+            encoder_counts,
+            forces,
+            failed_ilc_indices_after_retry,
+        )
+    }
+
+    /// Get the single actuator inner-loop controller (ILC) data.
+    ///
+    /// # Arguments
+    /// * `idx` - The index of the actuator.
+    /// * `sleep_time` - The sleep time in microseconds to wait for the ILC to
+    ///   be ready for the next command.
+    ///
+    /// # Returns
+    /// Some if the ILC data is successfully read. Otherwise, None. The tuple
+    /// contains the ILC status, actuator encoder, and actuator force in
+    /// Newton.
+    fn get_ilc_data_actuator(&mut self, idx: usize, sleep_time: u64) -> Option<(u8, i32, f64)> {
+        let mut frame_payload = Vec::new();
+        if let Some(frame_request) = self._ilc.get_frame_get_force_and_status(idx) {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(frame_request);
+            } else {
+                let config = &self.config;
+                if let Some(payload) = self._fpga.request_ilc(
+                    frame_request,
+                    1,
+                    config.payload_byte["force_and_status"],
+                    config.latency["force_and_status"],
+                    config.timeout_irq,
+                ) {
+                    frame_payload = payload;
+                }
+
+                // Sleep for a while to wait for the ILC to be ready for the
+                // next command.
+                sleep(Duration::from_micros(sleep_time));
+            }
+
+            self.record_ilc_exception_code(&frame_payload, frame_request);
+        }
+
+        self._ilc
+            .get_force_and_status_from_frame(&frame_payload)
+            .map(|(status, encoder_count, force)| (status, encoder_count, force as f64))
     }
 
     /// Record the inner-loop controller (ILC) exception code.
@@ -370,10 +449,18 @@ impl DataAcquisition {
 
     /// Get the temperature inner-loop controller (ILC) data.
     ///
+    /// # Arguments
+    /// * `sleep_time` - The sleep time in microseconds to wait for the ILC to
+    ///   be ready for the next command.
+    ///
     /// # Returns
     /// A tuple containing the ring, intake, and exhaust temperatures in degree
-    /// Celsius.
-    fn get_ilc_data_temperature(&mut self) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    /// Celsius, and a vector indicating which temperature sensors failed to
+    /// read.
+    fn get_ilc_data_temperature(
+        &mut self,
+        sleep_time: u64,
+    ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<usize>) {
         // Set the ILC data for the simulation mode.
         if let Some(plant) = &mut self.plant {
             plant.set_monitor_ilc_temperature();
@@ -383,11 +470,11 @@ impl DataAcquisition {
         let mut temperatures =
             [0.0; NUM_TEMPERATURE_RING + NUM_TEMPERATURE_INTAKE + NUM_TEMPERATURE_EXHAUST];
         const NUM_TEMPERATURE_PER_FRAME: usize = 4;
-        const NUM_TEMPERATURE_SENSOR: usize = 4;
 
+        let mut failed_to_read = vec![];
         let mut frame_payload = Vec::new();
         let mut successful_indices = vec![];
-        for idx in 0..NUM_TEMPERATURE_SENSOR {
+        for idx in 0..NUM_ILC_TEMPERATURE_MONITOR_SENSOR {
             if let Some(frame_request) = self._ilc.get_frame_temperature(idx) {
                 if let Some(plant) = &mut self.plant {
                     frame_payload = plant.request_ilc(frame_request);
@@ -403,8 +490,19 @@ impl DataAcquisition {
                         Some(payload) => frame_payload = payload,
                         None => {
                             frame_payload = Vec::new();
+
+                            failed_to_read.push(idx);
+
+                            debug!(
+                                "Failed to read the temperature ILC data for the index {}.",
+                                idx
+                            );
                         }
                     }
+
+                    // Sleep for a while to wait for the ILC to be ready for
+                    // the next command.
+                    sleep(Duration::from_micros(sleep_time));
                 }
 
                 self.record_ilc_exception_code(&frame_payload, frame_request);
@@ -418,7 +516,9 @@ impl DataAcquisition {
             }
         }
 
-        self.rearrange_temperature_sensor_readings(&successful_indices, &temperatures)
+        let (ring, intake, exhaust) =
+            self.rearrange_temperature_sensor_readings(&successful_indices, &temperatures);
+        (ring, intake, exhaust, failed_to_read)
     }
 
     /// Rearrange the temperature sensor readings.
@@ -479,12 +579,17 @@ impl DataAcquisition {
 
     /// Get the displacement inner-loop controller (ILC) data.
     ///
+    /// # Arguments
+    /// * `sleep_time` - The sleep time in microseconds to wait for the ILC to
+    ///   be ready for the next command.
+    ///
     /// # Returns
     /// A tuple containing the theta-Z and delta-Z displacement sensor readings
-    /// in micron.
-    fn get_ilc_data_displacement(&mut self) -> (Vec<f64>, Vec<f64>) {
+    /// in micron and a boolean indicating if the read failed.
+    fn get_ilc_data_displacement(&mut self, sleep_time: u64) -> (Vec<f64>, Vec<f64>, bool) {
         let frame_request = self._ilc.get_frame_displacement();
 
+        let mut failed_to_read = false;
         let frame_payload;
         if let Some(plant) = &mut self.plant {
             // Set the displacement sensor values for the simulation mode.
@@ -503,19 +608,30 @@ impl DataAcquisition {
                 Some(payload) => frame_payload = payload,
                 None => {
                     frame_payload = Vec::new();
+
+                    failed_to_read = true;
+
+                    debug!("Failed to read the displacement ILC data.");
                 }
             }
+
+            // Sleep for a while to wait for the ILC to be ready for the next
+            // command.
+            sleep(Duration::from_micros(sleep_time));
         }
 
         self.record_ilc_exception_code(&frame_payload, frame_request);
 
         if let Some(displacement) = self._ilc.get_displacement_from_frame(&frame_payload) {
-            self.rearrange_displacement_sensor_readings_and_unit(&displacement)
+            let (theta_z, delta_z) =
+                self.rearrange_displacement_sensor_readings_and_unit(&displacement);
+            (theta_z, delta_z, failed_to_read)
         } else {
             // Use the cached displacement values if the ILC data is not valid.
             (
                 self._latest_telemetry.displacement_sensors["thetaZ"].clone(),
                 self._latest_telemetry.displacement_sensors["deltaZ"].clone(),
+                failed_to_read,
             )
         }
     }
@@ -552,11 +668,17 @@ impl DataAcquisition {
 
     /// Get the inclinometer inner-loop controller (ILC) data.
     ///
+    /// # Arguments
+    /// * `sleep_time` - The sleep time in microseconds to wait for the ILC to
+    ///   be ready for the next command.
+    ///
     /// # Returns
-    /// The inclinometer angle in degrees.
-    fn get_ilc_data_inclinometer(&mut self) -> f64 {
+    /// A tuple containing the inclinometer angle in degrees and a boolean
+    /// indicating if the read failed.
+    fn get_ilc_data_inclinometer(&mut self, sleep_time: u64) -> (f64, bool) {
         let frame_request = self._ilc.get_frame_inclinometer();
 
+        let mut failed_to_read = false;
         let frame_payload;
         if let Some(plant) = &mut self.plant {
             // Set the inclinometer value for the simulation mode.
@@ -575,17 +697,25 @@ impl DataAcquisition {
                 Some(payload) => frame_payload = payload,
                 None => {
                     frame_payload = Vec::new();
+
+                    failed_to_read = true;
+
+                    debug!("Failed to read the inclinometer ILC data.");
                 }
             }
+
+            // Sleep for a while to wait for the ILC to be ready for the next
+            // command.
+            sleep(Duration::from_micros(sleep_time));
         }
 
         self.record_ilc_exception_code(&frame_payload, frame_request);
 
         if let Some(inclinometer_angle) = self._ilc.get_inclinometer_from_frame(&frame_payload) {
-            inclinometer_angle as f64
+            (inclinometer_angle as f64, failed_to_read)
         } else {
             // Use the cached inclinometer value if the ILC data is not valid.
-            self._latest_telemetry.inclinometer["raw"]
+            (self._latest_telemetry.inclinometer["raw"], failed_to_read)
         }
     }
 
@@ -594,53 +724,195 @@ impl DataAcquisition {
     ///
     /// # Arguments
     /// * `telmetry` - The telemetry data.
-    fn check_ilc_stale_data(&mut self, telmetry: &mut TelemetryControlLoop) {
-        let bypassed_ilcs = &self.config.bypassed_actuator_ilcs;
-        let ilc_stale_data_limit = self.config.actuator_ilc_stale_data_limit;
+    /// * `failed_to_read_actuator` - The 0-based indices of the actuator ILCs
+    ///   that failed to read.
+    /// * `failed_to_read_temperature` - The 0-based indices of the temperature
+    ///   ILCs that failed to read.
+    /// * `failed_to_read_displacement` - A boolean indicating whether failed
+    ///   to read the displacement ILC or not.
+    /// * `failed_to_read_inclinometer` - A boolean indicating whether failed
+    ///   to read the inclinometer ILC or not.
+    fn check_ilc_stale_data(
+        &mut self,
+        telemetry: &mut TelemetryControlLoop,
+        failed_to_read_actuator: &[usize],
+        failed_to_read_temperature: &[usize],
+        failed_to_read_displacement: bool,
+        failed_to_read_inclinometer: bool,
+    ) {
+        // Check the actuator ILCs
+        let ilc_stale_data_limit = self.config.ilc_stale_data_limit;
+        let actuator_ilc_status = &telemetry.ilc_status;
 
-        let mut has_warning = false;
-        let mut has_fault = false;
-        for (idx, status) in telmetry.ilc_status.iter().enumerate() {
-            // Bypass the stale data check for the bypassed actuator ILCs
-            if bypassed_ilcs.contains(&idx) {
+        let mut has_broadcast_issue = false;
+        let mut has_fault_actuator = false;
+        for (idx, status) in actuator_ilc_status.iter().enumerate() {
+            // Bypass the stale data check for the bypassed actuator
+            // ILCs
+            if self.config.bypassed_actuator_ilcs.contains(&idx) {
+                self.update_ilc_stale_data(idx, false, ilc_stale_data_limit);
                 continue;
             }
 
-            if self._ilc.is_expected_communication_counter(*status) {
-                // The bad ILC reading has the status to be 0.
-                if *status != 0 {
-                    self._actuator_ilc_stale_data_counts[idx] = 0;
-                }
-            } else {
-                if !has_warning {
-                    has_warning = true;
-                }
+            let has_wrong_communication_counter =
+                !self._ilc.is_expected_communication_counter(*status);
+            if has_wrong_communication_counter && (!has_broadcast_issue) {
+                has_broadcast_issue = true;
+            }
 
-                if self._actuator_ilc_stale_data_counts[idx] < ilc_stale_data_limit {
-                    self._actuator_ilc_stale_data_counts[idx] += 1;
-                } else if !has_fault {
-                    has_fault = true;
-                }
+            if has_wrong_communication_counter {
+                warn!(
+                    "The actuator ILC {} has the wrong communication counter.",
+                    idx
+                );
+            }
+
+            let has_fault = self.update_ilc_stale_data(
+                idx,
+                failed_to_read_actuator.contains(&idx) | has_wrong_communication_counter,
+                ilc_stale_data_limit,
+            );
+
+            if has_fault && (!has_fault_actuator) {
+                has_fault_actuator = true;
             }
         }
 
-        if has_warning {
-            telmetry
+        // Check the monitor ILCs
+        const IDX_DISPLACEMENT: usize = NUM_ACTUATOR + NUM_ILC_TEMPERATURE_MONITOR_SENSOR;
+        const IDX_INCLINOMETER: usize = NUM_ACTUATOR + NUM_ILC_TEMPERATURE_MONITOR_SENSOR + 1;
+
+        let mut has_fault_monitor = false;
+        let mut has_fault_inclinometer = false;
+        for idx in NUM_ACTUATOR..NUM_INNER_LOOP_CONTROLLER {
+            match idx {
+                NUM_ACTUATOR..IDX_DISPLACEMENT => {
+                    let has_fault = self.update_ilc_stale_data(
+                        idx,
+                        failed_to_read_temperature.contains(&(idx - NUM_ACTUATOR)),
+                        ilc_stale_data_limit,
+                    );
+
+                    if has_fault && (!has_fault_monitor) {
+                        has_fault_monitor = true;
+                    }
+                }
+                IDX_DISPLACEMENT => {
+                    let has_fault = self.update_ilc_stale_data(
+                        idx,
+                        failed_to_read_displacement,
+                        ilc_stale_data_limit,
+                    );
+
+                    if has_fault && (!has_fault_monitor) {
+                        has_fault_monitor = true;
+                    }
+                }
+                IDX_INCLINOMETER => {
+                    let has_fault = self.update_ilc_stale_data(
+                        idx,
+                        failed_to_read_inclinometer,
+                        ilc_stale_data_limit,
+                    );
+
+                    if has_fault && (!has_fault_monitor) {
+                        has_fault_monitor = true;
+                    }
+
+                    if has_fault {
+                        has_fault_inclinometer = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Add the ILC error code
+        let has_warn_monitor_ilc_read = (!failed_to_read_temperature.is_empty())
+            || failed_to_read_displacement
+            || failed_to_read_inclinometer;
+        if has_warn_monitor_ilc_read {
+            telemetry
+                .ilc_error_codes
+                .push(ErrorCode::WarnMonitorIlcRead);
+        }
+
+        if (!failed_to_read_actuator.is_empty())
+            || has_warn_monitor_ilc_read && (!(has_fault_actuator || has_fault_monitor))
+        {
+            telemetry
+                .ilc_error_codes
+                .push(ErrorCode::IgnoreWarnStaleData);
+        }
+
+        if has_broadcast_issue {
+            telemetry
                 .ilc_error_codes
                 .push(ErrorCode::IgnoreWarnBroadcast);
         }
 
-        if has_fault {
-            telmetry
-                .ilc_error_codes
-                .push(ErrorCode::IgnoreFaultStaleData);
-            telmetry
+        if has_fault_actuator {
+            telemetry
                 .ilc_error_codes
                 .push(ErrorCode::FaultActuatorIlcRead);
-        } else if has_warning {
-            telmetry
+        }
+
+        if has_fault_actuator || has_fault_monitor {
+            telemetry
                 .ilc_error_codes
-                .push(ErrorCode::IgnoreWarnStaleData);
+                .push(ErrorCode::IgnoreFaultStaleData);
+        }
+
+        if has_fault_inclinometer {
+            match self.mode {
+                DataAcquisitionMode::ClosedLoopControl => {
+                    telemetry
+                        .ilc_error_codes
+                        .push(ErrorCode::FaultInclinometerWLut);
+                }
+                DataAcquisitionMode::Telemetry => {
+                    telemetry
+                        .ilc_error_codes
+                        .push(ErrorCode::WarnInclinometerWoLut);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Update the inner-loop controller (ILC) stale data counts and check if
+    /// the ILC data is stale for too long.
+    ///
+    /// # Arguments
+    /// * `idx` - The 0-based index of the ILC.
+    /// * `has_reading_issue` - A boolean indicating whether there is a reading
+    ///   issue.
+    /// * `max_counter` - The maximum allowed stale data count before
+    ///   considering it a fault.
+    ///
+    /// # Returns
+    /// True if the ILC data is considered stale for too long (i.e., has a
+    /// fault), false otherwise.
+    fn update_ilc_stale_data(
+        &mut self,
+        idx: usize,
+        has_reading_issue: bool,
+        max_counter: i32,
+    ) -> bool {
+        if has_reading_issue {
+            if self._ilc_stale_data_counts[idx] < max_counter {
+                self._ilc_stale_data_counts[idx] += 1;
+            }
+
+            let has_long_stale_data = self._ilc_stale_data_counts[idx] >= max_counter;
+            if has_long_stale_data {
+                error!("The ILC {} has the stale data for a long time.", idx);
+            }
+
+            has_long_stale_data
+        } else {
+            self._ilc_stale_data_counts[idx] = 0;
+            false
         }
     }
 
@@ -774,6 +1046,10 @@ impl DataAcquisition {
                 config.latency["ilc_mode"],
                 config.timeout_irq,
             )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
         }
 
         self.record_ilc_exception_code(&frame_payload, &frame_request);
@@ -834,6 +1110,10 @@ impl DataAcquisition {
                 config.latency["ilc_mode"],
                 config.timeout_irq,
             )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
         }
 
         self.record_ilc_exception_code(&frame_payload, &frame_request);
@@ -875,8 +1155,15 @@ impl DataAcquisition {
         if let Some(plant) = &mut self.plant {
             plant.request_ilc(&frame_request);
         } else {
+            // No need to put the number of bytes in the payload and the
+            // latency for this ILC request as no response frame for this
+            // command.
             self._fpga
                 .request_ilc(&frame_request, 1, 0, 0, self.config.timeout_irq)?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_broadcast_ilc));
         }
 
         Some(())
@@ -994,7 +1281,7 @@ mod tests {
             })]
         );
 
-        data_acquisition._actuator_ilc_stale_data_counts[0] = 5;
+        data_acquisition._ilc_stale_data_counts[0] = 5;
 
         assert!(data_acquisition
             .set_mode(DataAcquisitionMode::Idle)
@@ -1008,7 +1295,7 @@ mod tests {
             })]
         );
 
-        assert_eq!(data_acquisition._actuator_ilc_stale_data_counts[0], 0);
+        assert_eq!(data_acquisition._ilc_stale_data_counts[0], 0);
 
         // ClosedLoopControl -> Idle
         data_acquisition.set_mode(DataAcquisitionMode::Telemetry);
@@ -1153,7 +1440,7 @@ mod tests {
     }
 
     #[test]
-    fn test_check_ilc_stale_data() {
+    fn test_check_ilc_stale_data_broadcast() {
         let mut data_acquisition = create_data_acquisition(true);
         data_acquisition.config.bypassed_actuator_ilcs = vec![1, 2];
 
@@ -1166,40 +1453,37 @@ mod tests {
         telemetry.ilc_status[1] = 0x00;
         telemetry.ilc_status[2] = 0x00;
 
-        let actuator_ilc_stale_data_limit = data_acquisition.config.actuator_ilc_stale_data_limit;
-        for _ in 0..actuator_ilc_stale_data_limit {
-            data_acquisition.check_ilc_stale_data(&mut telemetry);
+        let ilc_stale_data_limit = data_acquisition.config.ilc_stale_data_limit;
+        for _ in 0..ilc_stale_data_limit {
+            data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[], false, false);
         }
 
         assert_eq!(
-            data_acquisition._actuator_ilc_stale_data_counts,
-            vec![0; NUM_ACTUATOR]
+            data_acquisition._ilc_stale_data_counts,
+            vec![0; NUM_INNER_LOOP_CONTROLLER]
         );
         assert!(telemetry.ilc_error_codes.is_empty());
 
         // Stale data for one cycle
         telemetry.ilc_status[0] = 0x00;
-        data_acquisition.check_ilc_stale_data(&mut telemetry);
+        data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[], false, false);
 
-        assert_eq!(data_acquisition._actuator_ilc_stale_data_counts[0], 1);
+        assert_eq!(data_acquisition._ilc_stale_data_counts[0], 1);
         assert_eq!(
             telemetry.ilc_error_codes,
-            vec![
-                ErrorCode::IgnoreWarnBroadcast,
-                ErrorCode::IgnoreWarnStaleData
-            ]
+            vec![ErrorCode::IgnoreWarnBroadcast,]
         );
 
         // Stale data for too long
         telemetry.ilc_error_codes.clear();
 
-        for _ in 0..actuator_ilc_stale_data_limit {
-            data_acquisition.check_ilc_stale_data(&mut telemetry);
+        for _ in 0..ilc_stale_data_limit {
+            data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[], false, false);
         }
 
         assert_eq!(
-            data_acquisition._actuator_ilc_stale_data_counts[0],
-            actuator_ilc_stale_data_limit
+            data_acquisition._ilc_stale_data_counts[0],
+            ilc_stale_data_limit
         );
         assert!(telemetry
             .ilc_error_codes
@@ -1212,13 +1496,109 @@ mod tests {
         telemetry.ilc_status[0] = current_communication_counter;
         telemetry.ilc_error_codes.clear();
 
-        data_acquisition.check_ilc_stale_data(&mut telemetry);
+        data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[], false, false);
 
         assert_eq!(
-            data_acquisition._actuator_ilc_stale_data_counts,
-            vec![0; NUM_ACTUATOR]
+            data_acquisition._ilc_stale_data_counts,
+            vec![0; NUM_INNER_LOOP_CONTROLLER]
         );
         assert!(telemetry.ilc_error_codes.is_empty());
+    }
+
+    #[test]
+    fn test_check_ilc_stale_data_read_actuator() {
+        let mut data_acquisition = create_data_acquisition(true);
+        data_acquisition._ilc.communication_counter = 0;
+
+        let mut telemetry = TelemetryControlLoop::new();
+        data_acquisition.check_ilc_stale_data(&mut telemetry, &[0, 1], &[], false, false);
+
+        assert_eq!(data_acquisition._ilc_stale_data_counts[0], 1);
+        assert_eq!(data_acquisition._ilc_stale_data_counts[1], 1);
+        assert_eq!(
+            telemetry.ilc_error_codes,
+            vec![ErrorCode::IgnoreWarnStaleData]
+        );
+
+        let ilc_stale_data_limit = data_acquisition.config.ilc_stale_data_limit;
+        for _ in 0..ilc_stale_data_limit {
+            data_acquisition.check_ilc_stale_data(&mut telemetry, &[0, 1], &[], false, false);
+        }
+
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::IgnoreFaultStaleData));
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::FaultActuatorIlcRead));
+    }
+
+    #[test]
+    fn test_check_ilc_stale_data_read_monitor() {
+        let mut data_acquisition = create_data_acquisition(true);
+        data_acquisition._ilc.communication_counter = 0;
+        data_acquisition.mode = DataAcquisitionMode::Telemetry;
+
+        let mut telemetry = TelemetryControlLoop::new();
+        data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[0], true, true);
+
+        assert_eq!(data_acquisition._ilc_stale_data_counts[NUM_ACTUATOR], 1);
+        assert_eq!(
+            data_acquisition._ilc_stale_data_counts[NUM_INNER_LOOP_CONTROLLER - 2],
+            1
+        );
+        assert_eq!(
+            data_acquisition._ilc_stale_data_counts[NUM_INNER_LOOP_CONTROLLER - 1],
+            1
+        );
+        assert_eq!(
+            telemetry.ilc_error_codes,
+            vec![
+                ErrorCode::WarnMonitorIlcRead,
+                ErrorCode::IgnoreWarnStaleData
+            ]
+        );
+
+        let ilc_stale_data_limit = data_acquisition.config.ilc_stale_data_limit;
+        for _ in 0..ilc_stale_data_limit {
+            data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[0], true, true);
+        }
+
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::IgnoreFaultStaleData));
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::WarnInclinometerWoLut));
+
+        data_acquisition.mode = DataAcquisitionMode::ClosedLoopControl;
+        data_acquisition.check_ilc_stale_data(&mut telemetry, &[], &[0], true, true);
+
+        assert!(telemetry
+            .ilc_error_codes
+            .contains(&ErrorCode::FaultInclinometerWLut));
+    }
+
+    #[test]
+    fn test_update_ilc_stale_data() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        // Test with reading issue
+        assert!(!data_acquisition.update_ilc_stale_data(0, true, 3));
+        assert_eq!(data_acquisition._ilc_stale_data_counts[0], 1);
+
+        // Test with reading issue for too long
+        assert!(!data_acquisition.update_ilc_stale_data(0, true, 3));
+        assert_eq!(data_acquisition._ilc_stale_data_counts[0], 2);
+
+        for _ in 0..5 {
+            assert!(data_acquisition.update_ilc_stale_data(0, true, 3));
+            assert_eq!(data_acquisition._ilc_stale_data_counts[0], 3);
+        }
+
+        // Test without reading issue
+        assert!(!data_acquisition.update_ilc_stale_data(0, false, 3));
+        assert_eq!(data_acquisition._ilc_stale_data_counts[0], 0);
     }
 
     #[test]
