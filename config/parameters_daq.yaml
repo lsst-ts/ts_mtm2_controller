@@ -8,14 +8,28 @@ frequency_loop: 20.0
 # should be a divisor of frequency_loop.
 frequency_toggle_bit: 10.0
 
-# The limit of the actuator inner-loop controller (ILC) stale data. Sometimes,
-# you may want to tune this parameter for the possible bad communication
-# between the controller and ILC to avoid the trigger of error.
-actuator_ilc_stale_data_limit: 10
+# The limit of the inner-loop controller (ILC) stale data. Sometimes, you may
+# want to tune this parameter for the possible bad communication between the
+# controller and ILC to avoid the trigger of error.
+ilc_stale_data_limit: 10
 
 # Bypassed actuator ILC list (0-based) to check the error reported by ILC
 # directly. Any ILC in this list should be set to be hardpoint.
 bypassed_actuator_ilcs: []
+
+# Bypass the check of the stale data for inclinometer. This is used for the
+# inclinometer with bad communication, which can cause the stale data error.
+# Remove this after we fix the ILC of the inclinometer to avoid the stale data
+# error.
+bypass_check_stale_inclinometer: true
+
+# Sleep time in microseconds to wait for the ILC action after broadcasting the
+# global command to all ILCs.
+sleep_time_broadcast_ilc: 400
+
+# Sleep time in microseconds to wait for the ILC to be ready for the next
+# command.
+sleep_time_ilc_reading: 10
 
 # NI FPGA bitfile name in the "fpga/" directory.
 name_bitfile: "NiFpga_portSerialMasterSlave.lvbitx"
