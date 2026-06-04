@@ -50,6 +50,7 @@ List the commands in the followings:
 - CommandSetConfigurationFile
 - CommandSetHardpointList
 - CommandRunScript
+- CommandFault
 
 See [here](../src/command/command_controller.rs) for the details.
 
