@@ -916,7 +916,7 @@ mod tests {
 
     #[test]
     fn test_get_faults_mask() {
-        assert_eq!(ErrorHandler::get_faults_mask(), 0xAB8000030CD7EAD8);
+        assert_eq!(ErrorHandler::get_faults_mask(), 0xA20000030CD7EAD8);
     }
 
     #[test]
@@ -1032,9 +1032,7 @@ mod tests {
             .displacement_sensors
             .insert(String::from("thetaZ"), vec![41000.0; NUM_IMS]);
 
-        telemetry
-            .ilc_error_codes
-            .push(ErrorCode::FaultIlcStateTransition);
+        telemetry.ilc_error_codes.push(ErrorCode::FaultCommVoltage);
 
         error_handler.check_condition_control_loop(&telemetry, true);
 
@@ -1049,7 +1047,7 @@ mod tests {
             ErrorCode::WarnTempDiff,
             ErrorCode::WarnDisplacementSensorRange,
             ErrorCode::FaultInclinometerRange,
-            ErrorCode::FaultIlcStateTransition,
+            ErrorCode::FaultCommVoltage,
         ]
         .iter()
         .fold(0, |acc, error_code| acc + error_code.bit_value());
