@@ -19,8 +19,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use flexi_logger::Logger;
 use log::info;
-use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
 
 use run_m2::constants::CODE_FORCE_REQUEST;
 use run_m2::daq::{config_data_acquisition::ConfigDataAcquisition, fpga_wrapper::FpgaWrapper};
@@ -28,12 +28,9 @@ use run_m2::enums::{DigitalOutput, DigitalOutputStatus};
 
 fn main() {
     // Set up the logger
-    if let Err(error) = TermLogger::init(
-        LevelFilter::Info,
-        Config::default(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    ) {
+    if let Err(error) =
+        Logger::try_with_str("info").and_then(|logger| logger.log_to_stdout().start())
+    {
         eprintln!("Failed to initialize logger: {error}");
     }
 
