@@ -19,17 +19,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use chrono::Local;
 use clap::{value_parser, Arg, ArgAction, Command};
-use log::info;
-use simplelog::{
-    format_description, ColorChoice, CombinedLogger, ConfigBuilder, LevelFilter, TermLogger,
-    TerminalMode, WriteLogger,
+use flexi_logger::{
+    Age, Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, Logger, LoggerHandle, Naming,
+    WriteMode,
 };
-use std::fs::File;
+use log::{info, Record};
+use std::io::Write;
 use std::path::Path;
 
 use run_m2::application;
+use ts_control_utils::utility::get_parameter;
 
 fn main() {
     // Parse the command line arguments
@@ -52,14 +52,6 @@ fn main() {
                 .action(ArgAction::SetTrue)
                 .help("Run the simulation mode"),
         )
-        .arg(
-            Arg::new("level")
-                .short('l')
-                .long("log-level")
-                .help("Log level: 0 (Off), 1 (Error), 2 (Warn), 3 (Info), 4 (Debug), 5 (Trace)")
-                .default_value("3")
-                .value_parser(value_parser!(u32)),
-        )
         .get_matches();
 
     // Check the ports
@@ -72,120 +64,89 @@ fn main() {
     // Check the simulation mode
     let is_simulation_mode = matches.get_flag("simulate");
 
-    // Check the log filter
-    let log_filter = get_log_filter(matches.get_one::<u32>("level"));
-
     // Initiate the logger
-    initiate_logger(
-        log_filter,
-        Path::new(&format!("log/{}", generate_log_file_name()))
-            .to_str()
-            .expect("Should be a valid path of the log file."),
+    let config_file = Path::new("config/parameters_app.yaml");
+    let logger_handle = initiate_logger(
+        get_parameter(config_file, "log_directory"),
+        get_parameter(config_file, "log_basename"),
+        get_parameter(config_file, "log_suffix"),
+        get_parameter(config_file, "log_size"),
+        get_parameter(config_file, "log_file_keep_days"),
     );
-    info!("Log level: {log_filter}.");
+
+    if let Ok(level_filter) = logger_handle.current_max_level() {
+        info!("Log level: {}.", level_filter);
+    }
 
     // Run the application
-    application::run(ports[0], ports[1], ports[2], ports[3], is_simulation_mode);
-}
-
-/// Get the log filter.
-///
-/// # Arguments
-/// * `log_level` - Log level.
-///
-/// # Returns
-/// Log filter.
-fn get_log_filter(log_level: Option<&u32>) -> LevelFilter {
-    match log_level {
-        Some(level) => match level {
-            0 => LevelFilter::Off,
-            1 => LevelFilter::Error,
-            2 => LevelFilter::Warn,
-            3 => LevelFilter::Info,
-            4 => LevelFilter::Debug,
-            5 => LevelFilter::Trace,
-            _ => LevelFilter::Info,
-        },
-        None => LevelFilter::Info,
-    }
+    application::run(
+        ports[0],
+        ports[1],
+        ports[2],
+        ports[3],
+        is_simulation_mode,
+        Some(logger_handle),
+    );
 }
 
 /// Initiate the logger.
 ///
 /// # Arguments
-/// * `level` - Log level.
-/// * `filepath` - Log file path.
-fn initiate_logger(level: LevelFilter, filepath: &str) {
-    let config = ConfigBuilder::new()
-        .set_time_format_custom(format_description!(
-            "[year]/[month]/[day] [hour]:[minute]:[second].[subsecond]"
-        ))
-        .build();
+/// * `directory` - Log file directory.
+/// * `basename` - Log file basename.
+/// * `suffix` - Log file suffix.
+/// * `size` - Log file size to rotate in bytes.
+/// * `keep_days` - Log file keep days.
+fn initiate_logger(
+    directory: String,
+    basename: String,
+    suffix: String,
+    size: u64,
+    keep_days: usize,
+) -> LoggerHandle {
+    let file_spec = FileSpec::default()
+        .directory(directory)
+        .basename(basename)
+        .suffix(suffix);
 
-    // Log to the terminal
-    let logger_terminal = TermLogger::new(
-        level,
-        config.clone(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    );
-
-    // Log to the file
-    let logger_file: Option<Box<WriteLogger<File>>>;
-    match File::create(filepath) {
-        Ok(file) => {
-            logger_file = Some(WriteLogger::new(level, config.clone(), file));
-        }
-        Err(error) => {
-            logger_file = None;
-            eprintln!("Failed to create the log file: {error}.");
-        }
+    match Logger::try_with_str("info").and_then(|logger| {
+        logger
+            .format(log_format)
+            .log_to_file(file_spec)
+            .duplicate_to_stdout(Duplicate::All)
+            .rotate(
+                Criterion::AgeOrSize(Age::Day, size),
+                Naming::TimestampsDirect,
+                Cleanup::KeepForDays(keep_days),
+            )
+            .write_mode(WriteMode::Async)
+            .start_with_specfile(Path::new("config/logspecification.toml"))
+    }) {
+        Ok(logger_handle) => logger_handle,
+        Err(error) => panic!("Failed to initialize logger: {error}."),
     }
-
-    match logger_file {
-        Some(file) => {
-            let _ = CombinedLogger::init(vec![logger_terminal, file]);
-        }
-        None => {
-            let _ = CombinedLogger::init(vec![logger_terminal]);
-        }
-    };
 }
 
-/// Generate a log file name with the current timestamp.
+/// Log format for the logger.
 ///
-/// Returns
-/// * A string representing the log file name.
-fn generate_log_file_name() -> String {
-    let now = Local::now();
-    format!("application_{}.log", now.format("%Y%m%d_%H%M%S"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_log_filter() {
-        assert_eq!(get_log_filter(Some(&0)), LevelFilter::Off);
-        assert_eq!(get_log_filter(Some(&1)), LevelFilter::Error);
-        assert_eq!(get_log_filter(Some(&2)), LevelFilter::Warn);
-        assert_eq!(get_log_filter(Some(&3)), LevelFilter::Info);
-        assert_eq!(get_log_filter(Some(&4)), LevelFilter::Debug);
-        assert_eq!(get_log_filter(Some(&5)), LevelFilter::Trace);
-
-        assert_eq!(get_log_filter(Some(&6)), LevelFilter::Info);
-
-        assert_eq!(get_log_filter(None), LevelFilter::Info);
-    }
-
-    #[test]
-    fn test_generate_log_file_name() {
-        let filename = generate_log_file_name();
-
-        assert!(filename.starts_with("application_"));
-        assert!(filename.ends_with(".log"));
-        // The length of "application_YYYYMMDD_HHMMSS.log" is 31
-        assert_eq!(filename.len(), 31);
-    }
+/// # Arguments
+/// * `writer` - Log writer.
+/// * `now` - Current time.
+/// * `record` - Log record.
+///
+/// # Returns
+/// Result of the log format operation.
+fn log_format(
+    writer: &mut dyn Write,
+    now: &mut DeferredNow,
+    record: &Record,
+) -> std::io::Result<()> {
+    write!(
+        writer,
+        "{} [{}] ({}) {}",
+        now.format("%Y/%m/%d %H:%M:%S%.3f"),
+        record.level(),
+        record.target(),
+        record.args(),
+    )
 }
