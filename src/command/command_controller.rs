@@ -28,7 +28,7 @@ use crate::constants::{DEFAULT_POSITION_FILENAME, NUM_HARDPOINTS, NUM_TEMPERATUR
 use crate::control::control_loop::ControlLoop;
 use crate::controller::Controller;
 use crate::daq::data_acquisition::DataAcquisition;
-use crate::enums::Commander;
+use crate::enums::{Commander, ErrorCode};
 use crate::power::power_system::PowerSystem;
 
 /// Command to clear the errors.
@@ -348,6 +348,30 @@ impl Command for CommandRunScript {
         _controller: Option<&mut Controller>,
     ) -> Option<()> {
         // TODO: Implement this command.
+        Some(())
+    }
+}
+
+// Command to fault the system.
+pub struct CommandFault;
+impl Command for CommandFault {
+    fn name(&self) -> &str {
+        "cmd_fault"
+    }
+
+    fn execute(
+        &self,
+        _message: &Value,
+        _data_acquisition: Option<&mut DataAcquisition>,
+        _power_system: Option<&mut PowerSystem>,
+        _control_loop: Option<&mut ControlLoop>,
+        controller: Option<&mut Controller>,
+    ) -> Option<()> {
+        let system_controller = controller?;
+        system_controller
+            .error_handler
+            .add_error(ErrorCode::FaultUserIdentified);
+
         Some(())
     }
 }
@@ -764,5 +788,21 @@ mod tests {
         assert!(command
             .execute(&json!({}), None, None, None, Some(&mut controller))
             .is_some());
+    }
+
+    #[test]
+    fn test_command_fault() {
+        let (mut controller, _receiver_to_control_loop) = create_controller();
+
+        let command = CommandFault;
+
+        assert_eq!(command.name(), "cmd_fault");
+
+        assert!(command
+            .execute(&json!({}), None, None, None, Some(&mut controller))
+            .is_some());
+        assert!(controller
+            .error_handler
+            .has_error(ErrorCode::FaultUserIdentified));
     }
 }

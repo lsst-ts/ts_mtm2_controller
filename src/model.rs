@@ -38,7 +38,7 @@ use crate::command::{
         CommandResetForceOffsets, CommandSetClosedLoopControlMode,
     },
     command_controller::{
-        CommandClearErrors, CommandEnableOpenLoopMaxLimit, CommandLoadConfiguration,
+        CommandClearErrors, CommandEnableOpenLoopMaxLimit, CommandFault, CommandLoadConfiguration,
         CommandRunScript, CommandSaveMirrorPosition, CommandSetConfigurationFile,
         CommandSetControlParameters, CommandSetEnabledFaultsMask, CommandSetHardpointList,
         CommandSetMirrorHome, CommandSetTemperatureOffset, CommandSwitchCommandSource,
@@ -248,6 +248,7 @@ impl Model {
         command_schema.add_command(Box::new(CommandSetConfigurationFile));
         command_schema.add_command(Box::new(CommandSetHardpointList));
         command_schema.add_command(Box::new(CommandRunScript));
+        command_schema.add_command(Box::new(CommandFault));
 
         command_schema
     }
@@ -1225,7 +1226,7 @@ mod tests {
     fn test_new() {
         let model = create_model();
 
-        assert_eq!(model._controller_command_schema.number_of_commands(), 13);
+        assert_eq!(model._controller_command_schema.number_of_commands(), 14);
     }
 
     #[test]

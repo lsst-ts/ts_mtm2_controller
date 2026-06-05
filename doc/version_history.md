@@ -1,5 +1,18 @@
 # Version History
 
+0.5.0
+
+- Add the **NUM_ILC_TEMPERATURE_MONITOR_SENSOR** to `constants.rs`.
+- Add the **sleep_time_broadcast_ilc**, **sleep_time_ilc_reading**, and **bypass_check_stale_inclinometer** to `parameters_daq.yaml`.
+- Rename the **actuator_ilc_stale_data_limit** to be **ilc_stale_data_limit** in `parameters_daq.yaml`.
+- Update the **ConfigDataAcquisition**.
+- Add the `test_calculate_crc_and_update_frame()` in **InnerLoopController** to compare with the CRC calculation in **ts_mtm2_cell**.
+- Update the **DataAcquisition** to have a sleep time after calling the ILC command and deal with the failed ILC reading.
+- Remove the unused fields of **ErrorCode** enum.
+- Add the **CommandFault** in `command_controller.rs`.
+- Add the **CommandFault** to the **Model**.
+- Use the `nifpga-dll` 0.4.0 from the `crates.io`.
+
 0.4.9
 
 - Update the dependency of `nifpga-dll`.
