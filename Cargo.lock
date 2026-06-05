@@ -909,8 +909,9 @@ dependencies = [
 
 [[package]]
 name = "nifpga-dll"
-version = "0.3.0"
-source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=develop#79449185d62047049d64d0148334c0145023da23"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d3f6acee37d0292b959b893c468a24013325a7ade3df90f3e4cc44f1b0649d3"
 dependencies = [
  "fehler",
  "libc",
@@ -920,16 +921,18 @@ dependencies = [
 
 [[package]]
 name = "nifpga-dll-sys"
-version = "0.3.0"
-source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=develop#79449185d62047049d64d0148334c0145023da23"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f60762bfd8ffd161ffbab5d36dab0b3a43d9319c2238689d5da58d5767ee63a"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "nifpga-dll-type-macro"
-version = "0.3.0"
-source = "git+https://github.com/lsst-ts/nifpga-dll-rs.git?branch=develop#79449185d62047049d64d0148334c0145023da23"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9cc0c976607ea24ab5ed8b46bcdabd5dcf59f5bb0d49a4491e8672d278d2614"
 dependencies = [
  "proc-macro2",
  "quote",
