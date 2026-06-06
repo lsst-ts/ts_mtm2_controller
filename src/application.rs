@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use flexi_logger::LoggerHandle;
 use log::info;
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
@@ -40,12 +41,14 @@ use ts_control_utils::{constants::ALL_HOST, utility::get_parameter};
 /// * `port_command_csc` - Command port for the CSC.
 /// * `port_telemetry_csc` - Telemetry port for the CSC.
 /// * `is_simulation_mode` - Is the simulation mode or not.
+/// * `logger_handle` - Logger handle.
 pub fn run(
     port_command_gui: i32,
     port_telemetry_gui: i32,
     port_command_csc: i32,
     port_telemetry_csc: i32,
     is_simulation_mode: bool,
+    logger_handle: Option<LoggerHandle>,
 ) {
     // Log the running mode
     let mode = if is_simulation_mode {
@@ -70,6 +73,7 @@ pub fn run(
         final_port_telemetry_gui,
         final_port_command_csc,
         final_port_telemetry_csc,
+        logger_handle,
     );
 
     // Register the signals that stop the application
