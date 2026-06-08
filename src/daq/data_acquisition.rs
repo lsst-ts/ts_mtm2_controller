@@ -158,7 +158,7 @@ impl DataAcquisition {
         self.event_queue
             .add_event(Event::get_message_data_acquisition_mode(mode));
 
-        info!("Set the data acquisition mode to {:?}.", mode);
+        info!("Set the data acquisition mode to: {:?}.", mode);
 
         // Reset the current ILC stale data counts to 0 when switching to Idle
         // mode as we do not read the ILC data in Idle mode.
@@ -754,17 +754,22 @@ impl DataAcquisition {
                 continue;
             }
 
-            let has_wrong_communication_counter =
-                !self._ilc.is_expected_communication_counter(*status);
-            if has_wrong_communication_counter && (!has_broadcast_issue) {
-                has_broadcast_issue = true;
-            }
+            // Only check the communication counter when the ILC has moved the
+            // actuators. Otherwise, the ILC status is just some garbage data.
+            let mut has_wrong_communication_counter = false;
+            if telemetry.seq_id_move_actuator_steps > 0 {
+                has_wrong_communication_counter =
+                    !self._ilc.is_expected_communication_counter(*status);
+                if has_wrong_communication_counter && (!has_broadcast_issue) {
+                    has_broadcast_issue = true;
+                }
 
-            if has_wrong_communication_counter {
-                warn!(
-                    "The actuator ILC {} has the wrong communication counter.",
-                    idx
-                );
+                if has_wrong_communication_counter {
+                    warn!(
+                        "The actuator ILC {} has the wrong communication counter.",
+                        idx
+                    );
+                }
             }
 
             let has_fault = self.update_ilc_stale_data(
@@ -1445,6 +1450,7 @@ mod tests {
         data_acquisition.config.bypassed_actuator_ilcs = vec![1, 2];
 
         let mut telemetry = TelemetryControlLoop::new();
+        telemetry.seq_id_move_actuator_steps = 1;
 
         // Bypassed actuator ILCs should not be checked for stale data
         // Bit 4-7 is the broadcast communication counter
