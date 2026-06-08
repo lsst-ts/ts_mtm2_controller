@@ -218,11 +218,32 @@ impl ErrorHandler {
         telemetry: &TelemetryControlLoop,
         is_closed_loop: bool,
     ) {
+        // Only check the ILC status and the related errors when the ILC has
+        // moved the actuators. Otherwise, the ILC status is just some garbage
+        // data.
+        if telemetry.seq_id_move_actuator_steps > 0 {
+            if self.is_encoder_out_limit(&telemetry.ilc_encoders, true) {
+                self.add_error(ErrorCode::FaultAxialActuatorEncoderRange);
+            }
+            if self.is_encoder_out_limit(&telemetry.ilc_encoders, false) {
+                self.add_error(ErrorCode::FaultTangentActuatorEncoderRange);
+            }
+
+            if self.is_actuator_force_out_limit(&telemetry.forces["measured"], is_closed_loop) {
+                self.add_error(ErrorCode::FaultExcessiveForce);
+            }
+
+            if self.is_tangent_force_error_out_limit(&telemetry.tangent_force_error) {
+                self.add_error(ErrorCode::FaultTangentLoadCell);
+            }
+
+            self.check_ilc_status(&telemetry.ilc_status);
+        }
+
         for error_code in &telemetry.ilc_error_codes {
             self.add_error(*error_code);
         }
 
-        self.check_ilc_status(&telemetry.ilc_status);
         if !self.ilc["fault"].is_empty() {
             self.add_error(ErrorCode::FaultActuatorIlcRead);
         }
@@ -237,21 +258,6 @@ impl ErrorHandler {
             };
 
             self.add_error(error_code_limit_switch);
-        }
-
-        if self.is_encoder_out_limit(&telemetry.ilc_encoders, true) {
-            self.add_error(ErrorCode::FaultAxialActuatorEncoderRange);
-        }
-        if self.is_encoder_out_limit(&telemetry.ilc_encoders, false) {
-            self.add_error(ErrorCode::FaultTangentActuatorEncoderRange);
-        }
-
-        if self.is_actuator_force_out_limit(&telemetry.forces["measured"], is_closed_loop) {
-            self.add_error(ErrorCode::FaultExcessiveForce);
-        }
-
-        if self.is_tangent_force_error_out_limit(&telemetry.tangent_force_error) {
-            self.add_error(ErrorCode::FaultTangentLoadCell);
         }
 
         if self.is_temperature_out_of_range(&telemetry.temperature["ring"], false) {
@@ -1011,6 +1017,7 @@ mod tests {
         let mut error_handler = create_error_handler();
 
         let mut telemetry = TelemetryControlLoop::new();
+        telemetry.seq_id_move_actuator_steps = 1;
         if let Some(value) = telemetry.forces.get_mut("measured") {
             value[1] = 1000.0;
         }
