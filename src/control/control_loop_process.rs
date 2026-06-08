@@ -40,6 +40,7 @@ use crate::command::{
 use crate::config::Config;
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::control::control_loop::ControlLoop;
+use crate::enums::ClosedLoopControlMode;
 use crate::telemetry::{telemetry::Telemetry, telemetry_control_loop::TelemetryControlLoop};
 use crate::utility::{get_message_name, get_message_sequence_id};
 
@@ -152,6 +153,9 @@ impl ControlLoopProcess {
         // Telemetry command name
         let telemetry_command_name = CommandSetExternalElevation.name();
 
+        // Command name for setting the closed-loop control mode.
+        let set_mode_command_name = CommandSetClosedLoopControlMode.name();
+
         let period = (1000.0 / self.control_loop.config.control_frequency) as u64;
         let mut seq_id_move_actuator_steps = 0;
         let mut processed_telemetry: Option<TelemetryControlLoop> = None;
@@ -175,6 +179,7 @@ impl ControlLoopProcess {
             let mut had_processed_telemetry_command = false;
             let mut is_telemetry_command = false;
             let mut is_internal_command = false;
+            let mut is_set_mode_command = false;
             while let Ok(message) = self._receiver_to_control_loop.try_recv() {
                 command_result = Some(self._command_schema.execute(
                     &message,
@@ -185,6 +190,7 @@ impl ControlLoopProcess {
                 ));
 
                 is_internal_command = get_message_sequence_id(&message) == -1;
+                is_set_mode_command = get_message_name(&message) == set_mode_command_name;
 
                 // If we receive a telemetry command as the first time,
                 // continue to process the second command.
@@ -197,7 +203,7 @@ impl ControlLoopProcess {
 
                 // Break the loop if we processed a non-telemetry
                 // command or two consecutive telemetry commands.
-                if !is_telemetry_command || had_processed_telemetry_command {
+                if (!is_telemetry_command) || had_processed_telemetry_command {
                     break;
                 }
             }
@@ -207,6 +213,20 @@ impl ControlLoopProcess {
                 command_result = None;
             }
 
+            // If the received command is to set the closed-loop control mode
+            // to be Idle, we need to reset the sequence of moving actuator
+            // steps.
+            if is_set_mode_command
+                && (self.control_loop.get_control_mode() == ClosedLoopControlMode::Idle)
+            {
+                seq_id_move_actuator_steps = 0;
+                info!(
+                    "The closed-loop control mode is set to idle. The sequence ID of moving actuators is reset to 0."
+                );
+            }
+
+            // After issuing the new step command, the sequence ID of moving
+            // actuator steps should be > 0.
             if let Some(steps) = self.control_loop.take_steps_to_move_actuators() {
                 seq_id_move_actuator_steps =
                     self.get_next_seq_id_move_actuator_steps(seq_id_move_actuator_steps);
