@@ -334,9 +334,10 @@ impl SubPowerSystem {
                     let has_error = voltage >= self._output_voltage_off_level;
                     if has_error {
                         error!(
-                            "Powering off failed: has the relay open fault for power system ({:?}) in power system state: {:?}.",
+                            "Powering off failed: has the relay open fault for power system ({:?}) in power system state: {:?}. Current voltage: {:?} V.",
                             self.power_type,
-                            PowerSystemState::PoweringOff
+                            PowerSystemState::PoweringOff,
+                            voltage,
                         );
                     }
 
