@@ -160,11 +160,13 @@ impl DataAcquisition {
 
         info!("Set the data acquisition mode to: {:?}.", mode);
 
-        // Reset the current ILC stale data counts to 0 when switching to Idle
-        // mode as we do not read the ILC data in Idle mode.
+        // Reset the sequence ID and current ILC stale data counts to 0 when
+        // switching to Idle mode as we do not read the ILC data in Idle mode.
         if mode == DataAcquisitionMode::Idle {
-            self._ilc_stale_data_counts = vec![0; NUM_INNER_LOOP_CONTROLLER];
+            self._seq_id_move_actuator_steps = 0;
+            info!("Reset the sequence ID of the last move actuator steps command to 0.");
 
+            self._ilc_stale_data_counts = vec![0; NUM_INNER_LOOP_CONTROLLER];
             info!("Reset the current ILC stale data counts to 0.");
         }
 
@@ -1286,6 +1288,7 @@ mod tests {
             })]
         );
 
+        data_acquisition._seq_id_move_actuator_steps = 1;
         data_acquisition._ilc_stale_data_counts[0] = 5;
 
         assert!(data_acquisition
@@ -1300,6 +1303,7 @@ mod tests {
             })]
         );
 
+        assert_eq!(data_acquisition._seq_id_move_actuator_steps, 0);
         assert_eq!(data_acquisition._ilc_stale_data_counts[0], 0);
 
         // ClosedLoopControl -> Idle
