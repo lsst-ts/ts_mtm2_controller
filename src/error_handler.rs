@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use strum::IntoEnumIterator;
@@ -266,13 +266,28 @@ impl ErrorHandler {
             } else {
                 self.add_error(ErrorCode::WarnMirrorTempSensor);
             }
+
+            debug!(
+                "Mirror temperature is out of range: {:?}.",
+                telemetry.temperature["ring"]
+            );
         }
 
         if self.is_temperature_out_of_range(&telemetry.temperature["intake"], true) {
             self.add_error(ErrorCode::WarnCellTemp);
+
+            debug!(
+                "Cell intake temperature is out of range: {:?}.",
+                telemetry.temperature["intake"]
+            );
         }
         if self.is_temperature_out_of_range(&telemetry.temperature["exhaust"], true) {
             self.add_error(ErrorCode::WarnCellTemp);
+
+            debug!(
+                "Cell exhaust temperature is out of range: {:?}.",
+                telemetry.temperature["exhaust"]
+            );
         }
 
         if self.is_cell_temperature_high(
