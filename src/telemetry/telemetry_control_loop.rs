@@ -64,8 +64,8 @@ pub struct TelemetryControlLoop {
     // Force balance based on the hardpoint correction. The unit are Newton for
     // the forces and Newton * meter for the moments.
     pub force_balance: HashMap<String, f64>,
-    // Cycle time in second.
-    pub cycle_time: f64,
+    // Cycle time in milliseconds.
+    pub cycle_time: u64,
     // Sequence ID of the last command to move actuator steps
     // (see CommandMoveActuatorSteps).
     pub seq_id_move_actuator_steps: i32,
@@ -141,7 +141,7 @@ impl TelemetryControlLoop {
             tangent_force_error: vec![0.0; NUM_TANGENT_LINK + 2],
             force_balance: Self::initialize_dict_value(&["fx", "fy", "fz", "mx", "my", "mz"], 0.0),
 
-            cycle_time: 0.0,
+            cycle_time: 0,
 
             seq_id_move_actuator_steps: 0,
 
