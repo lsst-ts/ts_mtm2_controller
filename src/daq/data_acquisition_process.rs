@@ -187,6 +187,7 @@ impl DataAcquisitionProcess {
         let mut counter_debug = 0;
 
         let period_loop = (1000.0 / config.frequency_loop) as u64;
+        let mut cycle_time = 0;
         let mut counter = 0;
         while !self._stop.load(Ordering::Relaxed) {
             // Time the data acquisition loop.
@@ -239,9 +240,11 @@ impl DataAcquisitionProcess {
             // When the system is not in idle mode, there is the ILC
             // telemetry data to send.
             if self.daq.mode != DataAcquisitionMode::Idle {
-                let _ = self
-                    ._sender_telemetry_to_control_loop
-                    .try_send(self.daq.get_telemetry_ilc());
+                // Track the cycle time for the ILC telemetry data.
+                let mut telemetry = self.daq.get_telemetry_ilc();
+                telemetry.cycle_time = cycle_time;
+
+                let _ = self._sender_telemetry_to_control_loop.try_send(telemetry);
             }
 
             // Toggle the bit of the closed-loop control for the safety module
@@ -257,7 +260,7 @@ impl DataAcquisitionProcess {
             }
 
             // Sleep with the remaining time.
-            let cycle_time = now.elapsed().as_millis() as u64;
+            cycle_time = now.elapsed().as_millis() as u64;
 
             if counter_debug >= max_counter_debug {
                 if self.daq.mode != DataAcquisitionMode::Idle {
