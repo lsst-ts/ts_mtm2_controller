@@ -271,26 +271,59 @@ impl DataAcquisition {
 
         let (ring, intake, exhaust, failed_to_read_temperature) =
             self.get_ilc_data_temperature(sleep_time_ilc_reading);
-        telemetry.temperature.insert(String::from("ring"), ring);
-        telemetry.temperature.insert(String::from("intake"), intake);
-        telemetry
-            .temperature
-            .insert(String::from("exhaust"), exhaust);
+
+        // Use the cached data for the bad readings of monitor ILCs.
+        if ring.iter().all(|x| x.is_finite())
+            && intake.iter().all(|x| x.is_finite())
+            && exhaust.iter().all(|x| x.is_finite())
+        {
+            telemetry.temperature.insert(String::from("ring"), ring);
+            telemetry.temperature.insert(String::from("intake"), intake);
+            telemetry
+                .temperature
+                .insert(String::from("exhaust"), exhaust);
+        } else {
+            telemetry.temperature = self._latest_telemetry.temperature.clone();
+            warn!(
+                "The temperature readings from ILCs are not valid. Use the cached temperature values.",
+            );
+        }
 
         let (theta_z, delta_z, failed_to_read_displacement) =
             self.get_ilc_data_displacement(sleep_time_ilc_reading);
-        telemetry
-            .displacement_sensors
-            .insert(String::from("thetaZ"), theta_z);
-        telemetry
-            .displacement_sensors
-            .insert(String::from("deltaZ"), delta_z);
+
+        // Use the cached data for the bad readings of monitor ILC.
+        if theta_z.iter().all(|x| x.is_finite()) && delta_z.iter().all(|x| x.is_finite()) {
+            telemetry
+                .displacement_sensors
+                .insert(String::from("thetaZ"), theta_z);
+            telemetry
+                .displacement_sensors
+                .insert(String::from("deltaZ"), delta_z);
+        } else {
+            telemetry.displacement_sensors = self._latest_telemetry.displacement_sensors.clone();
+            warn!(
+                "The displacement sensor readings from ILC are not valid. Use the cached displacement sensor values.",
+            );
+        }
 
         let (inclinometer_angle, mut failed_to_read_inclinometer) =
             self.get_ilc_data_inclinometer(sleep_time_ilc_reading);
-        telemetry
-            .inclinometer
-            .insert(String::from("raw"), inclinometer_angle);
+
+        // Use the cached data for the bad reading of monitor ILC.
+        if inclinometer_angle.is_finite() {
+            telemetry
+                .inclinometer
+                .insert(String::from("raw"), inclinometer_angle);
+        } else {
+            telemetry.inclinometer.insert(
+                String::from("raw"),
+                self._latest_telemetry.inclinometer["raw"],
+            );
+            warn!(
+                "The inclinometer reading from ILC is not valid. Use the cached inclinometer value.",
+            );
+        }
 
         // Bypass the check of the stale data for inclinometer if configured to
         // bypass.
