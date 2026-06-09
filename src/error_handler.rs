@@ -573,9 +573,11 @@ impl ErrorHandler {
     /// Check the cycle time.
     ///
     /// # Arguments
-    /// * `cycle_time` - The cycle time in second.
-    fn check_cycle_time(&mut self, cycle_time: f64) {
-        if cycle_time > (1.0 / self.config_control_loop.control_frequency) {
+    /// * `cycle_time` - The cycle time in milliseconds.
+    fn check_cycle_time(&mut self, cycle_time: u64) {
+        // The frequencies of the control loop process and the data acquisition
+        // process should be the same.
+        if cycle_time > ((1000.0 / self.config_control_loop.control_frequency) as u64) {
             self._count_out_max_cycle_time += 1;
         } else {
             self._count_out_max_cycle_time = 0;
@@ -1307,27 +1309,27 @@ mod tests {
         let mut error_handler = create_error_handler();
 
         // Normal cycle time
-        error_handler.check_cycle_time(0.001);
+        error_handler.check_cycle_time(45);
         assert_eq!(error_handler._count_out_max_cycle_time, 0);
 
         // Has the warning error
         let max_out_cycle_time = error_handler.config_control_loop.max_out_cycle_time;
 
         for _ in 0..(max_out_cycle_time - 1) {
-            error_handler.check_cycle_time(1.0);
+            error_handler.check_cycle_time(51);
         }
 
         assert!(error_handler.has_error(ErrorCode::WarnCrioTiming));
         assert!(!error_handler.has_error(ErrorCode::FaultCrioTiming));
 
         // Has the fault error
-        error_handler.check_cycle_time(1.0);
+        error_handler.check_cycle_time(51);
 
         assert!(error_handler.has_error(ErrorCode::WarnCrioTiming));
         assert!(error_handler.has_error(ErrorCode::FaultCrioTiming));
 
         // Clear the warning error but the fault error still exists
-        error_handler.check_cycle_time(0.001);
+        error_handler.check_cycle_time(45);
 
         assert!(!error_handler.has_error(ErrorCode::WarnCrioTiming));
         assert!(error_handler.has_error(ErrorCode::FaultCrioTiming));
