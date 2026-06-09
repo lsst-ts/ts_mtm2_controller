@@ -257,7 +257,11 @@ impl ControlLoopProcess {
             let cycle_time = now.elapsed().as_millis() as u64;
 
             if let Some(telemetry) = &mut processed_telemetry {
-                telemetry.cycle_time = (cycle_time as f64) / 1000.0;
+                // Record the longer cycle time (control loop process vs data
+                // acquisition process) in the telemetry.
+                if telemetry.cycle_time < cycle_time {
+                    telemetry.cycle_time = cycle_time;
+                }
             }
 
             let _ = self._sender_to_model.try_send(Telemetry::new(
