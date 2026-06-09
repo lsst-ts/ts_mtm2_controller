@@ -82,6 +82,7 @@ See the [config/](config) directory for the configuration files:
 - [disp_ims.yaml](config/disp_ims.yaml) has the information of displacement sensors used in the independent measurement system (IMS).
 - [stiff_matrix_m2.yaml](config/stiff_matrix_m2.yaml) is the stiffness matrix of M2 mirror.
 - [stiff_matrix_surrogate.yaml](config/stiff_matrix_surrogate.yaml) is the stiffness matrix of surrogate.
+- [logspecification.toml](config/logspecification.toml) assigns the log level.
 
 ## Script
 
@@ -92,11 +93,8 @@ Some useful scripts are in `script/` directory.
 ## Log Data
 
 The logging files contain the mirror position are in the `log/` directory.
-
-## System Log
-
-While the application is running, you can see the system log in the `log/application.log`.
-The logging level can be changed by the `-l` option when starting the application.
+You can change the log level in the runtime by modifying the [logspecification.toml](config/logspecification.toml).
+The logging files are rotated, and the related parameters are in the [parameters_app.yaml](config/parameters_app.yaml).
 
 ## Code Format
 
