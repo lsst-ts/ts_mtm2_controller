@@ -284,8 +284,8 @@ mod tests {
     fn test_get_time_power_off() {
         let config = ConfigPower::new();
 
-        assert_eq!(config.get_time_power_off(PowerType::Motor), 300);
-        assert_eq!(config.get_time_power_off(PowerType::Communication), 50);
+        assert_eq!(config.get_time_power_off(PowerType::Motor), 400);
+        assert_eq!(config.get_time_power_off(PowerType::Communication), 200);
     }
 
     #[test]
