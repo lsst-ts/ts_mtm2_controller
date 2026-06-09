@@ -436,6 +436,12 @@ impl DataAcquisition {
         if let Some(frame_request) = self._ilc.get_frame_get_force_and_status(idx) {
             if let Some(plant) = &mut self.plant {
                 frame_payload = plant.request_ilc(frame_request);
+
+                // Sleep for a while to simulate the latency of the ILC in the
+                // real hardware mode.
+                sleep(Duration::from_micros(
+                    self.config.latency["force_and_status"] as u64,
+                ));
             } else {
                 let config = &self.config;
                 if let Some(payload) = self._fpga.request_ilc(
@@ -513,6 +519,12 @@ impl DataAcquisition {
             if let Some(frame_request) = self._ilc.get_frame_temperature(idx) {
                 if let Some(plant) = &mut self.plant {
                     frame_payload = plant.request_ilc(frame_request);
+
+                    // Sleep for a while to simulate the latency of the ILC in
+                    // the real hardware mode.
+                    sleep(Duration::from_micros(
+                        self.config.latency["temperature"] as u64,
+                    ));
                 } else {
                     let config = &self.config;
                     match self._fpga.request_ilc(
@@ -632,6 +644,12 @@ impl DataAcquisition {
 
             // Get the displacement sensor values as a frame.
             frame_payload = plant.request_ilc(frame_request);
+
+            // Sleep for a while to simulate the latency of the ILC in the real
+            // hardware mode.
+            sleep(Duration::from_micros(
+                self.config.latency["displacement"] as u64,
+            ));
         } else {
             match self._fpga.request_ilc(
                 frame_request,
@@ -721,6 +739,12 @@ impl DataAcquisition {
 
             // Get the inclinometer as a frame.
             frame_payload = plant.request_ilc(frame_request);
+
+            // Sleep for a while to simulate the latency of the ILC in the real
+            // hardware mode.
+            sleep(Duration::from_micros(
+                self.config.latency["inclinometer"] as u64,
+            ));
         } else {
             match self._fpga.request_ilc(
                 frame_request,
