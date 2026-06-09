@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info};
+use log::{debug, error, info};
 use serde_json::Value;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -182,6 +182,10 @@ impl DataAcquisitionProcess {
         let config = &self.daq.config;
         let max_counter_toggle_bit = (config.frequency_loop / config.frequency_toggle_bit) as u64;
 
+        // Counter of the debug message to avoid flooding the log.
+        let max_counter_debug = config.frequency_loop as i32;
+        let mut counter_debug = 0;
+
         let period_loop = (1000.0 / config.frequency_loop) as u64;
         let mut counter = 0;
         while !self._stop.load(Ordering::Relaxed) {
@@ -254,6 +258,19 @@ impl DataAcquisitionProcess {
 
             // Sleep with the remaining time.
             let cycle_time = now.elapsed().as_millis() as u64;
+
+            if counter_debug >= max_counter_debug {
+                if self.daq.mode != DataAcquisitionMode::Idle {
+                    debug!(
+                        "Data acquisition process loop time when not idle: {} ms.",
+                        cycle_time
+                    );
+                }
+                counter_debug = 0;
+            } else {
+                counter_debug += 1;
+            }
+
             if period_loop > cycle_time {
                 sleep(Duration::from_millis(period_loop - cycle_time));
             }
