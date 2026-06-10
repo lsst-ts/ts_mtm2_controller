@@ -1,5 +1,22 @@
 # Version History
 
+0.5.2
+
+- Update the `ErrorHandler.check_condition_control_loop()` to only check the actuator ILC after broadcasting the `step()` command to actuator ILCs.
+- Add the debug messages in **ErrorHandler**.
+- Update the `ErrorHandler.check_cycle_time()` to pass the cycle_time as milliseconds.
+- Update the `DataAcquisition.check_ilc_stale_data()` that only check the communication counter after broadcasting the `step()` command to ILCs.
+- Reset the `DataAcquisition._seq_id_move_actuator_steps` when transitioning to the **Idle** mode.
+- Add the `ControlLoop.get_control_mode()`.
+- Use the cached ILC monitor data if the received values are inf in **DataAcquisition**.
+- Reset the `seq_id_move_actuator_steps` in `ControlLoopProcess.run()`.
+- Improve the error message in **SubPowerSystem**.
+- Update the **output_voltage_fall_time_communication** and **output_voltage_fall_time_motor** in `parameters_power.yaml`.
+- Change the unit of `TelemetryControlLoop.cycle_time` to be milliseconds.
+- Add the debug message for the loop time in **DataAcquisitionProcess** and record the `cycle_time`.
+- Compare and record the cycle times of **ControlLoopProcess** and **DataAcquisitionProcess**.
+- Simulate the ILC latency in **DataAcquisition**.
+
 0.5.1
 
 - Use the `flexi_logger` to replace the `simplelog` dependency.
