@@ -1,5 +1,11 @@
 # Version History
 
+0.5.1
+
+- Use the `flexi_logger` to replace the `simplelog` dependency.
+- Add the `logspecification.toml`.
+- Support the log file rotation and the change of log level in the runtime.
+
 0.5.0
 
 - Add the **NUM_ILC_TEMPERATURE_MONITOR_SENSOR** to `constants.rs`.
