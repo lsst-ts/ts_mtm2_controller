@@ -1517,6 +1517,14 @@ mod tests {
         let mut model = create_model();
         model._stop_publish_telemetry = true;
 
+        // Modify the control frequency here to avoid the cRIO timing error
+        // in the ErrorHandler.check_cycle_time().
+        model
+            ._controller
+            .error_handler
+            .config_control_loop
+            .control_frequency = 1.0;
+
         model.run_processes();
 
         // Create the clients to connect the servers
