@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use strum::IntoEnumIterator;
@@ -218,11 +218,32 @@ impl ErrorHandler {
         telemetry: &TelemetryControlLoop,
         is_closed_loop: bool,
     ) {
+        // Only check the ILC status and the related errors when the ILC has
+        // moved the actuators. Otherwise, the ILC status is just some garbage
+        // data.
+        if telemetry.seq_id_move_actuator_steps > 0 {
+            if self.is_encoder_out_limit(&telemetry.ilc_encoders, true) {
+                self.add_error(ErrorCode::FaultAxialActuatorEncoderRange);
+            }
+            if self.is_encoder_out_limit(&telemetry.ilc_encoders, false) {
+                self.add_error(ErrorCode::FaultTangentActuatorEncoderRange);
+            }
+
+            if self.is_actuator_force_out_limit(&telemetry.forces["measured"], is_closed_loop) {
+                self.add_error(ErrorCode::FaultExcessiveForce);
+            }
+
+            if self.is_tangent_force_error_out_limit(&telemetry.tangent_force_error) {
+                self.add_error(ErrorCode::FaultTangentLoadCell);
+            }
+
+            self.check_ilc_status(&telemetry.ilc_status);
+        }
+
         for error_code in &telemetry.ilc_error_codes {
             self.add_error(*error_code);
         }
 
-        self.check_ilc_status(&telemetry.ilc_status);
         if !self.ilc["fault"].is_empty() {
             self.add_error(ErrorCode::FaultActuatorIlcRead);
         }
@@ -239,34 +260,34 @@ impl ErrorHandler {
             self.add_error(error_code_limit_switch);
         }
 
-        if self.is_encoder_out_limit(&telemetry.ilc_encoders, true) {
-            self.add_error(ErrorCode::FaultAxialActuatorEncoderRange);
-        }
-        if self.is_encoder_out_limit(&telemetry.ilc_encoders, false) {
-            self.add_error(ErrorCode::FaultTangentActuatorEncoderRange);
-        }
-
-        if self.is_actuator_force_out_limit(&telemetry.forces["measured"], is_closed_loop) {
-            self.add_error(ErrorCode::FaultExcessiveForce);
-        }
-
-        if self.is_tangent_force_error_out_limit(&telemetry.tangent_force_error) {
-            self.add_error(ErrorCode::FaultTangentLoadCell);
-        }
-
         if self.is_temperature_out_of_range(&telemetry.temperature["ring"], false) {
             if self.config_control_loop.enable_lut_temperature {
                 self.add_error(ErrorCode::FaultMirrorTempSensor);
             } else {
                 self.add_error(ErrorCode::WarnMirrorTempSensor);
             }
+
+            debug!(
+                "Mirror temperature is out of range: {:?}.",
+                telemetry.temperature["ring"]
+            );
         }
 
         if self.is_temperature_out_of_range(&telemetry.temperature["intake"], true) {
             self.add_error(ErrorCode::WarnCellTemp);
+
+            debug!(
+                "Cell intake temperature is out of range: {:?}.",
+                telemetry.temperature["intake"]
+            );
         }
         if self.is_temperature_out_of_range(&telemetry.temperature["exhaust"], true) {
             self.add_error(ErrorCode::WarnCellTemp);
+
+            debug!(
+                "Cell exhaust temperature is out of range: {:?}.",
+                telemetry.temperature["exhaust"]
+            );
         }
 
         if self.is_cell_temperature_high(
@@ -552,9 +573,11 @@ impl ErrorHandler {
     /// Check the cycle time.
     ///
     /// # Arguments
-    /// * `cycle_time` - The cycle time in second.
-    fn check_cycle_time(&mut self, cycle_time: f64) {
-        if cycle_time > (1.0 / self.config_control_loop.control_frequency) {
+    /// * `cycle_time` - The cycle time in milliseconds.
+    fn check_cycle_time(&mut self, cycle_time: u64) {
+        // The frequencies of the control loop process and the data acquisition
+        // process should be the same.
+        if cycle_time > ((1000.0 / self.config_control_loop.control_frequency) as u64) {
             self._count_out_max_cycle_time += 1;
         } else {
             self._count_out_max_cycle_time = 0;
@@ -1011,6 +1034,7 @@ mod tests {
         let mut error_handler = create_error_handler();
 
         let mut telemetry = TelemetryControlLoop::new();
+        telemetry.seq_id_move_actuator_steps = 1;
         if let Some(value) = telemetry.forces.get_mut("measured") {
             value[1] = 1000.0;
         }
@@ -1285,27 +1309,27 @@ mod tests {
         let mut error_handler = create_error_handler();
 
         // Normal cycle time
-        error_handler.check_cycle_time(0.001);
+        error_handler.check_cycle_time(45);
         assert_eq!(error_handler._count_out_max_cycle_time, 0);
 
         // Has the warning error
         let max_out_cycle_time = error_handler.config_control_loop.max_out_cycle_time;
 
         for _ in 0..(max_out_cycle_time - 1) {
-            error_handler.check_cycle_time(1.0);
+            error_handler.check_cycle_time(51);
         }
 
         assert!(error_handler.has_error(ErrorCode::WarnCrioTiming));
         assert!(!error_handler.has_error(ErrorCode::FaultCrioTiming));
 
         // Has the fault error
-        error_handler.check_cycle_time(1.0);
+        error_handler.check_cycle_time(51);
 
         assert!(error_handler.has_error(ErrorCode::WarnCrioTiming));
         assert!(error_handler.has_error(ErrorCode::FaultCrioTiming));
 
         // Clear the warning error but the fault error still exists
-        error_handler.check_cycle_time(0.001);
+        error_handler.check_cycle_time(45);
 
         assert!(!error_handler.has_error(ErrorCode::WarnCrioTiming));
         assert!(error_handler.has_error(ErrorCode::FaultCrioTiming));

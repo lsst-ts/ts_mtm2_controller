@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::info;
+use log::{debug, info};
 use nalgebra::SMatrix;
 use std::path::Path;
 
@@ -121,12 +121,31 @@ impl ControlLoop {
         self._mode = mode;
         info!("Control mode is set to: {:?}.", mode);
 
+        if self._mode == ClosedLoopControlMode::Idle {
+            self.reset_steps();
+            self.reset_force();
+
+            self._steps_to_move_actuators = None;
+
+            debug!(
+                "The control loop is in idle mode. The active movement steps and forces are reset to 0."
+            );
+        }
+
         self.event_queue
             .add_event(Event::get_message_closed_loop_control_mode(mode));
         self.event_queue
             .add_event(Event::get_message_force_balance_system_status(
                 mode == ClosedLoopControlMode::ClosedLoop,
             ));
+    }
+
+    /// Get the control mode.
+    ///
+    /// # Returns
+    /// The control mode.
+    pub fn get_control_mode(&self) -> ClosedLoopControlMode {
+        self._mode
     }
 
     /// Create a closed-loop.
@@ -996,6 +1015,7 @@ mod tests {
     fn test_update_control_mode() {
         let mut control_loop = create_control_loop(true);
 
+        // Test to update to the closed-loop control mode.
         control_loop.update_control_mode(ClosedLoopControlMode::ClosedLoop);
 
         assert_eq!(control_loop._mode, ClosedLoopControlMode::ClosedLoop);
@@ -1011,6 +1031,27 @@ mod tests {
                     "status": true,
                 })
             ]
+        );
+
+        // Test to update to the idle mode.
+        control_loop._steps_to_move_actuators = Some(vec![1; NUM_ACTUATOR]);
+
+        control_loop.update_control_mode(ClosedLoopControlMode::Idle);
+
+        assert_eq!(control_loop._mode, ClosedLoopControlMode::Idle);
+        assert_eq!(control_loop._steps_to_move_actuators, None);
+    }
+
+    #[test]
+    fn test_get_control_mode() {
+        let mut control_loop = create_control_loop(true);
+
+        assert_eq!(control_loop.get_control_mode(), ClosedLoopControlMode::Idle);
+
+        control_loop._mode = ClosedLoopControlMode::OpenLoop;
+        assert_eq!(
+            control_loop.get_control_mode(),
+            ClosedLoopControlMode::OpenLoop
         );
     }
 

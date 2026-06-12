@@ -49,8 +49,8 @@ output_voltage_settling_time_communication: 10
 output_voltage_settling_time_motor: 20
 
 # Output voltage fall time in millisecond for the communication and motor.
-output_voltage_fall_time_communication: 50
-output_voltage_fall_time_motor: 300
+output_voltage_fall_time_communication: 200
+output_voltage_fall_time_motor: 400
 
 # The physical amounts of time in millisecond that they take for the power
 # relay to open and closed its contacts. These values are common to both motor 

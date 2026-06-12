@@ -158,13 +158,15 @@ impl DataAcquisition {
         self.event_queue
             .add_event(Event::get_message_data_acquisition_mode(mode));
 
-        info!("Set the data acquisition mode to {:?}.", mode);
+        info!("Set the data acquisition mode to: {:?}.", mode);
 
-        // Reset the current ILC stale data counts to 0 when switching to Idle
-        // mode as we do not read the ILC data in Idle mode.
+        // Reset the sequence ID and current ILC stale data counts to 0 when
+        // switching to Idle mode as we do not read the ILC data in Idle mode.
         if mode == DataAcquisitionMode::Idle {
-            self._ilc_stale_data_counts = vec![0; NUM_INNER_LOOP_CONTROLLER];
+            self._seq_id_move_actuator_steps = 0;
+            info!("Reset the sequence ID of the last move actuator steps command to 0.");
 
+            self._ilc_stale_data_counts = vec![0; NUM_INNER_LOOP_CONTROLLER];
             info!("Reset the current ILC stale data counts to 0.");
         }
 
@@ -269,26 +271,59 @@ impl DataAcquisition {
 
         let (ring, intake, exhaust, failed_to_read_temperature) =
             self.get_ilc_data_temperature(sleep_time_ilc_reading);
-        telemetry.temperature.insert(String::from("ring"), ring);
-        telemetry.temperature.insert(String::from("intake"), intake);
-        telemetry
-            .temperature
-            .insert(String::from("exhaust"), exhaust);
+
+        // Use the cached data for the bad readings of monitor ILCs.
+        if ring.iter().all(|x| x.is_finite())
+            && intake.iter().all(|x| x.is_finite())
+            && exhaust.iter().all(|x| x.is_finite())
+        {
+            telemetry.temperature.insert(String::from("ring"), ring);
+            telemetry.temperature.insert(String::from("intake"), intake);
+            telemetry
+                .temperature
+                .insert(String::from("exhaust"), exhaust);
+        } else {
+            telemetry.temperature = self._latest_telemetry.temperature.clone();
+            warn!(
+                "The temperature readings from ILCs are not valid. Use the cached temperature values.",
+            );
+        }
 
         let (theta_z, delta_z, failed_to_read_displacement) =
             self.get_ilc_data_displacement(sleep_time_ilc_reading);
-        telemetry
-            .displacement_sensors
-            .insert(String::from("thetaZ"), theta_z);
-        telemetry
-            .displacement_sensors
-            .insert(String::from("deltaZ"), delta_z);
+
+        // Use the cached data for the bad readings of monitor ILC.
+        if theta_z.iter().all(|x| x.is_finite()) && delta_z.iter().all(|x| x.is_finite()) {
+            telemetry
+                .displacement_sensors
+                .insert(String::from("thetaZ"), theta_z);
+            telemetry
+                .displacement_sensors
+                .insert(String::from("deltaZ"), delta_z);
+        } else {
+            telemetry.displacement_sensors = self._latest_telemetry.displacement_sensors.clone();
+            warn!(
+                "The displacement sensor readings from ILC are not valid. Use the cached displacement sensor values.",
+            );
+        }
 
         let (inclinometer_angle, mut failed_to_read_inclinometer) =
             self.get_ilc_data_inclinometer(sleep_time_ilc_reading);
-        telemetry
-            .inclinometer
-            .insert(String::from("raw"), inclinometer_angle);
+
+        // Use the cached data for the bad reading of monitor ILC.
+        if inclinometer_angle.is_finite() {
+            telemetry
+                .inclinometer
+                .insert(String::from("raw"), inclinometer_angle);
+        } else {
+            telemetry.inclinometer.insert(
+                String::from("raw"),
+                self._latest_telemetry.inclinometer["raw"],
+            );
+            warn!(
+                "The inclinometer reading from ILC is not valid. Use the cached inclinometer value.",
+            );
+        }
 
         // Bypass the check of the stale data for inclinometer if configured to
         // bypass.
@@ -401,6 +436,12 @@ impl DataAcquisition {
         if let Some(frame_request) = self._ilc.get_frame_get_force_and_status(idx) {
             if let Some(plant) = &mut self.plant {
                 frame_payload = plant.request_ilc(frame_request);
+
+                // Sleep for a while to simulate the latency of the ILC in the
+                // real hardware mode.
+                sleep(Duration::from_micros(
+                    self.config.latency["force_and_status"] as u64,
+                ));
             } else {
                 let config = &self.config;
                 if let Some(payload) = self._fpga.request_ilc(
@@ -478,6 +519,12 @@ impl DataAcquisition {
             if let Some(frame_request) = self._ilc.get_frame_temperature(idx) {
                 if let Some(plant) = &mut self.plant {
                     frame_payload = plant.request_ilc(frame_request);
+
+                    // Sleep for a while to simulate the latency of the ILC in
+                    // the real hardware mode.
+                    sleep(Duration::from_micros(
+                        self.config.latency["temperature"] as u64,
+                    ));
                 } else {
                     let config = &self.config;
                     match self._fpga.request_ilc(
@@ -597,6 +644,12 @@ impl DataAcquisition {
 
             // Get the displacement sensor values as a frame.
             frame_payload = plant.request_ilc(frame_request);
+
+            // Sleep for a while to simulate the latency of the ILC in the real
+            // hardware mode.
+            sleep(Duration::from_micros(
+                self.config.latency["displacement"] as u64,
+            ));
         } else {
             match self._fpga.request_ilc(
                 frame_request,
@@ -686,6 +739,12 @@ impl DataAcquisition {
 
             // Get the inclinometer as a frame.
             frame_payload = plant.request_ilc(frame_request);
+
+            // Sleep for a while to simulate the latency of the ILC in the real
+            // hardware mode.
+            sleep(Duration::from_micros(
+                self.config.latency["inclinometer"] as u64,
+            ));
         } else {
             match self._fpga.request_ilc(
                 frame_request,
@@ -754,17 +813,22 @@ impl DataAcquisition {
                 continue;
             }
 
-            let has_wrong_communication_counter =
-                !self._ilc.is_expected_communication_counter(*status);
-            if has_wrong_communication_counter && (!has_broadcast_issue) {
-                has_broadcast_issue = true;
-            }
+            // Only check the communication counter when the ILC has moved the
+            // actuators. Otherwise, the ILC status is just some garbage data.
+            let mut has_wrong_communication_counter = false;
+            if telemetry.seq_id_move_actuator_steps > 0 {
+                has_wrong_communication_counter =
+                    !self._ilc.is_expected_communication_counter(*status);
+                if has_wrong_communication_counter && (!has_broadcast_issue) {
+                    has_broadcast_issue = true;
+                }
 
-            if has_wrong_communication_counter {
-                warn!(
-                    "The actuator ILC {} has the wrong communication counter.",
-                    idx
-                );
+                if has_wrong_communication_counter {
+                    warn!(
+                        "The actuator ILC {} has the wrong communication counter.",
+                        idx
+                    );
+                }
             }
 
             let has_fault = self.update_ilc_stale_data(
@@ -1281,6 +1345,7 @@ mod tests {
             })]
         );
 
+        data_acquisition._seq_id_move_actuator_steps = 1;
         data_acquisition._ilc_stale_data_counts[0] = 5;
 
         assert!(data_acquisition
@@ -1295,6 +1360,7 @@ mod tests {
             })]
         );
 
+        assert_eq!(data_acquisition._seq_id_move_actuator_steps, 0);
         assert_eq!(data_acquisition._ilc_stale_data_counts[0], 0);
 
         // ClosedLoopControl -> Idle
@@ -1445,6 +1511,7 @@ mod tests {
         data_acquisition.config.bypassed_actuator_ilcs = vec![1, 2];
 
         let mut telemetry = TelemetryControlLoop::new();
+        telemetry.seq_id_move_actuator_steps = 1;
 
         // Bypassed actuator ILCs should not be checked for stale data
         // Bit 4-7 is the broadcast communication counter

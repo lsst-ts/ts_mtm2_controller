@@ -154,6 +154,14 @@ The UML diagrams are used to detail the system design for each subsystem in the 
 The GitHub supports the [Mermaid](https://github.com/mermaid-js/mermaid) natively.
 You can use the [online editor](https://mermaid.live) to edit them.
 
+## Tricky Parts of the Code Tuning with the Inner-Loop Controller (ILC)
+
+For the actuator ILC, if you do not issue the broadcast `step()` command first, the received status/force frame data is just some garbage data.
+The status and force will be 0 and the encoder value is some random huge value (out of available encoder range).
+For the monitor ILC, you might get the `inf` value when just starting up the ILCs.
+We always have this for the temperature ILCs.
+Sometime, the displacement ILC gives the `inf` value as well.
+
 ## Version History
 
 See [here](doc/version_history.md) for the version history.

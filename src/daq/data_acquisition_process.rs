@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info};
+use log::{debug, error, info};
 use serde_json::Value;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -182,7 +182,12 @@ impl DataAcquisitionProcess {
         let config = &self.daq.config;
         let max_counter_toggle_bit = (config.frequency_loop / config.frequency_toggle_bit) as u64;
 
+        // Counter of the debug message to avoid flooding the log.
+        let max_counter_debug = config.frequency_loop as i32;
+        let mut counter_debug = 0;
+
         let period_loop = (1000.0 / config.frequency_loop) as u64;
+        let mut cycle_time = 0;
         let mut counter = 0;
         while !self._stop.load(Ordering::Relaxed) {
             // Time the data acquisition loop.
@@ -235,9 +240,11 @@ impl DataAcquisitionProcess {
             // When the system is not in idle mode, there is the ILC
             // telemetry data to send.
             if self.daq.mode != DataAcquisitionMode::Idle {
-                let _ = self
-                    ._sender_telemetry_to_control_loop
-                    .try_send(self.daq.get_telemetry_ilc());
+                // Track the cycle time for the ILC telemetry data.
+                let mut telemetry = self.daq.get_telemetry_ilc();
+                telemetry.cycle_time = cycle_time;
+
+                let _ = self._sender_telemetry_to_control_loop.try_send(telemetry);
             }
 
             // Toggle the bit of the closed-loop control for the safety module
@@ -253,7 +260,20 @@ impl DataAcquisitionProcess {
             }
 
             // Sleep with the remaining time.
-            let cycle_time = now.elapsed().as_millis() as u64;
+            cycle_time = now.elapsed().as_millis() as u64;
+
+            if counter_debug >= max_counter_debug {
+                if self.daq.mode != DataAcquisitionMode::Idle {
+                    debug!(
+                        "Data acquisition process loop time when not idle: {} ms.",
+                        cycle_time
+                    );
+                }
+                counter_debug = 0;
+            } else {
+                counter_debug += 1;
+            }
+
             if period_loop > cycle_time {
                 sleep(Duration::from_millis(period_loop - cycle_time));
             }
