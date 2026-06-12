@@ -14,7 +14,7 @@ Note: When doing the `cargo check`, make sure to check each feature under the re
 ## Development Environment
 
 You can develop the code under the Windows, Mac, and Linux.
-For the Widnows and Mac, disable all the features by default.
+For the Windows and Mac, disable all the features by default.
 For the Linux, if you have the realtime support in OS, you can enable the `realtime` feature.
 To enable the `fpga` feature, make sure you have the expected hardware environment to load the FPGA bitfile (see the [ts_mtm2_cell](https://github.com/lsst-ts/ts_mtm2_cell)).
 
@@ -200,7 +200,7 @@ Sometime, the displacement ILC gives the `inf` value as well.
 
 The data acquisition process is designed to support the realtime thread because:
 
-1. It needs to send a 10 Hz signal to the safety module reliabily when the mirror control system is under the closed-loop control.
+1. It needs to send a 10 Hz signal to the safety module reliably when the mirror control system is under the closed-loop control.
 If the safety module does not receive this signal, it will trigger the global interlock system (GIS) signal to stop the telescope motion.
 2. It needs to send the current power status (voltage and current) to the power system process reliably to check the health of the power system, especially when powering on/off the system.
 

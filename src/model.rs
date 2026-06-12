@@ -560,9 +560,8 @@ impl Model {
                     // Configure the spawned thread itself as realtime before
                     // starting the data acquisition process.
                     if pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0 {
-                        let message = format!(
-                            "Failed to set the realtime scheduler for data acquisition thread."
-                        );
+                        let message =
+                            "Failed to set the realtime scheduler for data acquisition thread.";
                         error!("{}", message);
                         panic!("{}", message);
                     }
