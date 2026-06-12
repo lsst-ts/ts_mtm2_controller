@@ -183,7 +183,7 @@ impl DataAcquisitionProcess {
         let max_counter_toggle_bit = (config.frequency_loop / config.frequency_toggle_bit) as u64;
 
         // Counter of the debug message to avoid flooding the log.
-        let max_counter_debug = config.frequency_loop as i32;
+        let max_counter_debug = (config.frequency_loop as i32) - 1;
         let mut counter_debug = 0;
 
         let period_loop = (1000.0 / config.frequency_loop) as u64;
