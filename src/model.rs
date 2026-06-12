@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use flexi_logger::LoggerHandle;
 use log::{debug, error, info};
 use serde_json::Value;
 use std::{
@@ -109,6 +110,8 @@ pub struct Model {
     // is full, which will cause the test to fail. This flag is used to prevent
     // publishing telemetry in such cases.
     _stop_publish_telemetry: bool,
+    // Logger handle.
+    _logger_handle: Option<LoggerHandle>,
 }
 
 impl Model {
@@ -121,6 +124,7 @@ impl Model {
     /// * `port_telemetry_gui` - Telemetry port for the GUI.
     /// * `port_command_csc` - Command port for the CSC.
     /// * `port_telemetry_csc` - Telemetry port for the CSC.
+    /// * `logger_handle` - Logger handle.
     ///
     /// # Returns
     /// A new model.
@@ -131,6 +135,7 @@ impl Model {
         port_telemetry_gui: i32,
         port_command_csc: i32,
         port_telemetry_csc: i32,
+        logger_handle: Option<LoggerHandle>,
     ) -> Self {
         let config_file = Path::new("config/parameters_app.yaml");
         let stop = Arc::new(AtomicBool::new(false));
@@ -179,6 +184,8 @@ impl Model {
             _handles: Vec::new(),
 
             _stop_publish_telemetry: false,
+
+            _logger_handle: logger_handle,
         }
     }
 
@@ -1129,7 +1136,7 @@ mod tests {
     const MAX_TIMEOUT: u64 = 200;
 
     fn create_model() -> Model {
-        let mut model = Model::new(true, LOCAL_HOST, 0, 0, 0, 0);
+        let mut model = Model::new(true, LOCAL_HOST, 0, 0, 0, 0, None);
 
         model._controller.status.digital_input = TEST_DIGITAL_INPUT_NO_POWER;
         model._controller.status.digital_output = TEST_DIGITAL_OUTPUT_NO_POWER;

@@ -26,13 +26,13 @@ nalgebra = { version = "0.34.2", features = ["serde-serialize"]}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.150"
 signal-hook = "0.4.4"
-simplelog = "0.12.2"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 tempfile = "3.27.0"
 time = "0.3.47"
 crc = "3.4.0"
 fixed = "1.31.0"
+flexi_logger = { version = "0.31.9", features = ["async", "specfile"] }
 
 [[bin]]
 name = "test_fpga"

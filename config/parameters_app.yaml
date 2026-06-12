@@ -24,3 +24,18 @@ lut: "optical"
 
 # Number of digits for the telemetry
 telemetry_digit: 2
+
+# Log file directory.
+log_directory: "log"
+
+# Log file basename.
+log_basename: "application"
+
+# Log file suffix.
+log_suffix: "log"
+
+# File size in bytes to rotate the log file. 
+log_size: 100000000
+
+# Log files are kept for the specified number of days. Older files are deleted.
+log_file_keep_days: 3
