@@ -31,6 +31,15 @@ use std::path::Path;
 use run_m2::application;
 use ts_control_utils::utility::get_parameter;
 
+#[cfg(feature = "realtime")]
+use libc::{mlockall, MCL_CURRENT, MCL_FUTURE};
+
+#[cfg(feature = "realtime")]
+use std::io::Error;
+
+#[cfg(feature = "realtime")]
+use log::error;
+
 fn main() {
     // Parse the command line arguments
     let matches = Command::new("control system")
@@ -76,6 +85,18 @@ fn main() {
 
     if let Ok(level_filter) = logger_handle.current_max_level() {
         info!("Log level: {}.", level_filter);
+    }
+
+    // Lock memory to prevent latency spikes from paging
+    #[cfg(feature = "realtime")]
+    {
+        unsafe {
+            if mlockall(MCL_CURRENT | MCL_FUTURE) != 0 {
+                let message = format!("Failed to lock the memory: {}.", Error::last_os_error());
+                error!("{}", message);
+                panic!("{}", message);
+            }
+        }
     }
 
     // Run the application

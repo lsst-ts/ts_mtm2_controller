@@ -33,6 +33,9 @@ use std::{
     thread::{spawn, JoinHandle},
 };
 
+#[cfg(feature = "realtime")]
+use libc::{pthread_self, pthread_setschedparam, sched_get_priority_max, sched_param, SCHED_FIFO};
+
 use crate::command::{
     command_control_loop::{
         CommandApplyForces, CommandMoveActuators, CommandPositionMirror, CommandResetActuatorSteps,
@@ -546,11 +549,36 @@ impl Model {
             &self.stop,
         );
 
-        let handle = spawn(move || {
-            daq.run();
-        });
+        #[cfg(feature = "realtime")]
+        {
+            unsafe {
+                let param = sched_param {
+                    sched_priority: sched_get_priority_max(SCHED_FIFO),
+                };
 
-        self._handles.push(handle);
+                let handle = spawn(move || {
+                    // Configure the spawned thread itself as realtime before
+                    // starting the data acquisition process.
+                    if pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0 {
+                        let message =
+                            "Failed to set the realtime scheduler for data acquisition thread.";
+                        error!("{}", message);
+                        panic!("{}", message);
+                    }
+                    daq.run();
+                });
+
+                self._handles.push(handle);
+            }
+        }
+        #[cfg(not(feature = "realtime"))]
+        {
+            let handle = spawn(move || {
+                daq.run();
+            });
+
+            self._handles.push(handle);
+        }
     }
 
     /// Step the model. This function has a blocking call to wait for the

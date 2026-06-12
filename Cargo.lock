@@ -1376,6 +1376,7 @@ dependencies = [
  "fixed",
  "flexi_logger",
  "kiddo",
+ "libc",
  "log",
  "nalgebra",
  "nifpga-dll",

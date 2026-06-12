@@ -20,7 +20,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use fixed::types::{I21F11, U21F11};
-use log::{error, info};
+use log::{debug, error, info};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -681,7 +681,7 @@ impl FpgaWrapper {
             let error_code =
                 CustomFpgaModbusError::from_repr(code).unwrap_or(CustomFpgaModbusError::Unknown);
 
-            error!(
+            debug!(
                 "FPGA received the code value: {} as the ILC error: {:?}",
                 code, error_code
             );
@@ -1453,7 +1453,7 @@ impl FpgaWrapper {
                 // This error code: CustomFpgaModbusError::AddressNotMatched is
                 // defined in "MB FPGA Serial Receive Mark II.vi" in the
                 // ts_mtm2_cell instead of the FPGA code.
-                error!(
+                debug!(
                     "Received address {} does not match expected address {} for port {} with error {:?}.",
                     received_address, expected_address, port, CustomFpgaModbusError::AddressNotMatched
                 );

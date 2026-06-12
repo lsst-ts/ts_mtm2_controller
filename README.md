@@ -2,6 +2,22 @@
 
 This is the M2 control system.
 
+## Features
+
+The available features are:
+
+- fpga: Run the application with the use of the NI FPGA dynamic library.
+- realtime: Run the application with the realtime feature (in Linux only).
+
+Note: When doing the `cargo check`, make sure to check each feature under the required software/hardware requirement.
+
+## Development Environment
+
+You can develop the code under the Windows, Mac, and Linux.
+For the Windows and Mac, disable all the features by default.
+For the Linux, if you have the realtime support in OS, you can enable the `realtime` feature.
+To enable the `fpga` feature, make sure you have the expected hardware environment to load the FPGA bitfile (see the [ts_mtm2_cell](https://github.com/lsst-ts/ts_mtm2_cell)).
+
 ## Install the Rust in cRIO and Run the Application
 
 Follow [here](https://www.rust-lang.org/tools/install) to install the Rust in cRIO.
@@ -18,9 +34,15 @@ To run the application in the simulation mode by `cargo`, do:
 cargo run --bin run_m2 -- -s
 ```
 
+If you are using the cRIO simulator, you can do the following instead:
+
+```bash
+cargo run --features realtime --bin run_m2 -- -s
+```
+
 You can interrupt the running application by `ctrl` + `c`.
 
-To run the application in the hardware mode by `cargo`, do:
+To run the application in the hardware mode with FPGA by `cargo`, do:
 
 ```bash
 cargo run --features fpga --bin run_m2
@@ -48,7 +70,13 @@ See the [build.rs](build.rs).
 Do the following to build the executable:
 
 ```bash
-cargo build --release
+cargo build --release --features fpga,realtime
+```
+
+For the cRIO simulator, do the following instead (to enable the `realtime` feature is optional):
+
+```bash
+cargo build --release --features realtime
 ```
 
 This will generate an optimized executable in the `target/release/` directory, which is suitable for distribution.
@@ -60,6 +88,9 @@ They are generated from the bifile of [ts_mtm2_cell](https://github.com/lsst-ts/
 See [FPGA Interface C API User Manual](https://www.ni.com/docs/en-US/bundle/fpga-interface-c/page/user-manual-welcome.html) for more details.
 Although the raw dynamic library is used and you do not really compile the NI FPGA C code, it is good to have the generated header file ([NiFpga_portSerialMasterSlave.h](fpga/NiFpga_portSerialMasterSlave.h)) to get the register offsets.
 Otherwise, you need to read the NI FPGA bitfile (an xml file) to get the required offsets.
+
+Since the safety module needs the NI FPGA hybrid mode and the NI raw dynamic library only allows to load the bitfile of pure FPGA mode, we need to use the LabVIEW application to load the bitfile first to let this Rust-based application to be able to open the session of FPGA to control the hardware as a workaround at the moment.
+Hopefully the NI can support this in the future.
 
 ## Deployment
 
@@ -89,12 +120,15 @@ See the [config/](config) directory for the configuration files:
 Some useful scripts are in `script/` directory.
 
 1. `m2`: Initialization file in the Linux system.
+Note the run commands between the cRIO simulator and the real hardware are different.
+You need to do the related modification in the script.
 
 ## Log Data
 
 The logging files contain the mirror position are in the `log/` directory.
 You can change the log level in the runtime by modifying the [logspecification.toml](config/logspecification.toml).
 The logging files are rotated, and the related parameters are in the [parameters_app.yaml](config/parameters_app.yaml).
+You can adjust the log level of each module individually.
 
 ## Code Format
 
@@ -161,6 +195,23 @@ The status and force will be 0 and the encoder value is some random huge value (
 For the monitor ILC, you might get the `inf` value when just starting up the ILCs.
 We always have this for the temperature ILCs.
 Sometime, the displacement ILC gives the `inf` value as well.
+
+## Realtime Thread Support
+
+The data acquisition process is designed to support the realtime thread because:
+
+1. It needs to send a 10 Hz signal to the safety module reliably when the mirror control system is under the closed-loop control.
+If the safety module does not receive this signal, it will trigger the global interlock system (GIS) signal to stop the telescope motion.
+2. It needs to send the current power status (voltage and current) to the power system process reliably to check the health of the power system, especially when powering on/off the system.
+
+Notes:
+
+1. The low-level PID controller is in the ILC.
+The control system only sends the `step()` command to the ILC.
+Therefore, in the theory, the data acquisition process does not need to be realtime for the hardware control with the ILC.
+2. The control loop process will be woken up as soon as there is the new telemetry from the data acquisition process.
+Therefore, although the requirement document specifies the bandwidth of control loop to be 20 Hz, we do not need to make the control loop process to be realtime thread since the data acquisition process is 20 Hz as well.
+This can save the system resource significantly.
 
 ## Version History
 

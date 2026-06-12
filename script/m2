@@ -7,7 +7,9 @@ EXECUTABLE=${CONTROL_SYSTEM_DIR}/target/release/run_m2
 start() {
   echo "Starting M2 control system. Sleep 30 seconds to allow it to boot up."
   ulimit -s unlimited
-  nohup ${EXECUTABLE} -s > /dev/null 2>&1 &
+  nohup ${EXECUTABLE} > /dev/null 2>&1 &
+  # For the simulation mode, use the following command instead.
+  # nohup ${EXECUTABLE} -s > /dev/null 2>&1 &
   sleep 30
 }
 

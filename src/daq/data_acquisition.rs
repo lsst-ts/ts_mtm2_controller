@@ -824,7 +824,7 @@ impl DataAcquisition {
                 }
 
                 if has_wrong_communication_counter {
-                    warn!(
+                    debug!(
                         "The actuator ILC {} has the wrong communication counter.",
                         idx
                     );

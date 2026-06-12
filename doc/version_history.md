@@ -1,5 +1,16 @@
 # Version History
 
+0.5.3
+
+- Add the `libc` dependency.
+- Add the `realtime` feature to run the data acquisition process as a realtime thread.
+- Update the `script/m2` script.
+- Update the debug level in `FpgaWrapper.map_ilc_error_code()`.
+- Update the debug level in `DataAcquisition.check_ilc_stale_data()`.
+- Add modules to `logspecification.toml`.
+- Fix the max counter of debug in `DataAcquisitionProcess.run()`.
+- Update the `README.md`.
+
 0.5.2
 
 - Update the `ErrorHandler.check_condition_control_loop()` to only check the actuator ILC after broadcasting the `step()` command to actuator ILCs.
