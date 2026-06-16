@@ -65,9 +65,18 @@ cargo run --features fpga --bin test_fpga
 The system should look for the `/usr/lib/x86_64-linux-gnu/libNiFpga.so` by itself at compile time.
 See the [build.rs](build.rs).
 
+## Executables
+
+The followings are the executables:
+
+- [main](src/main.rs): M2 controller.
+- [test_fpga](src/bin/test_fpga.rs): Test script of FPGA for the M2 cRIO simulator in the electronic lab.
+This cRIO is the same model of the current cRIO of M2.
+It has the same NI modules as well.
+
 ## Build the Executable
 
-Do the following to build the executable:
+Do the following to build the M2 controller executable:
 
 ```bash
 cargo build --release --features fpga,realtime
