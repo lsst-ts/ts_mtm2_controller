@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{error, info};
+use log::{error, info, warn};
 use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -165,12 +165,18 @@ impl ControlLoopProcess {
 
             // Process the received telemetry from the data acquisition.
             if let Some(telemetry) = &mut processed_telemetry {
+                self.control_loop.process_telemetry_data(telemetry);
+
                 // We need to check the sequence ID here because we need to
                 // make sure the new telemetry is the expected one that the
-                // inner-loop controlloer (ILC) has moved the actuators.
+                // inner-loop controller (ILC) has moved the actuators.
                 if telemetry.seq_id_move_actuator_steps == seq_id_move_actuator_steps {
-                    self.control_loop.process_telemetry_data(telemetry);
                     self.control_loop.step(telemetry);
+                } else {
+                    warn!(
+                        "The step sequence ID of the received ILC raw telemetry is {}, which is different from the expected sequence ID {}. The control loop will not step based on this telemetry.",
+                        telemetry.seq_id_move_actuator_steps, seq_id_move_actuator_steps
+                    );
                 }
             }
 
