@@ -34,7 +34,7 @@ use crate::command::{
         CommandGetInnerLoopControlMode, CommandMoveActuatorSteps, CommandSetDataAcquisitionMode,
         CommandSetInnerLoopControlMode, CommandSwitchDigitalOutput,
     },
-    command_schema::CommandSchema,
+    command_schema::{Command, CommandSchema},
 };
 use crate::constants::BOUND_SYNC_CHANNEL;
 use crate::daq::data_acquisition::DataAcquisition;
@@ -43,7 +43,7 @@ use crate::telemetry::{
     telemetry::Telemetry, telemetry_control_loop::TelemetryControlLoop,
     telemetry_power::TelemetryPower,
 };
-use crate::utility::get_message_sequence_id;
+use crate::utility::{get_message_name, get_message_sequence_id};
 
 pub struct DataAcquisitionProcess {
     // Data acquisition (DAQ) system
@@ -186,6 +186,9 @@ impl DataAcquisitionProcess {
         let max_counter_debug = (config.frequency_loop as i32) - 1;
         let mut counter_debug = 0;
 
+        // Command name for setting the data acquisition mode.
+        let set_mode_command_name = CommandSetDataAcquisitionMode.name();
+
         let period_loop = (1000.0 / config.frequency_loop) as u64;
         let mut cycle_time = 0;
         let mut counter = 0;
@@ -194,20 +197,21 @@ impl DataAcquisitionProcess {
             let now = Instant::now();
 
             // Process the message.
+            // If this is a set mode command, we need to process the next
+            // message (if any) as well. This is because if the control loop is
+            // under the open-loop control mode or closed-loop control mode,
+            // the control loop process will send the step() command regularly
+            // and we need to process it.
             let mut command_result = None;
+            let mut is_set_mode_command = false;
             if let Ok(message) = self._receiver_to_daq.try_recv() {
-                command_result = Some(self._command_schema.execute(
-                    &message,
-                    Some(&mut self.daq),
-                    None,
-                    None,
-                    None,
-                ));
+                command_result = self.execute_and_check_internal_command(&message);
+                is_set_mode_command = get_message_name(&message) == set_mode_command_name;
+            }
 
-                // For the internal command, no need to send the result.
-                let is_internal_command = get_message_sequence_id(&message) == -1;
-                if is_internal_command {
-                    command_result = None;
+            if is_set_mode_command && command_result.is_none() {
+                if let Ok(message) = self._receiver_to_daq.try_recv() {
+                    command_result = self.execute_and_check_internal_command(&message);
                 }
             }
 
@@ -284,6 +288,27 @@ impl DataAcquisitionProcess {
         self.daq.end_default_digital_output();
 
         info!("Data acquisition loop is stopped.");
+    }
+
+    /// Execute a command and check if it's an internal command.
+    ///
+    /// # Arguments
+    /// * `message` - The message to execute.
+    ///
+    /// # Returns
+    /// The command result, or None if it's an internal command.
+    fn execute_and_check_internal_command(&mut self, message: &Value) -> Option<Value> {
+        let result = self
+            ._command_schema
+            .execute(message, Some(&mut self.daq), None, None, None);
+
+        // For the internal command, no need to send the result.
+        let is_internal_command = get_message_sequence_id(message) == -1;
+        if is_internal_command {
+            None
+        } else {
+            Some(result)
+        }
     }
 }
 
@@ -435,5 +460,37 @@ mod tests {
         stop.store(true, Ordering::Relaxed);
 
         assert!(handle.join().is_ok());
+    }
+
+    #[test]
+    fn test_execute_and_check_internal_command() {
+        let mut data_acquisition_process = create_data_acquisition_process().0;
+
+        // Test an internal command.
+        let command_internal = json!({
+            "id": "cmd_setDataAcquisitionMode",
+            "mode": 2,
+        });
+        let result_internal =
+            data_acquisition_process.execute_and_check_internal_command(&command_internal);
+
+        assert!(result_internal.is_none());
+
+        // Test a non-internal command.
+        let command_external = json!({
+            "id": "cmd_setDataAcquisitionMode",
+            "sequence_id": 2,
+            "mode": 2,
+        });
+        let result_external =
+            data_acquisition_process.execute_and_check_internal_command(&command_external);
+
+        assert_eq!(
+            result_external.unwrap(),
+            json!({
+                "id": "success",
+                "sequence_id": 2,
+            })
+        );
     }
 }
