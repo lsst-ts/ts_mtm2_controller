@@ -1,5 +1,12 @@
 # Version History
 
+0.5.4
+
+- Update the log level in `Model.check_condition_control_loop()`.
+- Fix the bug that the raw ILC telemetry might not be processed when the received step command sequence id is not expected in `ControlLoopProcess.run()`.
+- Update the `DataAcquisitionProcess.run()` to continue to process the command after receiving the set mode command.
+- Update the `README.md`.
+
 0.5.3
 
 - Add the `libc` dependency.

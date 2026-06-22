@@ -917,7 +917,7 @@ impl Model {
                 .update_closed_loop_control_mode(ClosedLoopControlMode::TelemetryOnly)
                 .is_none()
             {
-                debug!("Failed to change the control mode to be telemetry only when there is the fault. Stopping the control system...");
+                error!("Failed to change the control mode to be telemetry only when there is the fault. Stopping the control system...");
 
                 self.stop();
             };
