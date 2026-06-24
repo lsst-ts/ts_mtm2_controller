@@ -25,3 +25,4 @@ pub mod data_acquisition;
 pub mod data_acquisition_process;
 pub mod fpga_wrapper;
 pub mod inner_loop_controller;
+pub mod server_identifier;
