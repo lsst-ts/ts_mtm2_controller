@@ -19,6 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+pub mod calibration_data;
 pub mod config_data_acquisition;
 pub mod data_acquisition;
 pub mod data_acquisition_process;
