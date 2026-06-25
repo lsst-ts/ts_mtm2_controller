@@ -25,12 +25,14 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use crate::constants::{
-    NUM_ACTUATOR, NUM_ILC_TEMPERATURE_MONITOR_SENSOR, NUM_IMS, NUM_INNER_LOOP_CONTROLLER,
-    NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE, NUM_TEMPERATURE_RING,
+    CODE_SCAN_RATE, NUM_ACTUATOR, NUM_ILC_TEMPERATURE_MONITOR_SENSOR, NUM_IMS,
+    NUM_INNER_LOOP_CONTROLLER, NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE,
+    NUM_TEMPERATURE_RING,
 };
 use crate::daq::{
-    config_data_acquisition::ConfigDataAcquisition, fpga_wrapper::FpgaWrapper,
-    inner_loop_controller::InnerLoopController,
+    calibration_data::CalibrationData, config_data_acquisition::ConfigDataAcquisition,
+    fpga_wrapper::FpgaWrapper, inner_loop_controller::InnerLoopController,
+    server_identifier::ServerIdentifier,
 };
 use crate::enums::{
     DataAcquisitionMode, DigitalOutput, DigitalOutputStatus, ErrorCode, InnerLoopControlMode,
@@ -1084,7 +1086,7 @@ impl DataAcquisition {
     /// Set the mode of the inner-loop controller (ILC).
     ///
     /// # Arguments
-    /// * `address` - The address of ILC.
+    /// * `address` - The 0-based address of ILC.
     /// * `mode` - The mode to be set.
     ///
     /// # Returns
@@ -1125,7 +1127,7 @@ impl DataAcquisition {
     /// event.
     ///
     /// # Arguments
-    /// * `address` - The address of ILC.
+    /// * `address` - The 0-based address of ILC.
     /// * `frame` - Response frame that contains the ILC mode.
     ///
     /// # Returns
@@ -1153,7 +1155,7 @@ impl DataAcquisition {
     /// Get the mode of the inner-loop controller (ILC).
     ///
     /// # Arguments
-    /// * `address` - The address of ILC.
+    /// * `address` - The 0-based address of ILC.
     ///
     /// # Returns
     /// Always Some with the current mode or unknown if not successful.
@@ -1183,6 +1185,290 @@ impl DataAcquisition {
         self.record_ilc_exception_code(&frame_payload, &frame_request);
 
         self.get_ilc_mode_and_add_event(address, &frame_payload)
+    }
+
+    /// Report the server identifier of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `address` - The 0-based address of ILC.
+    ///
+    /// # Returns
+    /// Some with the server identifier if successful. Otherwise, None.
+    pub fn report_server_id(&mut self, address: u8) -> Option<ServerIdentifier> {
+        let frame_request = self._ilc.create_frame_report_server_id(address);
+
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
+            }
+        } else {
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["server_id"],
+                config.latency["server_id"],
+                config.timeout_irq,
+            )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
+        }
+
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        ServerIdentifier::from_frame(&frame_payload).inspect(|server_id| {
+            self.event_queue
+                .add_event(Event::get_message_server_identifier(address, server_id));
+        })
+    }
+
+    /// Report the server status of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `address` - The 0-based address of ILC.
+    ///
+    /// # Returns
+    /// Some with a tuple containing the inner-loop control mode, status, and
+    /// faults if successful. Otherwise, None.
+    pub fn report_server_status(
+        &mut self,
+        address: u8,
+    ) -> Option<(InnerLoopControlMode, u16, u16)> {
+        let frame_request = self._ilc.create_frame_report_server_status(address);
+
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
+            }
+        } else {
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["server_status"],
+                config.latency["server_status"],
+                config.timeout_irq,
+            )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
+        }
+
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        self._ilc
+            .get_server_status_from_frame(&frame_payload)
+            .inspect(|(mode, status, faults)| {
+                self.event_queue.add_event(Event::get_message_server_status(
+                    address, *mode, *status, *faults,
+                ));
+            })
+    }
+
+    /// Read the calibration data of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `address` - The 0-based address of ILC.
+    ///
+    /// # Returns
+    /// Some with a tuple containing the main and backup calibration data if
+    /// successful. Otherwise, None.
+    pub fn read_calibration_data(
+        &mut self,
+        address: u8,
+    ) -> Option<(CalibrationData, CalibrationData)> {
+        let frame_request = self._ilc.create_frame_read_calibration_data(address);
+
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
+            }
+        } else {
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["calibration_data"],
+                config.latency["calibration_data"],
+                config.timeout_irq,
+            )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
+        }
+
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        self._ilc
+            .get_calibration_data_from_frame(&frame_payload)
+            .inspect(|(calibration_data_main, calibration_data_backup)| {
+                self.event_queue
+                    .add_event(Event::get_message_calibration_data(
+                        address,
+                        calibration_data_main,
+                        calibration_data_backup,
+                    ));
+            })
+    }
+
+    /// Reset the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `address` - The 0-based address of ILC.
+    ///
+    /// # Returns
+    /// Some if the ILC is reset successfully. Otherwise, None.
+    pub fn reset_ilc(&mut self, address: u8) -> Option<()> {
+        let frame_request = self._ilc.create_frame_reset(address);
+
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
+            }
+        } else {
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["reset"],
+                config.latency["reset"],
+                config.timeout_irq,
+            )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
+        }
+
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        Some(())
+    }
+
+    /// Set or get the scan rate of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `address` - The 0-based address of ILC.
+    /// * `scan_rate` - The scan rate to be set. If None, get the current scan
+    ///   rate.
+    /// * `bypass_check_function_code` - A boolean indicating whether to bypass
+    ///   the check of the function code in the response frame. This is for the
+    ///   unit test purpose.
+    ///
+    /// # Returns
+    /// Some with the current scan rate if successful. Otherwise, None.
+    pub fn set_or_get_scan_rate(
+        &mut self,
+        address: u8,
+        scan_rate: Option<u8>,
+        bypass_check_function_code: bool,
+    ) -> Option<u8> {
+        let frame_request = match scan_rate {
+            Some(rate) => self._ilc.create_frame_set_scan_rate(address, rate),
+            None => self._ilc.create_frame_get_scan_rate(address),
+        };
+
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
+            }
+        } else {
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["scan_rate"],
+                config.latency["scan_rate"],
+                config.timeout_irq,
+            )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
+        }
+
+        // There should only one byte in the payload for the scan rate.
+        if frame_payload.len() != 1 {
+            return None;
+        }
+
+        let received_function_code = if bypass_check_function_code {
+            CODE_SCAN_RATE
+        } else {
+            self._fpga
+                .read_control_value_u8("indicatorReceivedFunctionCode")?
+        };
+
+        if received_function_code == CODE_SCAN_RATE {
+            let rate = frame_payload[0];
+            self.event_queue
+                .add_event(Event::get_message_scan_rate(address, rate));
+
+            Some(rate)
+        } else {
+            self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+            None
+        }
+    }
+
+    /// Set the offset and sensitivity of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `address` - The 0-based address of ILC.
+    /// * `channel` - The 0-based channel of ILC.
+    /// * `offset` - The offset to be set.
+    /// * `sensitivity` - The sensitivity to be set.
+    ///
+    /// # Returns
+    /// Some if the offset and sensitivity are set successfully. Otherwise,
+    /// None.
+    pub fn set_offset_and_sensitivity(
+        &mut self,
+        address: u8,
+        channel: u8,
+        offset: f32,
+        sensitivity: f32,
+    ) -> Option<()> {
+        let frame_request = self._ilc.create_frame_set_offset_and_sensitivity(
+            address,
+            channel,
+            offset,
+            sensitivity,
+        );
+
+        let mut frame_payload = Vec::new();
+        if self.is_simulation_mode() {
+            if let Some(plant) = &mut self.plant {
+                frame_payload = plant.request_ilc(&frame_request);
+            }
+        } else {
+            let config = &self.config;
+            frame_payload = self._fpga.request_ilc(
+                &frame_request,
+                1,
+                config.payload_byte["offset_and_sensitivity"],
+                config.latency["offset_and_sensitivity"],
+                config.timeout_irq,
+            )?;
+
+            // Sleep for a while to make sure the ILC has processed the command
+            // and updated the ILC data.
+            sleep(Duration::from_micros(self.config.sleep_time_ilc_reading));
+        }
+
+        self.record_ilc_exception_code(&frame_payload, &frame_request);
+
+        Some(())
     }
 
     /// Move the actuator steps.
@@ -1255,8 +1541,9 @@ mod tests {
 
     use crate::mock::mock_constants::PLANT_VOLTAGE;
     use crate::mock::mock_constants::{
-        PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW, TEST_DIGITAL_INPUT_POWER_COMM_MOTOR,
-        TEST_DIGITAL_OUTPUT_NO_POWER, TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
+        MOCK_FIRMWARE_NAME, MOCK_FIRMWARE_REVISION, PLANT_TEMPERATURE_HIGH, PLANT_TEMPERATURE_LOW,
+        TEST_DIGITAL_INPUT_POWER_COMM_MOTOR, TEST_DIGITAL_OUTPUT_NO_POWER,
+        TEST_DIGITAL_OUTPUT_POWER_COMM_MOTOR,
     };
     use crate::mock::mock_power_system::MockPowerSystem;
     use ts_control_utils::enums::BitEnum;
@@ -1701,7 +1988,7 @@ mod tests {
             vec![json!({
                 "id": "innerLoopControlMode",
                 "address": 10,
-                "mode": 2,
+                "mode": InnerLoopControlMode::Disabled as u8,
             })]
         );
     }
@@ -1719,8 +2006,175 @@ mod tests {
             vec![json!({
                 "id": "innerLoopControlMode",
                 "address": 10,
-                "mode": 1,
+                "mode": InnerLoopControlMode::Standby as u8,
             })]
+        );
+    }
+
+    #[test]
+    fn test_report_server_id() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        let address = 9;
+        let unique_id = 1000 + (address as u64);
+        assert_eq!(
+            data_acquisition
+                .report_server_id(address)
+                .unwrap()
+                .unique_id,
+            unique_id
+        );
+
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "serverIdentifier",
+                "address": address,
+                "uniqueId": unique_id,
+                "applicationType": 1,
+                "networkNodeType": 1,
+                "selectedOptions": 1,
+                "networkNodeOptions": 1,
+                "firmwareRevision": MOCK_FIRMWARE_REVISION,
+                "firmwareName": MOCK_FIRMWARE_NAME,
+            })]
+        );
+    }
+
+    #[test]
+    fn test_report_server_status() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        let address = 8;
+        assert_eq!(
+            data_acquisition.report_server_status(address),
+            Some((InnerLoopControlMode::Standby, 0x0000, 0x0000))
+        );
+
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "serverStatus",
+                "address": address,
+                "mode": InnerLoopControlMode::Standby as u8,
+                "status": 0x0000,
+                "faults": 0x0000,
+            })]
+        );
+    }
+
+    #[test]
+    fn test_read_calibration_data() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        let address = 7;
+        let (calibration_data_main, calibration_data_backup) =
+            data_acquisition.read_calibration_data(address).unwrap();
+
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![json!({
+                "id": "calibrationData",
+                "address": address,
+                "mainGains": &calibration_data_main.gains,
+                "mainOffsets": &calibration_data_main.offsets,
+                "mainSensitivities": &calibration_data_main.sensitivities,
+                "backupGains": &calibration_data_backup.gains,
+                "backupOffsets": &calibration_data_backup.offsets,
+                "backupSensitivities": &calibration_data_backup.sensitivities,
+            })]
+        );
+    }
+
+    #[test]
+    fn test_reset_ilc() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        let address = 6;
+        data_acquisition.set_ilc_mode(address, InnerLoopControlMode::Disabled);
+
+        assert!(data_acquisition.reset_ilc(address).is_some());
+
+        // After resetting the ILC, the mode should be set to Standby.
+        data_acquisition.get_ilc_mode(address);
+
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![
+                json!({
+                    "id": "innerLoopControlMode",
+                    "address": address,
+                    "mode": InnerLoopControlMode::Disabled as u8,
+                }),
+                json!({
+                    "id": "innerLoopControlMode",
+                    "address": address,
+                    "mode": InnerLoopControlMode::Standby as u8,
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn test_set_or_get_scan_rate() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        let address = 4;
+        let scan_rate = 10;
+        assert_eq!(
+            data_acquisition.set_or_get_scan_rate(address, Some(scan_rate), true),
+            Some(scan_rate)
+        );
+
+        assert_eq!(
+            data_acquisition.set_or_get_scan_rate(address, None, true),
+            Some(scan_rate)
+        );
+
+        assert_eq!(
+            data_acquisition.event_queue.get_events_and_clear(),
+            vec![
+                json!({
+                    "id": "scanRate",
+                    "address": address,
+                    "rate": scan_rate,
+                }),
+                json!({
+                    "id": "scanRate",
+                    "address": address,
+                    "rate": scan_rate,
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn test_set_offset_and_sensitivity() {
+        let mut data_acquisition = create_data_acquisition(true);
+
+        let address = 5;
+        let channel = 1;
+        let offset = 2.3;
+        let sensitivity = 4.5;
+        assert!(data_acquisition
+            .set_offset_and_sensitivity(address, channel, offset, sensitivity)
+            .is_some());
+
+        // Check if the offset and sensitivity are set correctly by reading the
+        // calibration data.
+        let (calibration_data_main, calibration_data_backup) =
+            data_acquisition.read_calibration_data(address).unwrap();
+
+        assert_eq!(calibration_data_main.offsets[channel as usize], offset);
+        assert_eq!(
+            calibration_data_main.sensitivities[channel as usize],
+            sensitivity
+        );
+
+        assert_eq!(calibration_data_backup.offsets[channel as usize], offset);
+        assert_eq!(
+            calibration_data_backup.sensitivities[channel as usize],
+            sensitivity
         );
     }
 
