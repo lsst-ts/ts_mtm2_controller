@@ -85,6 +85,13 @@ The followings are the commands:
 - CommandSwitchDigitalOutput
 - CommandGetInnerLoopControlMode
 - CommandSetInnerLoopControlMode
+- CommandReportServerId
+- CommandReportServerStatus
+- CommandReadCalibrationData
+- CommandResetInnerLoopController
+- CommandGetScanRate
+- CommandSetScanRate
+- CommandSetOffsetAndSensitivity
 - CommandMoveActuatorSteps
 - CommandSetDataAcquisitionMode
 
