@@ -1,5 +1,25 @@
 # Version History
 
+0.5.5
+
+- Add the new ILC command codes to `constants.rs`.
+- Move the `get_f32_values_from_u8_array()` to `utility.rs`.
+- Add the **CalibrationData** class.
+- Add the **ServerIdentifier** class.
+- Add new ILC commands to **InnerLoopController**.
+- Add mock constants to `mock_constants.rs`.
+- Add new ILC commands to **MockInnerLoopController**.
+- Update the `MockPlant.new()` to assign the unique IDs to mock ILCs.
+- Add the new ILC events in `event.rs`.
+- Add the new payloads and latencies to the `parameters_daq.yaml`.
+- Update the `ConfigDataAcquisition.new()`.
+- Add the indicator of received function code to `fpga_wrapper.rs`.
+- Add the new ILC commands to **DataAcquisition**.
+- Add the new ILC commands to `command_data_acquisition.rs`.
+- Register new ILC commands to `Model.create_commands()`.
+- Update the `class_diagram.md`.
+- Update the README files.
+
 0.5.4
 
 - Update the log level in `Model.check_condition_control_loop()`.
