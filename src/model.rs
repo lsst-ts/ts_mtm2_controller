@@ -49,7 +49,10 @@ use crate::command::{
         CommandSwitchForceBalanceSystem,
     },
     command_data_acquisition::{
-        CommandGetInnerLoopControlMode, CommandSetInnerLoopControlMode, CommandSwitchDigitalOutput,
+        CommandGetInnerLoopControlMode, CommandGetScanRate, CommandReadCalibrationData,
+        CommandReportServerId, CommandReportServerStatus, CommandResetInnerLoopController,
+        CommandSetInnerLoopControlMode, CommandSetOffsetAndSensitivity, CommandSetScanRate,
+        CommandSwitchDigitalOutput,
     },
     command_power_system::{CommandPower, CommandResetBreakers},
     command_schema::{Command, CommandSchema},
@@ -203,6 +206,13 @@ impl Model {
             CommandSwitchDigitalOutput.name().to_string(),
             CommandGetInnerLoopControlMode.name().to_string(),
             CommandSetInnerLoopControlMode.name().to_string(),
+            CommandReportServerId.name().to_string(),
+            CommandReportServerStatus.name().to_string(),
+            CommandReadCalibrationData.name().to_string(),
+            CommandResetInnerLoopController.name().to_string(),
+            CommandGetScanRate.name().to_string(),
+            CommandSetScanRate.name().to_string(),
+            CommandSetOffsetAndSensitivity.name().to_string(),
         ];
 
         // The commands here need to be in the
