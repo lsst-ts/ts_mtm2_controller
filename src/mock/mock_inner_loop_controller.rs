@@ -23,14 +23,19 @@ use crc::{Crc, CRC_16_MODBUS};
 
 use crate::constants::{
     BROADCAST_ADDRESS, CODE_FORCE_REQUEST, CODE_ILC_MODE, CODE_MONITOR_SENSOR,
-    CODE_STEP_MOTOR_BROADCAST,
+    CODE_READ_CALIBRATION_DATA, CODE_REPORT_SERVER_ID, CODE_REPORT_SERVER_STATUS, CODE_RESET,
+    CODE_SCAN_RATE, CODE_SET_OFFSET_AND_SENSITIVITY, CODE_STEP_MOTOR_BROADCAST, NUM_ILC_CHANNEL,
 };
+use crate::daq::calibration_data::CalibrationData;
 use crate::daq::inner_loop_controller::InnerLoopController;
+use crate::daq::server_identifier::ServerIdentifier;
 use crate::enums::InnerLoopControlMode;
-use crate::mock::mock_constants::{MOCK_CODE_ILC_ERROR, MOCK_CODE_ILC_EXCEPTION};
+use crate::mock::mock_constants::{
+    MOCK_CODE_ILC_ERROR, MOCK_CODE_ILC_EXCEPTION, MOCK_FIRMWARE_NAME, MOCK_FIRMWARE_REVISION,
+    MOCK_ILC_GAIN, MOCK_ILC_OFFSET, MOCK_ILC_SCAN_RATE, MOCK_ILC_SENSITIVITY,
+};
 
 // Mock data structure to hold the actuator status.
-#[derive(Clone)]
 pub struct MockData {
     // Current status.
     pub status: u8,
@@ -41,7 +46,6 @@ pub struct MockData {
 }
 
 /// Mock Inner-Loop Controller (ILC) to simulate the behavior of hardware.
-#[derive(Clone)]
 pub struct MockInnerLoopController {
     // Cyclic redundancy check (CRC) calculator for the inner-loop controller
     // (ILC) communication.
@@ -52,20 +56,23 @@ pub struct MockInnerLoopController {
     pub data: MockData,
     // Monitor values (temperature, displacement, and inclinometer).
     pub monitor_values: Vec<f32>,
-}
-
-impl Default for MockInnerLoopController {
-    fn default() -> Self {
-        Self::new()
-    }
+    // Server identifier.
+    _server_identifier: ServerIdentifier,
+    // Scan rate.
+    _scan_rate: u8,
+    // Calibration data.
+    _calibration_data: CalibrationData,
 }
 
 impl MockInnerLoopController {
     /// Create a new inner-loop controller (ILC).
     ///
+    /// # Arguments
+    /// * `unique_id` - Unique identifier for the server.
+    ///
     /// # Returns
     /// A new model with a random number.
-    pub fn new() -> Self {
+    pub fn new(unique_id: u64) -> Self {
         Self {
             _crc: Crc::<u16>::new(&CRC_16_MODBUS),
 
@@ -76,6 +83,22 @@ impl MockInnerLoopController {
                 force: 0.0,
             },
             monitor_values: Vec::new(),
+
+            _server_identifier: ServerIdentifier {
+                unique_id,
+                application_type: 1,
+                network_node_type: 1,
+                selected_options: 1,
+                network_node_options: 1,
+                firmware_revision: MOCK_FIRMWARE_REVISION.to_string(),
+                firmware_name: MOCK_FIRMWARE_NAME.to_string(),
+            },
+            _scan_rate: MOCK_ILC_SCAN_RATE,
+            _calibration_data: CalibrationData {
+                gains: [MOCK_ILC_GAIN; NUM_ILC_CHANNEL],
+                offsets: [MOCK_ILC_OFFSET; NUM_ILC_CHANNEL],
+                sensitivities: [MOCK_ILC_SENSITIVITY; NUM_ILC_CHANNEL],
+            },
         }
     }
 
@@ -103,6 +126,8 @@ impl MockInnerLoopController {
         }
 
         match frame_request[1] {
+            CODE_REPORT_SERVER_ID => self.get_server_id(frame_request),
+            CODE_REPORT_SERVER_STATUS => self.get_server_status(frame_request),
             CODE_ILC_MODE => {
                 let mode_command = InnerLoopController::get_mode_from_value(u16::from_be_bytes([
                     frame_request[2],
@@ -120,6 +145,10 @@ impl MockInnerLoopController {
                 self.update_communication_counter(frame_request[2]);
                 Vec::new()
             }
+            CODE_SCAN_RATE => self.set_or_get_scan_rate(frame_request),
+            CODE_SET_OFFSET_AND_SENSITIVITY => self.set_offset_and_sensitivity(frame_request),
+            CODE_RESET => self.reset(frame_request),
+            CODE_READ_CALIBRATION_DATA => self.get_calibration_data(frame_request),
             _ => frame_error,
         }
     }
@@ -233,6 +262,158 @@ impl MockInnerLoopController {
         frame_response
     }
 
+    /// Get the server identifier of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame.
+    ///
+    /// # Returns
+    /// A response frame containing the server identifier and CRC checksum.
+    fn get_server_id(&self, frame_request: &[u8]) -> Vec<u8> {
+        let name_bytes = self._server_identifier.firmware_name.len();
+        let mut frame_response = vec![0; 17 + name_bytes];
+        frame_response[0] = frame_request[0];
+        frame_response[1] = frame_request[1];
+
+        frame_response[2..(15 + name_bytes)].copy_from_slice(&self._server_identifier.to_frame());
+
+        InnerLoopController::calculate_crc_and_update_frame(&self._crc, &mut frame_response);
+
+        frame_response
+    }
+
+    /// Get the server status of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame.
+    ///
+    /// # Returns
+    /// A response frame containing the server status and CRC checksum.
+    fn get_server_status(&self, frame_request: &[u8]) -> Vec<u8> {
+        let mut frame_response = vec![0; 9];
+        frame_response[0] = frame_request[0];
+        frame_response[1] = frame_request[1];
+
+        // We assume the status and faults are zero here. Therefore, we don't
+        // need to set them explicitly. The default values of the vector are
+        // zero.
+        frame_response[2] = InnerLoopController::get_mode_value(self.mode) as u8;
+
+        InnerLoopController::calculate_crc_and_update_frame(&self._crc, &mut frame_response);
+
+        frame_response
+    }
+
+    /// Set or get the scan rate of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame containing the scan rate to be set or
+    ///   queried.
+    ///
+    /// # Returns
+    /// A response frame containing the current scan rate and CRC checksum.
+    fn set_or_get_scan_rate(&mut self, frame_request: &[u8]) -> Vec<u8> {
+        let mut frame_response = vec![0; 5];
+        frame_response[0] = frame_request[0];
+        frame_response[1] = frame_request[1];
+
+        let scan_rate = frame_request[2];
+        if scan_rate != 0xFF {
+            self._scan_rate = scan_rate;
+        }
+
+        frame_response[2] = self._scan_rate;
+
+        InnerLoopController::calculate_crc_and_update_frame(&self._crc, &mut frame_response);
+
+        frame_response
+    }
+
+    /// Set the offset and sensitivity for a specific channel in the inner-loop
+    /// controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame containing the channel number,
+    ///   offset, and sensitivity.
+    ///
+    /// # Returns
+    /// A response frame containing the function code and CRC checksum.
+    fn set_offset_and_sensitivity(&mut self, frame_request: &[u8]) -> Vec<u8> {
+        // Change 1-based channel number to 0-based index for internal
+        // representation.
+        let channel = (frame_request[2] as usize) - 1;
+
+        let offset = f32::from_be_bytes([
+            frame_request[3],
+            frame_request[4],
+            frame_request[5],
+            frame_request[6],
+        ]);
+        let sensitivity = f32::from_be_bytes([
+            frame_request[7],
+            frame_request[8],
+            frame_request[9],
+            frame_request[10],
+        ]);
+        self._calibration_data.offsets[channel] = offset;
+        self._calibration_data.sensitivities[channel] = sensitivity;
+
+        self.get_response_frame_with_code_only(frame_request)
+    }
+
+    /// Get a response frame with only the function code and CRC checksum.
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame.
+    ///
+    /// # Returns
+    /// A response frame containing the function code and CRC checksum.
+    fn get_response_frame_with_code_only(&self, frame_request: &[u8]) -> Vec<u8> {
+        let mut frame_response = vec![0; 4];
+        frame_response[0] = frame_request[0];
+        frame_response[1] = frame_request[1];
+
+        InnerLoopController::calculate_crc_and_update_frame(&self._crc, &mut frame_response);
+
+        frame_response
+    }
+
+    /// Reset the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame.
+    ///
+    /// # Returns
+    /// A response frame containing the function code and CRC checksum.
+    fn reset(&mut self, frame_request: &[u8]) -> Vec<u8> {
+        self.mode = InnerLoopControlMode::default();
+
+        self.get_response_frame_with_code_only(frame_request)
+    }
+
+    /// Get the calibration data of the inner-loop controller (ILC).
+    ///
+    /// # Arguments
+    /// * `frame_request` - Request frame.
+    ///
+    /// # Returns
+    /// A response frame containing the calibration data and CRC checksum.
+    fn get_calibration_data(&self, frame_request: &[u8]) -> Vec<u8> {
+        let mut frame_response = vec![0; 100];
+        frame_response[0] = frame_request[0];
+        frame_response[1] = frame_request[1];
+
+        // Main calibration data
+        frame_response[2..50].copy_from_slice(&self._calibration_data.to_frame());
+
+        // Backup calibration data (same as main calibration data)
+        frame_response[50..98].copy_from_slice(&self._calibration_data.to_frame());
+
+        InnerLoopController::calculate_crc_and_update_frame(&self._crc, &mut frame_response);
+
+        frame_response
+    }
+
     /// Update the communication counter in the inner-loop controller (ILC)
     /// status.
     ///
@@ -266,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_request_error() {
-        let mut ilc = MockInnerLoopController::new();
+        let mut ilc = MockInnerLoopController::new(0);
 
         // Address 0 is invalid.
         let mut frame_request = [0, CODE_ILC_MODE, 0, 0, 0, 0];
@@ -287,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_get_mode() {
-        let mut ilc_mock = MockInnerLoopController::new();
+        let mut ilc_mock = MockInnerLoopController::new(0);
         let ilc = InnerLoopController::new();
 
         let address = 0;
@@ -320,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_set_mode() {
-        let mut ilc_mock = MockInnerLoopController::new();
+        let mut ilc_mock = MockInnerLoopController::new(0);
         let ilc = InnerLoopController::new();
 
         // To Disabled state.
@@ -397,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_get_ilc_data() {
-        let mut ilc = MockInnerLoopController::new();
+        let mut ilc = MockInnerLoopController::new(0);
         ilc.data.status = 0b1010_0000;
         ilc.data.encoder_count = 123456789;
         ilc.data.force = 123.456;
@@ -413,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_get_monitor_values() {
-        let mut ilc = MockInnerLoopController::new();
+        let mut ilc = MockInnerLoopController::new(0);
         ilc.monitor_values = vec![1.23, 4.56, 7.89];
 
         let frame_request = [0x01, CODE_MONITOR_SENSOR, 0, 0];
@@ -433,8 +614,142 @@ mod tests {
     }
 
     #[test]
+    fn test_get_server_id() {
+        let unique_id = 123456789;
+        let ilc = MockInnerLoopController::new(unique_id);
+
+        let frame_request = [0x01, CODE_REPORT_SERVER_ID, 0, 0];
+        let frame_response = ilc.get_server_id(&frame_request);
+
+        let server_identifier =
+            ServerIdentifier::from_frame(&frame_response[2..(frame_response.len() - 2)]).unwrap();
+
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+
+        assert_eq!(server_identifier, ilc._server_identifier);
+    }
+
+    #[test]
+    fn test_get_server_status() {
+        let ilc = MockInnerLoopController::new(0);
+
+        let frame_request = [0x01, CODE_REPORT_SERVER_STATUS, 0, 0];
+        let frame_response = ilc.get_server_status(&frame_request);
+
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+        assert_eq!(
+            frame_response[2],
+            InnerLoopController::get_mode_value(ilc.mode) as u8
+        );
+        assert_eq!(frame_response[3..7], [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_set_or_get_scan_rate() {
+        let mut ilc = MockInnerLoopController::new(0);
+
+        // Set a new scan rate.
+        let new_scan_rate = 3;
+        let frame_request = vec![0x01, CODE_SCAN_RATE, new_scan_rate, 0, 0];
+
+        let frame_response = ilc.set_or_get_scan_rate(&frame_request);
+
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+        assert_eq!(frame_response[2], new_scan_rate);
+
+        assert_eq!(ilc._scan_rate, new_scan_rate);
+
+        // Get the current scan rate.
+        let frame_request = vec![0x01, CODE_SCAN_RATE, 0xFF, 0, 0];
+        let frame_response_query = ilc.set_or_get_scan_rate(&frame_request);
+
+        assert_eq!(frame_response_query[2], new_scan_rate);
+    }
+
+    #[test]
+    fn test_set_offset_and_sensitivity() {
+        let mut ilc = MockInnerLoopController::new(0);
+
+        let channel = 2;
+        let offset: f32 = 1.23;
+        let sensitivity: f32 = 4.56;
+
+        let mut frame_request = vec![0; 13];
+        frame_request[0] = 0x01;
+        frame_request[1] = CODE_SET_OFFSET_AND_SENSITIVITY; // Function code
+        frame_request[2] = channel;
+        frame_request[3..7].copy_from_slice(&offset.to_be_bytes());
+        frame_request[7..11].copy_from_slice(&sensitivity.to_be_bytes());
+
+        let frame_response = ilc.set_offset_and_sensitivity(&frame_request);
+
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+
+        // Check if the offset and sensitivity were updated correctly.
+        assert_eq!(
+            ilc._calibration_data.offsets[(channel - 1) as usize],
+            offset
+        );
+        assert_eq!(
+            ilc._calibration_data.sensitivities[(channel - 1) as usize],
+            sensitivity
+        );
+    }
+
+    #[test]
+    fn test_get_response_frame_with_code_only() {
+        let ilc = MockInnerLoopController::new(0);
+
+        let frame_request = [0x01, CODE_RESET, 0, 0];
+        let frame_response = ilc.get_response_frame_with_code_only(&frame_request);
+
+        assert_eq!(frame_request.len(), 4);
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+    }
+
+    #[test]
+    fn test_reset() {
+        let mut ilc = MockInnerLoopController::new(0);
+
+        // Set the mode to something other than default.
+        ilc.mode = InnerLoopControlMode::Disabled;
+
+        let frame_request = [0x01, CODE_RESET, 0, 0];
+        let frame_response = ilc.reset(&frame_request);
+
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+
+        assert_eq!(ilc.mode, InnerLoopControlMode::default());
+    }
+
+    #[test]
+    fn test_get_calibration_data() {
+        let ilc = MockInnerLoopController::new(0);
+
+        let frame_request = [0x01, CODE_READ_CALIBRATION_DATA, 0, 0];
+        let frame_response = ilc.get_calibration_data(&frame_request);
+
+        assert_eq!(frame_response[0], frame_request[0]);
+        assert_eq!(frame_response[1], frame_request[1]);
+
+        // Check if the calibration data in the response matches the ILC's
+        // calibration data.
+        let calibration_data_main = CalibrationData::from_frame(&frame_response[2..50]).unwrap();
+        let calibration_data_backup = CalibrationData::from_frame(&frame_response[50..98]).unwrap();
+
+        assert_eq!(calibration_data_main, ilc._calibration_data);
+        assert_eq!(calibration_data_backup, ilc._calibration_data);
+    }
+
+    #[test]
     fn test_update_communication_counter() {
-        let mut ilc = MockInnerLoopController::new();
+        let mut ilc = MockInnerLoopController::new(0);
 
         ilc.update_communication_counter(1);
         assert_eq!(ilc.data.status, 0b0001_0000);
@@ -445,7 +760,7 @@ mod tests {
 
     #[test]
     fn test_update_encoder_and_force() {
-        let mut ilc = MockInnerLoopController::new();
+        let mut ilc = MockInnerLoopController::new(0);
 
         let encoder_count = 123456789;
         let force = 123.456;

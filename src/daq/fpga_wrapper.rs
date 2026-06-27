@@ -91,6 +91,7 @@ impl FpgaWrapper {
             "indicatorErrorOut",
             "indicatorBytesAtPort",
             "indicatorReceivedAddress",
+            "indicatorReceivedFunctionCode",
             "fifoDaq",
             "fifoInbound",
             "fifoOutbound",
@@ -116,6 +117,7 @@ impl FpgaWrapper {
             "NiFpga_portSerialMasterSlave_IndicatorCluster_errorout_Resource",
             "NiFpga_portSerialMasterSlave_IndicatorU8_BytesatPort",
             "NiFpga_portSerialMasterSlave_IndicatorU8_Receivedaddress",
+            "NiFpga_portSerialMasterSlave_IndicatorU8_Functioncode",
             "NiFpga_portSerialMasterSlave_TargetToHostFifoFxp_DAQ_FIFO_Resource",
             "NiFpga_portSerialMasterSlave_TargetToHostFifoU8_Inbound_FIFO",
             "NiFpga_portSerialMasterSlave_HostToTargetFifoU8_Outbound_FIFO",
@@ -1721,7 +1723,7 @@ mod tests {
     fn test_new() {
         let fpga_wrapper = create_fpga_wrapper();
 
-        assert_eq!(fpga_wrapper.registers.len(), 23);
+        assert_eq!(fpga_wrapper.registers.len(), 24);
     }
 
     #[test]

@@ -25,6 +25,8 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::constants::{NUM_TEMPERATURE_EXHAUST, NUM_TEMPERATURE_INTAKE};
+use crate::daq::calibration_data::CalibrationData;
+use crate::daq::server_identifier::ServerIdentifier;
 use crate::enums::{
     ClosedLoopControlMode, DataAcquisitionMode, InclinationTelemetrySource, InnerLoopControlMode,
     PowerSystemState, PowerType,
@@ -221,8 +223,6 @@ impl Event {
     /// # Returns
     /// The message of the configuration.
     pub fn get_message_config(config_control_loop: &Config, config_power: &ConfigPower) -> Value {
-        // TODO: Some of these values are hardcoded temporarily. They should be
-        // read from the configuration file.
         let control_parameters_file = Path::new(&config_control_loop.filename);
 
         let mut control_parameters = String::new();
@@ -239,6 +239,8 @@ impl Event {
             }
         }
 
+        let timeout = 1.0 / config_control_loop.control_frequency;
+
         json!({
             "id": "config",
             "configuration": Self::get_config_dir(control_parameters_file),
@@ -254,9 +256,9 @@ impl Event {
             "inPositionAxial": get_parameter::<f64>(control_parameters_file, "in_position_threshold_axial"),
             "inPositionTangent": get_parameter::<f64>(control_parameters_file, "in_position_threshold_tangent"),
             "inPositionSample": get_parameter::<f64>(control_parameters_file, "in_position_window_size"),
-            "timeoutSal": 15.0,
-            "timeoutCrio": 1.0,
-            "timeoutIlc": 3,
+            "timeoutSal": timeout,
+            "timeoutCrio": timeout,
+            "timeoutIlc": get_parameter::<i32>(Path::new("config/parameters_daq.yaml"), "ilc_stale_data_limit"),
             "inclinometerDelta": config_control_loop.max_angle_difference,
             "inclinometerDiffEnabled": config_control_loop.enable_angle_comparison,
             "cellTemperatureDelta": config_control_loop.max_cell_temperature_difference,
@@ -432,6 +434,98 @@ impl Event {
         json!({
             "id": "configurationFiles",
             "files": files,
+        })
+    }
+
+    /// Get the message of the server identifier.
+    ///
+    /// # Arguments
+    /// * `address` - 0-based address.
+    /// * `server_identifier` - Server identifier.
+    ///
+    /// # Returns
+    /// The message of the server identifier.
+    pub fn get_message_server_identifier(
+        address: u8,
+        server_identifier: &ServerIdentifier,
+    ) -> Value {
+        json!({
+            "id": "serverIdentifier",
+            "address": address,
+            "uniqueId": server_identifier.unique_id,
+            "applicationType": server_identifier.application_type,
+            "networkNodeType": server_identifier.network_node_type,
+            "selectedOptions": server_identifier.selected_options,
+            "networkNodeOptions": server_identifier.network_node_options,
+            "firmwareRevision": server_identifier.firmware_revision,
+            "firmwareName": server_identifier.firmware_name,
+        })
+    }
+
+    /// Get the message of the server status.
+    ///
+    /// # Arguments
+    /// * `address` - 0-based address.
+    /// * `mode` - Inner loop control mode.
+    /// * `status` - Server status.
+    /// * `faults` - Server faults.
+    ///
+    /// # Returns
+    /// The message of the server status.
+    pub fn get_message_server_status(
+        address: u8,
+        mode: InnerLoopControlMode,
+        status: u16,
+        faults: u16,
+    ) -> Value {
+        json!({
+            "id": "serverStatus",
+            "address": address,
+            "mode": mode as u8,
+            "status": status,
+            "faults": faults,
+        })
+    }
+
+    /// Get the message of the scan rate.
+    ///
+    /// # Arguments
+    /// * `address` - 0-based address.
+    /// * `rate` - Scan rate.
+    ///
+    /// # Returns
+    /// The message of the scan rate.
+    pub fn get_message_scan_rate(address: u8, rate: u8) -> Value {
+        json!({
+            "id": "scanRate",
+            "address": address,
+            "rate": rate,
+        })
+    }
+
+    /// Get the message of the calibration data.
+    ///
+    /// # Arguments
+    /// * `address` - 0-based address.
+    /// * `calibration_data_main` - Main calibration data.
+    /// * `calibration_data_backup` - Backup calibration data.
+    ///
+    /// # Returns
+    /// The message of the calibration data.
+    pub fn get_message_calibration_data(
+        address: u8,
+        calibration_data_main: &CalibrationData,
+        calibration_data_backup: &CalibrationData,
+    ) -> Value {
+        json!({
+            "id": "calibrationData",
+            "address": address,
+            "mainGains": calibration_data_main.gains,
+            "mainOffsets": calibration_data_main.offsets,
+            "mainSensitivities": calibration_data_main.sensitivities,
+            "backupGains": calibration_data_backup.gains,
+            "backupOffsets": calibration_data_backup.offsets,
+            "backupSensitivities": calibration_data_backup.sensitivities,
         })
     }
 }
@@ -611,9 +705,9 @@ mod tests {
             "inPositionAxial": 1.5,
             "inPositionTangent": 10.0,
             "inPositionSample": 1.0,
-            "timeoutSal": 15.0,
-            "timeoutCrio": 1.0,
-            "timeoutIlc": 3,
+            "timeoutSal": 0.05,
+            "timeoutCrio": 0.05,
+            "timeoutIlc": 10,
             "inclinometerDelta": 2.0,
             "inclinometerDiffEnabled": false,
             "cellTemperatureDelta": 2.0,
@@ -734,5 +828,92 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(files.contains(&json!("handling")));
         assert!(files.contains(&json!("optical")));
+    }
+
+    #[test]
+    fn test_get_message_server_identifier() {
+        let server_identifier = ServerIdentifier {
+            unique_id: 123456789,
+            application_type: 1,
+            network_node_type: 2,
+            selected_options: 3,
+            network_node_options: 4,
+            firmware_revision: String::from("1.3"),
+            firmware_name: String::from("TestFirmware"),
+        };
+
+        assert_eq!(
+            Event::get_message_server_identifier(1, &server_identifier),
+            json!({
+                "id": "serverIdentifier",
+                "address": 1,
+                "uniqueId": 123456789,
+                "applicationType": 1,
+                "networkNodeType": 2,
+                "selectedOptions": 3,
+                "networkNodeOptions": 4,
+                "firmwareRevision": "1.3",
+                "firmwareName": "TestFirmware",
+            })
+        );
+    }
+
+    #[test]
+    fn test_get_message_server_status() {
+        assert_eq!(
+            Event::get_message_server_status(1, InnerLoopControlMode::Enabled, 0x1234, 0x5678),
+            json!({
+                "id": "serverStatus",
+                "address": 1,
+                "mode": InnerLoopControlMode::Enabled as u8,
+                "status": 0x1234,
+                "faults": 0x5678,
+            })
+        );
+    }
+
+    #[test]
+    fn test_get_message_scan_rate() {
+        assert_eq!(
+            Event::get_message_scan_rate(1, 10),
+            json!({
+                "id": "scanRate",
+                "address": 1,
+                "rate": 10,
+            })
+        );
+    }
+
+    #[test]
+    fn test_get_message_calibration_data() {
+        let calibration_data_main = CalibrationData {
+            gains: [1.0, 2.0, 3.0, 4.0],
+            offsets: [5.0, 6.0, 7.0, 8.0],
+            sensitivities: [9.0, 10.0, 11.0, 12.0],
+        };
+
+        let calibration_data_backup = CalibrationData {
+            gains: [13.0, 14.0, 15.0, 16.0],
+            offsets: [17.0, 18.0, 19.0, 20.0],
+            sensitivities: [21.0, 22.0, 23.0, 24.0],
+        };
+
+        assert_eq!(
+            Event::get_message_calibration_data(
+                1,
+                &calibration_data_main,
+                &calibration_data_backup
+            ),
+            json!({
+                "id": "calibrationData",
+                "address": 1,
+                "mainGains": calibration_data_main.gains,
+                "mainOffsets": calibration_data_main.offsets,
+                "mainSensitivities": calibration_data_main.sensitivities,
+                "backupGains": calibration_data_backup.gains,
+                "backupOffsets": calibration_data_backup.offsets,
+                "backupSensitivities": calibration_data_backup.sensitivities,
+            })
+        );
     }
 }

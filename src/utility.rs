@@ -239,6 +239,35 @@ pub fn get_system_time_ms() -> u64 {
     }
 }
 
+/// Get the floating-point values from a byte array. The byte array is
+/// expected to contain `N` consecutive 4-byte big-endian floating-point
+/// values.
+///
+/// # Arguments
+/// * `frame` - The byte array containing the floating-point values.
+///
+/// # Returns
+/// An array of `N` floating-point numbers extracted from the byte array.
+/// Returns `None` if the length of the byte array does not match the
+/// expected length of `N * 4` bytes.
+pub fn get_f32_values_from_u8_array<const N: usize>(frame: &[u8]) -> Option<[f32; N]> {
+    if frame.len() != N * 4 {
+        return None;
+    }
+
+    let mut values = [0.0; N];
+    for index in 0..N {
+        values[index] = f32::from_be_bytes([
+            frame[index * 4],
+            frame[index * 4 + 1],
+            frame[index * 4 + 2],
+            frame[index * 4 + 3],
+        ]);
+    }
+
+    Some(values)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +415,11 @@ mod tests {
     #[test]
     fn test_get_system_time_ms() {
         assert!(get_system_time_ms() > 0);
+    }
+
+    #[test]
+    fn test_get_f32_values_from_u8_array() {
+        let frame: [u8; 8] = [0x3f, 0x80, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00];
+        assert_eq!(get_f32_values_from_u8_array::<2>(&frame), Some([1.0, 2.0]));
     }
 }

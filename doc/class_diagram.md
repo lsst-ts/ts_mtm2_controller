@@ -146,6 +146,10 @@ DataAcquisition *-- InnerLoopController
 DataAcquisition *-- TelemetryControlLoop
 DataAcquisition ..> Event
 DataAcquisition ..> TelemetryPower
+DataAcquisition ..> CalibrationData
+DataAcquisition ..> ServerIdentifier
+
+InnerLoopController ..> CalibrationData
 ```
 
 ## Power
@@ -289,8 +293,15 @@ namespace main {
   class Config
 }
 
+namespace daq {
+  class CalibrationData
+  class ServerIdentifier
+}
+
 Event ..> Config
 Event ..> ConfigPower
+Event ..> CalibrationData
+Event ..> ServerIdentifier
 
 TelemetryDefault <|-- TelemetryPower
 TelemetryDefault <|-- TelemetryControlLoop
@@ -345,6 +356,8 @@ classDiagram
 
 namespace daq {
   class InnerLoopController
+  class ServerIdentifier
+  class CalibrationData
 }
 
 namespace power {
@@ -356,4 +369,6 @@ MockPlant "1" *-- "2" MockPowerSystem
 MockPlant "1" *-- "84" MockInnerLoopController
 
 MockInnerLoopController ..> InnerLoopController
+MockInnerLoopController *-- ServerIdentifier
+MockInnerLoopController *-- CalibrationData
 ```

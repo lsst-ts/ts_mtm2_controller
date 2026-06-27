@@ -42,7 +42,6 @@ use crate::mock::mock_power_system::MockPowerSystem;
 use crate::power::config_power::ConfigPower;
 use ts_control_utils::{enums::BitEnum, utility::get_parameter};
 
-#[derive(Clone)]
 pub struct MockPlant {
     _static_transfer_matrix: SMatrix<f64, NUM_ACTUATOR, NUM_ACTUATOR>,
     // Current positions of the actuator in steps referenced to the home
@@ -126,6 +125,14 @@ impl MockPlant {
             config_power.get_time_breaker_off(PowerType::Motor),
         );
 
+        const RANDOM_START_VALUE: u64 = 1000;
+        let mut ilcs = Vec::with_capacity(NUM_INNER_LOOP_CONTROLLER);
+        for idx in 0..NUM_INNER_LOOP_CONTROLLER {
+            ilcs.push(MockInnerLoopController::new(
+                RANDOM_START_VALUE + (idx as u64),
+            ));
+        }
+
         Self {
             _static_transfer_matrix: matrix,
 
@@ -149,7 +156,7 @@ impl MockPlant {
             power_system_communication,
             power_system_motor,
 
-            _ilcs: vec![MockInnerLoopController::new(); NUM_INNER_LOOP_CONTROLLER],
+            _ilcs: ilcs,
 
             digital_output: 0,
         }
@@ -1027,10 +1034,17 @@ mod tests {
     fn test_get_ilc_payload() {
         let mock_plant = create_mock_plant();
 
+        // Has the payload
         let frame_response = [1, 2, 3, 4, 5];
         let payload = mock_plant.get_ilc_payload(&frame_response);
 
         assert_eq!(payload, vec![3]);
+
+        // No payload
+        let frame_response = [1, 2, 3, 4];
+        let payload = mock_plant.get_ilc_payload(&frame_response);
+
+        assert_eq!(payload.len(), 0);
     }
 
     #[test]

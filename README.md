@@ -205,6 +205,13 @@ For the monitor ILC, you might get the `inf` value when just starting up the ILC
 We always have this for the temperature ILCs.
 Sometime, the displacement ILC gives the `inf` value as well.
 
+## ILC Communication Protocol
+
+The ILC communication protocol is defined in:
+
+1. LSST-ILC Firmware: MODBUS Protocol Interface Control Document for M2 Support System
+2. LTS-346, ILC Communications Protocol For M2 Support System.
+
 ## Realtime Thread Support
 
 The data acquisition process is designed to support the realtime thread because:

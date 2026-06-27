@@ -65,6 +65,16 @@ timeout_irq: 50
 # Timeout to get the next character from the ILC in microseconds.
 timeout_get_next_character: 60
 
+# Payload number of bytes to report the server ID. This does not contain the
+# bytes of CRC. Note we use a big enough value here to get the full server
+# name string, which is a variable-length string. The FPGA code will timeout
+# and return the actual number of bytes received from the ILC.
+payload_byte_report_server_id: 115
+
+# Payload number of bytes to report the server status. This does not contain
+# the bytes of CRC.
+payload_byte_report_server_status: 7
+
 # Payload number of bytes to set/get the ILC mode. This does not contain the
 # bytes of cyclic redundancy check (CRC).
 payload_byte_ilc_mode: 4
@@ -72,6 +82,10 @@ payload_byte_ilc_mode: 4
 # Payload number of bytes to get the force and status. This does not contain
 # the bytes of CRC.
 payload_byte_get_force_and_status: 11
+
+# Payload number of bytes to set the offset and sensitivity. This does not
+# contain the bytes of CRC.
+payload_byte_set_offset_and_sensitivity: 2
 
 # Payload number of bytes to get the temperature values. This does not contain
 # the bytes of CRC.
@@ -85,6 +99,26 @@ payload_byte_get_displacement: 50
 # the bytes of CRC.
 payload_byte_get_inclinometer: 6
 
+# Payload number of bytes to reset the ILC. This does not contain the bytes of
+# CRC.
+payload_byte_reset: 2
+
+# Payload number of bytes to set/get the scan rate. This does not contain the
+# bytes of CRC.
+payload_byte_scan_rate: 3
+
+# Payload number of bytes to read the calibration data. This does not contain
+# the bytes of CRC.
+payload_byte_read_calibration_data: 98
+
+# Latency to report the server ID in microseconds to wait for the first
+# character from the response of ILC.
+latency_report_server_id: 300
+
+# Latency to report the server status in microseconds to wait for the first
+# character from the response of ILC.
+latency_report_server_status: 200
+
 # Latency to set/get the ILC mode in microseconds to wait for the first
 # character from the response of ILC.
 latency_ilc_mode: 320
@@ -92,6 +126,10 @@ latency_ilc_mode: 320
 # Latency to get the force and status in microseconds to wait for the first
 # character from the response of ILC.
 latency_get_force_and_status: 150
+
+# Latency to set the offset and sensitivity in microseconds to wait for the
+# first character from the response of ILC.
+latency_set_offset_and_sensitivity: 37000
 
 # Latency to get the temperature values in microseconds to wait for the first
 # character from the response of ILC.
@@ -104,3 +142,15 @@ latency_get_displacement: 800
 # Latency to get the inclinometer value in microseconds to wait for the first
 # character from the response of ILC.
 latency_get_inclinometer: 200
+
+# Latency to reset the ILC in microseconds to wait for the first character from
+# the response of ILC.
+latency_reset: 110000
+
+# Latency to set/get the scan rate in microseconds to wait for the first
+# character from the response of ILC.
+latency_scan_rate: 200
+
+# Latency to read the calibration data in microseconds to wait for the first
+# character from the response of ILC.
+latency_read_calibration_data: 450
