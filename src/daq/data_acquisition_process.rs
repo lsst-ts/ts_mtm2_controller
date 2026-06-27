@@ -31,8 +31,11 @@ use std::time::{Duration, Instant};
 
 use crate::command::{
     command_data_acquisition::{
-        CommandGetInnerLoopControlMode, CommandMoveActuatorSteps, CommandSetDataAcquisitionMode,
-        CommandSetInnerLoopControlMode, CommandSwitchDigitalOutput,
+        CommandGetInnerLoopControlMode, CommandGetScanRate, CommandMoveActuatorSteps,
+        CommandReadCalibrationData, CommandReportServerId, CommandReportServerStatus,
+        CommandResetInnerLoopController, CommandSetDataAcquisitionMode,
+        CommandSetInnerLoopControlMode, CommandSetOffsetAndSensitivity, CommandSetScanRate,
+        CommandSwitchDigitalOutput,
     },
     command_schema::{Command, CommandSchema},
 };
@@ -139,6 +142,13 @@ impl DataAcquisitionProcess {
         command_schema.add_command(Box::new(CommandSwitchDigitalOutput));
         command_schema.add_command(Box::new(CommandMoveActuatorSteps));
         command_schema.add_command(Box::new(CommandSetDataAcquisitionMode));
+        command_schema.add_command(Box::new(CommandReportServerId));
+        command_schema.add_command(Box::new(CommandReportServerStatus));
+        command_schema.add_command(Box::new(CommandReadCalibrationData));
+        command_schema.add_command(Box::new(CommandResetInnerLoopController));
+        command_schema.add_command(Box::new(CommandGetScanRate));
+        command_schema.add_command(Box::new(CommandSetScanRate));
+        command_schema.add_command(Box::new(CommandSetOffsetAndSensitivity));
 
         command_schema
     }
@@ -357,7 +367,10 @@ mod tests {
     fn test_new() {
         let control_loop_process = create_data_acquisition_process().0;
 
-        assert_eq!(control_loop_process._command_schema.number_of_commands(), 5);
+        assert_eq!(
+            control_loop_process._command_schema.number_of_commands(),
+            12
+        );
     }
 
     #[test]
