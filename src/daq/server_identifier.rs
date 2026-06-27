@@ -61,6 +61,10 @@ impl ServerIdentifier {
     /// * `Option<ServerIdentifier>` - Some(ServerIdentifier) if the frame
     ///   contains valid data, None otherwise.
     pub fn from_frame(frame: &[u8]) -> Option<ServerIdentifier> {
+        if frame.is_empty() {
+            return None;
+        }
+
         let name_bytes = frame[0] as usize;
         if (frame.len() < 13) || (frame.len() != (13 + name_bytes)) {
             return None;
@@ -142,6 +146,7 @@ mod tests {
         assert_eq!(server_id.firmware_name, "test");
 
         // Invalid frame length
+        assert!(ServerIdentifier::from_frame(&[]).is_none());
         assert!(ServerIdentifier::from_frame(&[0x0F]).is_none());
         assert!(ServerIdentifier::from_frame(&frame[0..(frame.len() - 1)]).is_none());
     }
