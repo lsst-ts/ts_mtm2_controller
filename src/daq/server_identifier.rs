@@ -52,10 +52,10 @@ impl ServerIdentifier {
     ///
     /// # Arguments
     /// * `frame` - The received frame containing the server identifier data.
-    ///   The first element is the length of the firmware name, followed by the
-    ///   unique ID, application type, network node type, selected options,
-    ///   network node options, firmware revision (major.minor), and firmware
-    ///   name.
+    ///   The first element is the total bytes without the byte count and CRC,
+    ///   followed by the unique ID, application type, network node type,
+    ///   selected options, network node options, firmware revision (
+    ///   major.minor), and firmware name.
     ///
     /// # Returns
     /// * `Option<ServerIdentifier>` - Some(ServerIdentifier) if the frame
@@ -65,10 +65,15 @@ impl ServerIdentifier {
             return None;
         }
 
-        let name_bytes = frame[0] as usize;
-        if (frame.len() < 13) || (frame.len() != (13 + name_bytes)) {
+        // 13 is the minimum payload and 1 here is the bytes of byte count.
+        let bytes_without_byte_count_and_crc = frame[0] as usize;
+        if (frame.len() < 13) || (frame.len() < (bytes_without_byte_count_and_crc + 1)) {
             return None;
         }
+
+        // Trim the firmware name.
+        let name = String::from_utf8_lossy(&frame[13..(bytes_without_byte_count_and_crc + 1)]);
+        let name_trim_end = name.trim_end();
 
         Some(Self {
             unique_id: u64::from_be_bytes([
@@ -79,7 +84,7 @@ impl ServerIdentifier {
             selected_options: frame[9],
             network_node_options: frame[10],
             firmware_revision: format!("{}.{}", frame[11], frame[12]),
-            firmware_name: String::from_utf8_lossy(&frame[13..]).to_string(),
+            firmware_name: name_trim_end.to_string(),
         })
     }
 
@@ -87,14 +92,15 @@ impl ServerIdentifier {
     ///
     /// Returns
     /// A byte array representing the server identifier data. The first element
-    /// is the length of the firmware name, followed by the unique ID,
-    /// application type, network node type, selected options, network node
-    /// options, firmware revision (major.minor), and firmware name.
+    /// is the total bytes without the byte count and CRC, followed by the
+    /// unique ID, application type, network node type, selected options,
+    /// network node options, firmware revision (major.minor), and firmware
+    /// name.
     pub fn to_frame(&self) -> Vec<u8> {
         let name_bytes = self.firmware_name.len();
         let mut frame = vec![0; 13 + name_bytes];
 
-        frame[0] = name_bytes as u8;
+        frame[0] = frame.len() as u8 - 1;
 
         // For the unique_id, we only use the last 6 bytes (48 bits) to fit
         // into the frame.
@@ -129,26 +135,87 @@ mod tests {
 
     #[test]
     fn test_from_frame() {
+        // Test data
         // Valid frame with server identifier data
-        let frame = [
-            0x04, 0x12, 0x34, 0x56, 0x78, 0x90, 0xF1, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, b't',
+        let frame_test = [
+            0x10, 0x12, 0x34, 0x56, 0x78, 0x90, 0xF1, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, b't',
             b'e', b's', b't',
         ];
 
-        let server_id = ServerIdentifier::from_frame(&frame).unwrap();
+        let server_id_test = ServerIdentifier::from_frame(&frame_test).unwrap();
 
-        assert_eq!(server_id.unique_id, 0x1234567890F1);
-        assert_eq!(server_id.application_type, 0x01);
-        assert_eq!(server_id.network_node_type, 0x02);
-        assert_eq!(server_id.selected_options, 0x03);
-        assert_eq!(server_id.network_node_options, 0x04);
-        assert_eq!(server_id.firmware_revision, "5.6");
-        assert_eq!(server_id.firmware_name, "test");
+        assert_eq!(server_id_test.unique_id, 0x1234567890F1);
+        assert_eq!(server_id_test.application_type, 0x01);
+        assert_eq!(server_id_test.network_node_type, 0x02);
+        assert_eq!(server_id_test.selected_options, 0x03);
+        assert_eq!(server_id_test.network_node_options, 0x04);
+        assert_eq!(server_id_test.firmware_revision, "5.6");
+        assert_eq!(server_id_test.firmware_name, "test");
 
         // Invalid frame length
         assert!(ServerIdentifier::from_frame(&[]).is_none());
         assert!(ServerIdentifier::from_frame(&[0x0F]).is_none());
-        assert!(ServerIdentifier::from_frame(&frame[0..(frame.len() - 1)]).is_none());
+        assert!(ServerIdentifier::from_frame(&frame_test[0..(frame_test.len() - 1)]).is_none());
+
+        // Real data (ILC 0)
+        let frame_ilc_0 = [
+            53, 0, 0, 23, 133, 83, 133, 1, 1, 1, 1, 7, 1, 69, 108, 101, 99, 116, 114, 111, 109,
+            101, 99, 104, 97, 110, 105, 99, 97, 108, 32, 73, 76, 67, 32, 40, 99, 41, 50, 48, 49,
+            55, 32, 65, 85, 82, 65, 45, 76, 83, 83, 84, 32, 32, 17, 204,
+        ];
+
+        let server_id_ilc_0 = ServerIdentifier::from_frame(&frame_ilc_0).unwrap();
+
+        assert_eq!(server_id_ilc_0.unique_id, 0x17855385);
+        assert_eq!(server_id_ilc_0.application_type, 0x01);
+        assert_eq!(server_id_ilc_0.network_node_type, 0x01);
+        assert_eq!(server_id_ilc_0.selected_options, 0x01);
+        assert_eq!(server_id_ilc_0.network_node_options, 0x01);
+        assert_eq!(server_id_ilc_0.firmware_revision, "7.1");
+        assert_eq!(
+            server_id_ilc_0.firmware_name,
+            "Electromechanical ILC (c)2017 AURA-LSST"
+        );
+
+        // Real data (ILC 78)
+        let frame_ilc_78 = [
+            56, 0, 0, 23, 132, 188, 248, 4, 4, 0, 0, 10, 0, 84, 101, 109, 112, 101, 114, 97, 116,
+            117, 114, 101, 32, 77, 111, 110, 105, 116, 111, 114, 105, 110, 103, 32, 73, 76, 67, 32,
+            40, 99, 41, 50, 48, 50, 52, 32, 65, 85, 82, 65, 45, 76, 83, 83, 84, 192, 106,
+        ];
+
+        let server_id_ilc_78 = ServerIdentifier::from_frame(&frame_ilc_78).unwrap();
+
+        assert_eq!(server_id_ilc_78.unique_id, 0x1784bcf8);
+        assert_eq!(server_id_ilc_78.application_type, 0x04);
+        assert_eq!(server_id_ilc_78.network_node_type, 0x04);
+        assert_eq!(server_id_ilc_78.selected_options, 0x0);
+        assert_eq!(server_id_ilc_78.network_node_options, 0x0);
+        assert_eq!(server_id_ilc_78.firmware_revision, "10.0");
+        assert_eq!(
+            server_id_ilc_78.firmware_name,
+            "Temperature Monitoring ILC (c)2024 AURA-LSST"
+        );
+
+        // Real data (ILC 83)
+        let frame_ilc_83 = [
+            57, 0, 0, 23, 132, 192, 79, 6, 6, 0, 0, 10, 0, 73, 110, 99, 108, 105, 110, 111, 109,
+            101, 116, 101, 114, 32, 77, 111, 110, 105, 116, 111, 114, 105, 110, 103, 32, 73, 76,
+            67, 32, 40, 99, 41, 50, 48, 50, 52, 32, 65, 85, 82, 65, 45, 76, 83, 83, 84, 187, 76,
+        ];
+
+        let server_id_ilc_83 = ServerIdentifier::from_frame(&frame_ilc_83).unwrap();
+
+        assert_eq!(server_id_ilc_83.unique_id, 0x1784c04f);
+        assert_eq!(server_id_ilc_83.application_type, 0x06);
+        assert_eq!(server_id_ilc_83.network_node_type, 0x06);
+        assert_eq!(server_id_ilc_83.selected_options, 0x0);
+        assert_eq!(server_id_ilc_83.network_node_options, 0x0);
+        assert_eq!(server_id_ilc_83.firmware_revision, "10.0");
+        assert_eq!(
+            server_id_ilc_83.firmware_name,
+            "Inclinometer Monitoring ILC (c)2024 AURA-LSST"
+        );
     }
 
     #[test]
