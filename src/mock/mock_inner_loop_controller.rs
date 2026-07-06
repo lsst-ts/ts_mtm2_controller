@@ -73,6 +73,11 @@ impl MockInnerLoopController {
     /// # Returns
     /// A new model with a random number.
     pub fn new(unique_id: u64) -> Self {
+        // For the current ILC on M2, only the second channel has a non-zero
+        // gain.
+        let mut gains = [0.0; NUM_ILC_CHANNEL];
+        gains[1] = MOCK_ILC_GAIN;
+
         Self {
             _crc: Crc::<u16>::new(&CRC_16_MODBUS),
 
@@ -95,7 +100,7 @@ impl MockInnerLoopController {
             },
             _scan_rate: MOCK_ILC_SCAN_RATE,
             _calibration_data: CalibrationData {
-                gains: [MOCK_ILC_GAIN; NUM_ILC_CHANNEL],
+                gains,
                 offsets: [MOCK_ILC_OFFSET; NUM_ILC_CHANNEL],
                 sensitivities: [MOCK_ILC_SENSITIVITY; NUM_ILC_CHANNEL],
             },
