@@ -226,7 +226,7 @@ impl Command for CommandGetScanRate {
         let system = data_acquisition?;
 
         let address = message["address"].as_u64()? as u8;
-        system.set_or_get_scan_rate(address, None, false)?;
+        system.set_or_get_scan_rate(address, None)?;
 
         Some(())
     }
@@ -251,7 +251,7 @@ impl Command for CommandSetScanRate {
 
         let address = message["address"].as_u64()? as u8;
         let rate = message["rate"].as_u64()? as u8;
-        system.set_or_get_scan_rate(address, Some(rate), false)?;
+        system.set_or_get_scan_rate(address, Some(rate))?;
 
         Some(())
     }
@@ -526,7 +526,7 @@ mod tests {
                 None,
                 None
             )
-            .is_none());
+            .is_some());
     }
 
     #[test]
@@ -545,7 +545,7 @@ mod tests {
                 None,
                 None
             )
-            .is_none());
+            .is_some());
     }
 
     #[test]
