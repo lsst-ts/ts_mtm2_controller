@@ -49,10 +49,10 @@ pub struct TelemetryControlLoop {
     pub ilc_encoders: Vec<i32>,
     // Data of the displacement sensors in micron.
     pub displacement_sensors: HashMap<String, Vec<f64>>,
-    // Mirror position based on the hardpoints in um and arcsrc.
+    // Mirror position based on the hardpoints in um and arcsec.
     pub mirror_position: HashMap<String, f64>,
     // Mirror position based on the independent measurement system (IMS) in um
-    // and arcsrc.
+    // and arcsec.
     pub mirror_position_ims: HashMap<String, f64>,
     // Net total force in Newton.
     pub net_total_forces: HashMap<String, f64>,
