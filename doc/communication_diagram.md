@@ -14,6 +14,7 @@ The **PowerSystemProcess** and **ControlLoopProcess** can send the commands to t
 The [CommandTelemetryServer](../src/interface/command_telemetry_server.rs) runs the [CommandServer](../src/interface/command_server.rs) and [TelemetryServer](../src/interface/telemetry_server.rs) as the TCP/IP servers.
 The **CommandTelemetryServer** runs a monitor loop to check the connection status and feedbacks to the **Model**.
 The exchanged data is the [Value](https://docs.rs/serde_json/latest/serde_json/value/index.html) or [Telemetry](../src/telemetry/telemetry.rs).
+If the [TelemetryFileProcess](../src/telemetry/telemetry_file_process.rs) is running, the **Model** sends the [TelemetryFile](../src/telemetry/telemetry_file.rs) to log the telemetry locally.
 For each [Sender](https://doc.rust-lang.org/std/sync/mpsc/struct.Sender.html), there is a related [Receiver](https://doc.rust-lang.org/std/sync/mpsc/struct.Receiver.html) in the class or module.
 
 Since the Mermaid does not support the communication diagram yet, we use the class diagram to mimic the data flow with the association relationship.
@@ -28,6 +29,7 @@ class Model {
     _receivers_from_tcp
     _sender_to_model
     _receiver_to_model
+    _sender_to_telemetry_file_process
     Controller: sender_to_power_system
     Controller: sender_to_control_loop
     Controller: sender_to_daq
@@ -76,11 +78,17 @@ class TelemetryServer {
     sender_from_tcp
 }
 
+class TelemetryFileProcess {
+    _sender_to_telemetry_file_process
+    _receiver_to_telemetry_file_process
+}
+
 Model --> PowerSystemProcess : Value
 Model --> ControlLoopProcess : Value
 Model --> CommandServer : Value
 Model --> TelemetryServer : Value
 Model --> DataAcquisitionProcess : Value
+Model --> TelemetryFileProcess : TelemetryFile
 
 PowerSystemProcess --> Model : Telemetry
 PowerSystemProcess --> DataAcquisitionProcess : Value
@@ -108,3 +116,4 @@ For the telemetry, the **DataAcquisitionProcess** sends the raw **TelemetryPower
 The **PowerSystemProcess** sends the processed **Telemetry** to **Model** to publish the data.
 The **DataAcquisitionProcess** also sends the raw inner-loop-controller (ILC) **TelemetryControlLoop** to **ControlLoopProcess** to do the processing.
 The **ControlLoopProcess** sends the processed **Telemetry** to **Model** to publish the data.
+If the **TelemetryFileProcess** is running, the **Model** sends the reorganized **TelemetryFile** to do the local logging.
