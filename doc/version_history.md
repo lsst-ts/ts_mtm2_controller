@@ -1,5 +1,18 @@
 # Version History
 
+0.5.7
+
+- Update the dependencies.
+- Add the dependencies of `rmp-serde` and `file-rotate`.
+- Add the telemetry logging related parameters to `parameters_app.yaml`.
+- Fix the typo in `telemetry_control_loop.rs`.
+- Add the **TelemetryFile** and **TelemetryFileProcess**.
+- Add the `Model.run_telemetry_file_process()`.
+- Add the `telemetry_file.py` to deserialize the telemetry binary data.
+- Update the `class_diagram.md` and `communication_diagram.md`.
+- Update the `README.md`.
+- Update the `.gitignore` to ignore the Python related items.
+
 0.5.6
 
 - Update the **MOCK_ILC_SCAN_RATE** in `mock_constants.rs`.
