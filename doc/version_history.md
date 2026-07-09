@@ -1,5 +1,14 @@
 # Version History
 
+0.5.6
+
+- Update the **MOCK_ILC_SCAN_RATE** in `mock_constants.rs`.
+- Fix the `DataAcquisition.set_or_get_scan_rate()` for the simulation mode.
+- Add the latency to `timeout_irq` in `DataAcquisition.reset_ilc()` and `DataAcquisition.set_offset_and_sensitivity()`.
+- Fix the `ServerIdentifier.from_frame()` and `ServerIdentifier.to_frame()`.
+- Do not check the ModBus timeout error when reading the server ID in `FpgaWrapper.read_ilc_frame()`.
+- Update the gains in `MockInnerLoopController.new()`.
+
 0.5.5
 
 - Add the new ILC command codes to `constants.rs`.

@@ -28,7 +28,7 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::constants::{BROADCAST_ADDRESS, IRQ_NUMBER_ILC, NUMBER_ILC_PORT};
+use crate::constants::{BROADCAST_ADDRESS, CODE_REPORT_SERVER_ID, IRQ_NUMBER_ILC, NUMBER_ILC_PORT};
 use crate::enums::{
     CustomFpgaModbusError, DigitalOutput, DigitalOutputStatus, IlcCommand, ModbusMode,
 };
@@ -1442,9 +1442,20 @@ impl FpgaWrapper {
         // Read all the elements in the Inbound FIFO
         let number = self.read_fifo_elements_inbound(0, 0)?.1;
         let response = self.read_fifo_elements_inbound(number, timeout)?.0;
+        let received_function_code = self.read_control_value_u8("indicatorReceivedFunctionCode")?;
+        debug!(
+            "Read {} bytes from the ILC. The received function code is: {}. The response is: {:?}.",
+            response.len(),
+            received_function_code,
+            response,
+        );
 
-        // Check if any Modbus error is indicated by the FPGA.
-        if self.has_modbus_error(modbus_error) {
+        // Check if any Modbus error is indicated by the FPGA. Bypass this when
+        // reporting the server ID and getting a timeout error, because this
+        // timeout is expected in this specific case.
+        let bypass_modbus_error_check = (received_function_code == CODE_REPORT_SERVER_ID)
+            && (modbus_error == CustomFpgaModbusError::TimeoutRead);
+        if (!bypass_modbus_error_check) && self.has_modbus_error(modbus_error) {
             return None;
         }
 

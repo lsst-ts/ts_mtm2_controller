@@ -43,7 +43,7 @@ pub const MOCK_ILC_GAIN: f32 = 1.455705e-05;
 pub const MOCK_ILC_OFFSET: f32 = 0.0;
 pub const MOCK_ILC_SENSITIVITY: f32 = 1.60876;
 
-pub const MOCK_ILC_SCAN_RATE: u8 = 12;
+pub const MOCK_ILC_SCAN_RATE: u8 = 8;
 
 pub const MOCK_FIRMWARE_NAME: &str = "Electromechanical ILC (c)2017 AURA-LSST";
 pub const MOCK_FIRMWARE_REVISION: &str = "7.1";

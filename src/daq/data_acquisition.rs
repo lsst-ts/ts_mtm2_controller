@@ -1320,6 +1320,11 @@ impl DataAcquisition {
 
     /// Reset the inner-loop controller (ILC).
     ///
+    /// # Notes
+    /// You will always get the FPGA CustomFpgaModbusError::TimeoutRead for the
+    /// actuator ILC until the related firmware is fixed and updated. The
+    /// monitor ILC work fine.
+    ///
     /// # Arguments
     /// * `address` - The 0-based address of ILC.
     ///
@@ -1334,13 +1339,16 @@ impl DataAcquisition {
                 frame_payload = plant.request_ilc(&frame_request);
             }
         } else {
+            // Change the unit of latency from microsecond to millisecond for
+            // the timeout_irq.
             let config = &self.config;
+            let latency = config.latency["reset"];
             frame_payload = self._fpga.request_ilc(
                 &frame_request,
                 1,
                 config.payload_byte["reset"],
-                config.latency["reset"],
-                config.timeout_irq,
+                latency,
+                config.timeout_irq + latency / 1000,
             )?;
 
             // Sleep for a while to make sure the ILC has processed the command
@@ -1359,18 +1367,10 @@ impl DataAcquisition {
     /// * `address` - The 0-based address of ILC.
     /// * `scan_rate` - The scan rate to be set. If None, get the current scan
     ///   rate.
-    /// * `bypass_check_function_code` - A boolean indicating whether to bypass
-    ///   the check of the function code in the response frame. This is for the
-    ///   unit test purpose.
     ///
     /// # Returns
     /// Some with the current scan rate if successful. Otherwise, None.
-    pub fn set_or_get_scan_rate(
-        &mut self,
-        address: u8,
-        scan_rate: Option<u8>,
-        bypass_check_function_code: bool,
-    ) -> Option<u8> {
+    pub fn set_or_get_scan_rate(&mut self, address: u8, scan_rate: Option<u8>) -> Option<u8> {
         let frame_request = match scan_rate {
             Some(rate) => self._ilc.create_frame_set_scan_rate(address, rate),
             None => self._ilc.create_frame_get_scan_rate(address),
@@ -1401,7 +1401,7 @@ impl DataAcquisition {
             return None;
         }
 
-        let received_function_code = if bypass_check_function_code {
+        let received_function_code = if self.is_simulation_mode() {
             CODE_SCAN_RATE
         } else {
             self._fpga
@@ -1452,13 +1452,16 @@ impl DataAcquisition {
                 frame_payload = plant.request_ilc(&frame_request);
             }
         } else {
+            // Change the unit of latency from microsecond to millisecond for
+            // the timeout_irq.
             let config = &self.config;
+            let latency = config.latency["offset_and_sensitivity"];
             frame_payload = self._fpga.request_ilc(
                 &frame_request,
                 1,
                 config.payload_byte["offset_and_sensitivity"],
-                config.latency["offset_and_sensitivity"],
-                config.timeout_irq,
+                latency,
+                config.timeout_irq + latency / 1000,
             )?;
 
             // Sleep for a while to make sure the ILC has processed the command
@@ -2122,12 +2125,12 @@ mod tests {
         let address = 4;
         let scan_rate = 10;
         assert_eq!(
-            data_acquisition.set_or_get_scan_rate(address, Some(scan_rate), true),
+            data_acquisition.set_or_get_scan_rate(address, Some(scan_rate)),
             Some(scan_rate)
         );
 
         assert_eq!(
-            data_acquisition.set_or_get_scan_rate(address, None, true),
+            data_acquisition.set_or_get_scan_rate(address, None),
             Some(scan_rate)
         );
 
