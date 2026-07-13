@@ -101,6 +101,31 @@ Otherwise, you need to read the NI FPGA bitfile (an xml file) to get the require
 Since the safety module needs the NI FPGA hybrid mode and the NI raw dynamic library only allows to load the bitfile of pure FPGA mode, we need to use the LabVIEW application to load the bitfile first to let this Rust-based application to be able to open the session of FPGA to control the hardware as a workaround at the moment.
 Hopefully the NI can support this in the future.
 
+You can use the `loadFpga` executable in [ts_mtm2_cell](https://github.com/lsst-ts/ts_mtm2_cell).
+The related message is in `/var/local/natinst/log/errlog.txt` in cRIO.
+You should see the following messages to confirm the FPGA is loaded and the safety module is under the operational mode:
+
+```text
+07/13/2026	21:40:42	startup.rtexe: Begin to load the FPGA bitfile.
+07/13/2026	21:40:46	startup.rtexe: Load the FPGA bitfile: true.
+07/13/2026	21:40:46	startup.rtexe: Begin to set the safety module.
+07/13/2026	21:40:46	startup.rtexe: Current safety module mode is Operational, and the safety module is running: true.
+```
+
+It can be built and deployed as `/home/lvuser/natinst/bin/startup.rtexe` to be executed at each time when starting the realtime controller.
+This executable can be controlled by `/etc/init.d/nilvrt`.
+For example, do the following to stop the `startup.rtexe`:
+
+```bash
+/etc/init.d/nilvrt stop
+```
+
+To start the `startup.rtexe`, do:
+
+```bash
+/etc/init.d/nilvrt start
+```
+
 ## Deployment
 
 The details can follow [deployment](doc/deployment.md).
