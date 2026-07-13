@@ -52,3 +52,13 @@ log_size: 100000000
 
 # Log files are kept for the specified number of days. Older files are deleted.
 log_file_keep_days: 3
+
+# Sleep time in seconds to wait for the LabVIEW startup execution to finish.
+# This is only meaningful when the application is running with the hardware
+# mode.
+sleep_time_wait_for_labview: 30
+
+# Path of the errlog.txt of the LabVIEW startup execution.
+# This is used to get the FPGA bitfile loading status and the safety module
+# status.
+labview_errlog_path: "/var/local/natinst/log/errlog.txt"
