@@ -21,6 +21,8 @@ namespace telemetry {
   class Telemetry
   class TelemetryPower
   class TelemetryControlLoop
+  class TelemetryFile
+  class TelemetryFileProcess
 }
 
 Telemetry o-- TelemetryPower
@@ -61,6 +63,9 @@ namespace mock {
   class MockPlant
 }
 
+TelemetryFile ..> TelemetryPower
+TelemetryFile ..> TelemetryControlLoop
+
 Model *-- Controller
 Model *-- CommandSchema
 Model ..> CommandController
@@ -71,11 +76,15 @@ Model ..> Event
 Model ..> Telemetry
 Model ..> TelemetryPower
 Model ..> TelemetryControlLoop
+Model ..> TelemetryFile
 Model ..> MockPlant
 Model ..> ControlLoopProcess
 Model ..> PowerSystemProcess
 Model ..> CommandTelemetryServer
 Model ..> DataAcquisitionProcess
+Model ..> TelemetryFileProcess
+
+TelemetryFileProcess ..> TelemetryFile
 
 Controller *-- Status
 Controller *-- ErrorHandler
@@ -308,6 +317,11 @@ TelemetryDefault <|-- TelemetryControlLoop
 
 Telemetry o-- TelemetryPower
 Telemetry o-- TelemetryControlLoop
+
+TelemetryFile ..> TelemetryPower
+TelemetryFile ..> TelemetryControlLoop
+
+TelemetryFileProcess ..> TelemetryFile
 ```
 
 ## Command

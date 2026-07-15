@@ -139,6 +139,30 @@ You can change the log level in the runtime by modifying the [logspecification.t
 The logging files are rotated, and the related parameters are in the [parameters_app.yaml](config/parameters_app.yaml).
 You can adjust the log level of each module individually.
 
+To log the telemetry to the `log/` directory, put the `local_telemetry_file` to be `true` in [parameters_app.yaml](config/parameters_app.yaml).
+This is for the specific use for the data analysis only if the summit engineering feasibility database (EFD) is not available or not enough.
+Usually you should not need it.
+Note you need to rerun the application after changing the setting.
+
+## Read the Telemetry Binary File by Python
+
+The [telemetry_file.py](python/telemetry_file.py) is used to decode the telemetry structure in [telemetry_file.rs](src/telemetry/telemetry_file.rs).
+Their structures should be consistent with each other.
+To read the telemetry binary file, do the followings under the `python/` directory:
+
+```python
+from telemetry_file import TelemetryFile
+telemetry = TelemetryFile.deserialize_from_file("path_to_telemetry_binary_file")
+```
+
+The output is a list of `TelemetryFile` object defined in the above `telemetry_file.py`.
+
+You might need to install the `msgpack` package in Python such as:
+
+```bash
+conda install conda-forge::msgpack-python
+```
+
 ## Code Format
 
 To format the code, do:

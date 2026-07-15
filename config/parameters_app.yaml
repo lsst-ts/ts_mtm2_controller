@@ -1,8 +1,21 @@
 ---
 # Application parameters
 
-# Log the local telemetry file or not
+# Log the local telemetry file or not. This logs the power and control loop
+# telemetry to a local file when the closed-loop control mode is not Idle.
+# The timestamp (in milliseconds) is based on the starting time of the
+# application to make the data easier to analyze.
 local_telemetry_file: false
+
+# Maximum number of local telemetry files to keep.
+local_telemetry_max_files: 5
+
+# Maximum number of bytes to keep in the local telemetry file. If the file size
+# exceeds this limit, the file will be rotated.
+local_telemetry_bytes_limit: 500000000
+
+# Local telemetry file basename.
+local_telemetry_basename: "telemetry.bin"
 
 # Command and telemetry ports for the GUI (graphical user interface) and
 # CSC (commandable SAL component) clients

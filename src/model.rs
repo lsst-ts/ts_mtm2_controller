@@ -32,6 +32,7 @@ use std::{
     },
     thread::{spawn, JoinHandle},
 };
+use tempfile::NamedTempFile;
 
 #[cfg(feature = "realtime")]
 use libc::{pthread_self, pthread_setschedparam, sched_get_priority_max, sched_param, SCHED_FIFO};
@@ -69,7 +70,8 @@ use crate::interface::command_telemetry_server::CommandTelemetryServer;
 use crate::power::power_system_process::PowerSystemProcess;
 use crate::telemetry::{
     event::Event, telemetry::Telemetry, telemetry_control_loop::TelemetryControlLoop,
-    telemetry_default::TelemetryDefault, telemetry_power::TelemetryPower,
+    telemetry_default::TelemetryDefault, telemetry_file::TelemetryFile,
+    telemetry_file_process::TelemetryFileProcess, telemetry_power::TelemetryPower,
 };
 use crate::utility::{
     acknowledge_command, get_message_name, get_message_sequence_id, is_command, is_event,
@@ -105,6 +107,8 @@ pub struct Model {
             Option<SyncSender<Vec<Value>>>,
         ),
     >,
+    // Sender of the telemetry to the telemetry file process.
+    _sender_to_telemetry_file_process: Option<SyncSender<TelemetryFile>>,
     // Sender of the telemetry to the model.
     _sender_to_model: Option<SyncSender<Telemetry>>,
     // An Arc instance that holds the AtomicBool instance to stop the threads.
@@ -182,6 +186,8 @@ impl Model {
             _receiver_to_model: receiver_to_model,
 
             _senders_to_tcp: senders_to_tcp,
+
+            _sender_to_telemetry_file_process: None,
 
             _sender_to_model: Some(sender_to_model),
 
@@ -299,6 +305,8 @@ impl Model {
             sender_to_daq,
             receiver_to_daq,
         );
+
+        self._sender_to_telemetry_file_process = self.run_telemetry_file_process(None);
 
         // Drop the internal sender to the model. This is to let the self.step()
         // wakes up when all the senders are dropped once we stop the
@@ -591,6 +599,58 @@ impl Model {
         }
     }
 
+    /// Run the telemetry file process.
+    ///
+    /// # Arguments
+    /// * `tempfile_path` - Optional path to the telemetry file. This is for
+    ///   the test purpose only. If this is None, the telemetry file process
+    ///   will be run according to the configuration file.
+    ///
+    /// # Returns
+    /// The sender to the telemetry file process.
+    fn run_telemetry_file_process(
+        &mut self,
+        tempfile_path: Option<&NamedTempFile>,
+    ) -> Option<SyncSender<TelemetryFile>> {
+        let config_file = Path::new("config/parameters_app.yaml");
+        let is_telemetry_file_on = if tempfile_path.is_some() {
+            true
+        } else {
+            get_parameter(config_file, "local_telemetry_file")
+        };
+
+        if is_telemetry_file_on {
+            let log_directory: String = get_parameter(config_file, "log_directory");
+            let basename: String = get_parameter(config_file, "local_telemetry_basename");
+            let filepath_in_configuration = format!("{log_directory}/{basename}");
+
+            let final_filepath = if let Some(path) = tempfile_path {
+                path.path()
+            } else {
+                Path::new(&filepath_in_configuration)
+            };
+
+            let mut telemetry_file_process = TelemetryFileProcess::new(
+                final_filepath,
+                get_parameter(config_file, "local_telemetry_max_files"),
+                get_parameter(config_file, "local_telemetry_bytes_limit"),
+                get_parameter(config_file, "timeout"),
+                &self.stop,
+            );
+            let sender = telemetry_file_process.get_sender_to_telemetry_file_process();
+
+            let handle = spawn(move || {
+                telemetry_file_process.run();
+            });
+
+            self._handles.push(handle);
+
+            Some(sender)
+        } else {
+            None
+        }
+    }
+
     /// Step the model. This function has a blocking call to wait for the
     /// new telemetry.
     pub fn step(&mut self) {
@@ -702,6 +762,15 @@ impl Model {
                                 messages.append(
                                     &mut telemetry_power.get_messages(self._telemetry_digit),
                                 );
+
+                                // Send the telemetry to the telemetry file
+                                // process.
+                                if let Some(sender) = &self._sender_to_telemetry_file_process {
+                                    let _ = sender.try_send(TelemetryFile::new(
+                                        telemetry_power,
+                                        &telemetry_control_loop,
+                                    ));
+                                }
                             }
 
                             self.publish_telemetry(messages);
@@ -1154,6 +1223,7 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::thread::sleep;
     use std::time::Duration;
+    use tempfile::NamedTempFile;
 
     use crate::command::command_data_acquisition::CommandSetDataAcquisitionMode;
     use crate::constants::NUM_INNER_LOOP_CONTROLLER;
@@ -1334,6 +1404,19 @@ mod tests {
         );
 
         model.stop();
+    }
+
+    #[test]
+    fn test_run_telemetry_file_process() {
+        let mut model = create_model();
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let sender = model.run_telemetry_file_process(Some(&temp_file));
+
+        assert!(sender.is_some());
+
+        model.stop();
+        temp_file.close().unwrap();
     }
 
     #[test]
