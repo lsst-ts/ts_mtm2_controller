@@ -20,11 +20,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use flexi_logger::LoggerHandle;
-use log::info;
+use log::{info, warn};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     flag::register,
 };
+use std::fs::read_to_string;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::thread::sleep;
@@ -58,8 +59,19 @@ pub fn run(
     };
     info!("Run the M2 control system in {mode}.");
 
-    // Decide the ports to the TCP/IP servers
+    // Read the FPGA bitfile status and safety module status.
     let config_file = Path::new("config/parameters_app.yaml");
+
+    if !is_simulation_mode {
+        let sleep_time_wait_for_labview = get_parameter(config_file, "sleep_time_wait_for_labview");
+        info!("Wait for {sleep_time_wait_for_labview} seconds for the LabVIEW startup execution to finish.");
+        sleep(Duration::from_secs(sleep_time_wait_for_labview));
+
+        let labview_errlog_path: String = get_parameter(config_file, "labview_errlog_path");
+        read_labview_errlog(Path::new(&labview_errlog_path), 4);
+    }
+
+    // Decide the ports to the TCP/IP servers
     let (final_port_command_gui, final_port_telemetry_gui) =
         get_final_ports(config_file, port_command_gui, port_telemetry_gui, true);
     let (final_port_command_csc, final_port_telemetry_csc) =
@@ -97,6 +109,74 @@ pub fn run(
     // Wait for all the threads to stop and log the messages
     sleep(Duration::from_millis(1000));
     info!("M2 control system should be stopped.");
+}
+
+/// Read the LabVIEW errlog.txt to get the statuses of FPGA bitfile and safety
+/// module.
+///
+/// # Arguments
+/// * `filepath` - Path to the LabVIEW errlog.txt file.
+/// * `last_lines_to_read` - Number of last lines to read from the errlog file.
+///
+/// # Returns
+/// A vector of strings containing the messages read from the errlog file, or
+/// None if the file does not exist.
+fn read_labview_errlog(filepath: &Path, last_lines_to_read: usize) -> Option<Vec<String>> {
+    if filepath.exists() {
+        info!(
+            "Read the statuses of FPGA bitfile and safety module in LabVIEW: {:?}.",
+            filepath
+        );
+
+        let mut messages = Vec::new();
+        if let Ok(lines) = read_to_string(filepath) {
+            let content: Vec<&str> = lines.lines().collect();
+            let last_lines = content
+                .iter()
+                .rev()
+                .take(last_lines_to_read)
+                .collect::<Vec<&&str>>();
+            for line in last_lines.iter().rev() {
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() < 3 {
+                    warn!("Invalid line in LabVIEW errlog.txt: {line}");
+                    continue;
+                }
+                let message = format!("{} ({})", parts[2], reformat_timestamp(parts[0], parts[1]));
+
+                info!("{}", message);
+
+                messages.push(message);
+            }
+        }
+
+        info!("Finished the reading of LabVIEW errlog.txt.");
+
+        Some(messages)
+    } else {
+        warn!(
+            "LabVIEW errlog.txt does not exist. Please check the path: {:?}.",
+            filepath
+        );
+
+        None
+    }
+}
+
+/// Reformat the timestamp from the LabVIEW errlog.txt.
+///
+/// # Arguments
+/// * `date` - Date string in the format "MM/DD/YYYY".
+/// * `time` - Time string in the format "HH:MM:SS".
+///
+/// # Returns
+/// * Reformatted timestamp string in the format "YYYY/MM/DD HH:MM:SS".
+fn reformat_timestamp(date: &str, time: &str) -> String {
+    let date_parts: Vec<&str> = date.split('/').collect();
+    format!(
+        "{}/{}/{} {}",
+        date_parts[2], date_parts[0], date_parts[1], time
+    )
 }
 
 /// Get the final ports.
@@ -148,6 +228,37 @@ fn get_final_ports(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::fs::write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_read_labview_errlog() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let errlog_content = "07/13/2026\t21:40:46\tstartup.rtexe: Begin to load the FPGA bitfile.\n07/13/2026\t21:40:47\tstartup.rtexe: Load the FPGA bitfile: true.\n";
+        write(&temp_file, errlog_content).unwrap();
+
+        let messages = read_labview_errlog(temp_file.path(), 2).unwrap();
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(
+            messages[0],
+            "startup.rtexe: Begin to load the FPGA bitfile. (2026/07/13 21:40:46)"
+        );
+        assert_eq!(
+            messages[1],
+            "startup.rtexe: Load the FPGA bitfile: true. (2026/07/13 21:40:47)"
+        );
+
+        temp_file.close().unwrap();
+    }
+
+    #[test]
+    fn test_reformat_timestamp() {
+        let reformatted_timestamp = reformat_timestamp("07/13/2026", "21:40:46");
+
+        assert_eq!(reformatted_timestamp, "2026/07/13 21:40:46");
+    }
 
     #[test]
     fn test_get_final_ports() {

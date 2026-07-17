@@ -1,5 +1,11 @@
 # Version History
 
+0.5.8
+
+- Add the **sleep_time_wait_for_labview** and **labview_errlog_path** to the `parameters_app.yaml`.
+- Add the `read_labview_errlog()` and `reformat_timestamp()` in `application.rs`.
+- Update the `README.md` and `deployment.md`.
+
 0.5.7
 
 - Update the dependencies.
