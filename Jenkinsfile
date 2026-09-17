@@ -4,7 +4,7 @@ pipeline {
 
     agent {
         docker {
-            image 'lsstts/rust:develop'
+            image 'rubincr.lsst.org/rust:develop'
         }
     }
 

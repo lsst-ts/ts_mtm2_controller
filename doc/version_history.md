@@ -1,5 +1,9 @@
 # Version History
 
+0.5.9
+
+- Use the `rubincr.lsst.org` for docker image in `Jenkinsfile`.
+
 0.5.8
 
 - Add the **sleep_time_wait_for_labview** and **labview_errlog_path** to the `parameters_app.yaml`.
