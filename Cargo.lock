@@ -1760,7 +1760,7 @@ dependencies = [
 [[package]]
 name = "ts_control_utils"
 version = "0.1.0"
-source = "git+https://github.com/lsst-ts/ts_control_utils.git?branch=develop#b74a580adc0a127758df884d9ab938e97327dfad"
+source = "git+https://github.com/lsst-ts/ts_control_utils.git?branch=develop#64047232bf97bda0e8cab7aa7af123392a008aef"
 dependencies = [
  "approx",
  "config",
