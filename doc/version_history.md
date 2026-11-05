@@ -1,5 +1,9 @@
 # Version History
 
+0.5.10
+
+- Report the event of force balance system in the welcome message.
+
 0.5.9
 
 - Use the `rubincr.lsst.org` for docker image in `Jenkinsfile`.
