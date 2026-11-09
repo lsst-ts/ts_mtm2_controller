@@ -53,6 +53,7 @@ namespace power {
 namespace daq {
   class DataAcquisitionProcess
   class InnerLoopController
+  class ConfigDataAcquisition
 }
 
 namespace interface {
@@ -104,6 +105,7 @@ Config *-- Lut
 
 ErrorHandler *-- Config
 ErrorHandler *-- ConfigPower
+ErrorHandler *-- ConfigDataAcquisition
 ErrorHandler "1" *-- "78" Actuator
 ErrorHandler ..> TelemetryControlLoop
 ErrorHandler ..> InnerLoopController
