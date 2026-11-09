@@ -1,5 +1,11 @@
 # Version History
 
+0.5.10
+
+- Update the `ErrorHandler.check_condition_control_loop()` to avoid the failure of system immediately after reading the abnormal encoder values.
+Only fail the system if we have consecutive abnormal readings.
+- Update the class diagram.
+
 0.5.9
 
 - Use the `rubincr.lsst.org` for docker image in `Jenkinsfile`.
