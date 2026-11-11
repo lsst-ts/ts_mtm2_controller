@@ -1330,7 +1330,7 @@ dependencies = [
 
 [[package]]
 name = "run_m2"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "approx",
  "chrono",
