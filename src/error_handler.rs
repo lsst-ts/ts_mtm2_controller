@@ -27,7 +27,9 @@ use strum::IntoEnumIterator;
 use crate::config::Config;
 use crate::constants::NUM_AXIAL_ACTUATOR;
 use crate::control::actuator::Actuator;
-use crate::daq::inner_loop_controller::InnerLoopController;
+use crate::daq::{
+    config_data_acquisition::ConfigDataAcquisition, inner_loop_controller::InnerLoopController,
+};
 use crate::enums::{DigitalInput, DigitalOutput, ErrorCode, PowerType};
 use crate::power::config_power::ConfigPower;
 use crate::telemetry::{
@@ -40,6 +42,8 @@ pub struct ErrorHandler {
     pub config_control_loop: Config,
     // Configuration of the power system.
     pub config_power: ConfigPower,
+    // Configuration of the data acquisition system.
+    pub config_data_acquisition: ConfigDataAcquisition,
     // Actuators
     pub actuators: Vec<Actuator>,
     // Summary of the faults status.
@@ -49,6 +53,11 @@ pub struct ErrorHandler {
     // The hash set of ilc contains the 0-based actuator index that has the
     // fault or triggered limit switches.
     pub ilc: HashMap<String, HashSet<i32>>,
+    // Count of abnormal readings from the encoders. We might get the rare
+    // abnormal encoder readings, but we do not want to trigger a fault for
+    // them immediately. Therefore, we keep a count of consecutive abnormal
+    // readings for each type of encoders.
+    _count_abnormal_reading_encoder: HashMap<String, i32>,
     // Count of the cycle time that is out of the maximum continuously.
     _count_out_max_cycle_time: i32,
     // Counts to check the power voltages.
@@ -74,6 +83,11 @@ impl ErrorHandler {
                 ilc.insert(String::from(*key), HashSet::new());
             });
 
+        let mut count_abnormal_reading_encoder = HashMap::new();
+        ["axial", "tangent"].iter().for_each(|key| {
+            count_abnormal_reading_encoder.insert(String::from(*key), 0);
+        });
+
         // Calculate the maximum counts to check the voltages.
         let config_power = ConfigPower::new();
         let max_count_voltage_communication = config_power
@@ -85,12 +99,14 @@ impl ErrorHandler {
         Self {
             config_control_loop: config_control_loop.clone(),
             config_power,
+            config_data_acquisition: ConfigDataAcquisition::new(),
             actuators: Actuator::from_cell_mapping_file(Path::new(
                 "config/cell/cell_actuator_mapping.yaml",
             )),
             summary_faults_status: 0,
             _faults_mask: Self::get_faults_mask(),
             ilc,
+            _count_abnormal_reading_encoder: count_abnormal_reading_encoder,
             _count_out_max_cycle_time: 0,
 
             _count_voltage_communication: 0,
@@ -137,6 +153,11 @@ impl ErrorHandler {
             value.clear();
         });
 
+        self._count_abnormal_reading_encoder
+            .iter_mut()
+            .for_each(|(_, value)| {
+                *value = 0;
+            });
         self._count_out_max_cycle_time = 0;
     }
 
@@ -223,9 +244,42 @@ impl ErrorHandler {
         // data.
         if telemetry.seq_id_move_actuator_steps > 0 {
             if self.is_encoder_out_limit(&telemetry.ilc_encoders, true) {
+                // Increment the count of abnormal readings for the axial
+                // encoder.
+                self._count_abnormal_reading_encoder
+                    .entry(String::from("axial"))
+                    .and_modify(|count| *count += 1)
+                    .or_insert(0);
+            } else {
+                // Reset the count of abnormal readings for the axial encoder.
+                self._count_abnormal_reading_encoder
+                    .insert(String::from("axial"), 0);
+            }
+
+            // Add a fault if the count of abnormal readings for the axial
+            // encoder exceeds the limit.
+            let ilc_stale_data_limit = self.config_data_acquisition.ilc_stale_data_limit;
+            if self._count_abnormal_reading_encoder["axial"] >= ilc_stale_data_limit {
                 self.add_error(ErrorCode::FaultAxialActuatorEncoderRange);
             }
+
             if self.is_encoder_out_limit(&telemetry.ilc_encoders, false) {
+                // Increment the count of abnormal readings for the tangent
+                // encoder.
+                self._count_abnormal_reading_encoder
+                    .entry(String::from("tangent"))
+                    .and_modify(|count| *count += 1)
+                    .or_insert(0);
+            } else {
+                // Reset the count of abnormal readings for the tangent
+                // encoder.
+                self._count_abnormal_reading_encoder
+                    .insert(String::from("tangent"), 0);
+            }
+
+            // Add a fault if the count of abnormal readings for the tangent
+            // encoder exceeds the limit.
+            if self._count_abnormal_reading_encoder["tangent"] >= ilc_stale_data_limit {
                 self.add_error(ErrorCode::FaultTangentActuatorEncoderRange);
             }
 
@@ -364,14 +418,23 @@ impl ErrorHandler {
     fn is_encoder_out_limit(&mut self, encoders: &[i32], is_axial: bool) -> bool {
         let limit_encoder_value = self.config_control_loop.limit_encoder_value;
         if is_axial {
-            for encoder in encoders[0..NUM_AXIAL_ACTUATOR].iter() {
+            for (idx, encoder) in encoders[0..NUM_AXIAL_ACTUATOR].iter().enumerate() {
                 if encoder.abs() > limit_encoder_value {
+                    warn!(
+                        "Axial encoder value out of limit: {} at index {}.",
+                        encoder, idx
+                    );
                     return true;
                 }
             }
         } else {
-            for encoder in encoders[NUM_AXIAL_ACTUATOR..].iter() {
+            for (idx, encoder) in encoders[NUM_AXIAL_ACTUATOR..].iter().enumerate() {
                 if encoder.abs() > limit_encoder_value {
+                    warn!(
+                        "Tangent encoder value out of limit: {} at index {}.",
+                        encoder,
+                        idx + NUM_AXIAL_ACTUATOR
+                    );
                     return true;
                 }
             }
@@ -431,21 +494,33 @@ impl ErrorHandler {
 
         let is_out_limit_total_weight = tangent_force_error[6].abs()
             >= tangent_force_error_threshold["tangent_link_total_weight_error"];
+        if is_out_limit_total_weight {
+            error!("Tangent link total weight error out of limit.");
+        }
 
         let is_out_limit_theta_z = tangent_force_error[7].abs()
             >= tangent_force_error_threshold["tangent_link_theta_z_moment"];
+        if is_out_limit_theta_z {
+            error!("Tangent link theta z moment error out of limit.");
+        }
 
         // Tangent link: A1, A4
         let is_out_limit_non_load = [0, 3].iter().any(|idx| {
             tangent_force_error[*idx].abs()
                 >= tangent_force_error_threshold["tangent_link_non_load_bearing_link"]
         });
+        if is_out_limit_non_load {
+            error!("Tangent link non-load bearing link error out of limit.");
+        }
 
         // Tangent link: A2, A3, A5, A6
         let is_out_limit_load = [1, 2, 4, 5].iter().any(|idx| {
             tangent_force_error[*idx].abs()
                 >= tangent_force_error_threshold["tangent_link_load_bearing_link"]
         });
+        if is_out_limit_load {
+            error!("Tangent link load bearing link error out of limit.");
+        }
 
         is_out_limit_total_weight
             || is_out_limit_theta_z
@@ -958,12 +1033,23 @@ mod tests {
         error_handler.summary_faults_status = 0b1010;
         error_handler.ilc.get_mut("fault").unwrap().insert(1);
 
+        error_handler
+            ._count_abnormal_reading_encoder
+            .insert(String::from("axial"), 1);
+        error_handler
+            ._count_abnormal_reading_encoder
+            .insert(String::from("tangent"), 1);
+
         error_handler._count_out_max_cycle_time = 1;
 
         error_handler.clear();
 
         assert_eq!(error_handler.summary_faults_status, 0);
         assert_eq!(error_handler.ilc["fault"].len(), 0);
+
+        assert_eq!(error_handler._count_abnormal_reading_encoder["axial"], 0);
+        assert_eq!(error_handler._count_abnormal_reading_encoder["tangent"], 0);
+
         assert_eq!(error_handler._count_out_max_cycle_time, 0);
     }
 
@@ -1033,6 +1119,7 @@ mod tests {
     fn test_check_condition_control_loop() {
         let mut error_handler = create_error_handler();
 
+        // No encoder errors initially
         let mut telemetry = TelemetryControlLoop::new();
         telemetry.seq_id_move_actuator_steps = 1;
         if let Some(value) = telemetry.forces.get_mut("measured") {
@@ -1060,7 +1147,40 @@ mod tests {
 
         error_handler.check_condition_control_loop(&telemetry, true);
 
-        let expected_faults_status = [
+        let expected_faults_status_without_encoder_fault = [
+            ErrorCode::FaultActuatorIlcRead,
+            ErrorCode::FaultActuatorLimitCL,
+            ErrorCode::FaultExcessiveForce,
+            ErrorCode::WarnMirrorTempSensor,
+            ErrorCode::WarnCellTemp,
+            ErrorCode::WarnTempDiff,
+            ErrorCode::WarnDisplacementSensorRange,
+            ErrorCode::FaultInclinometerRange,
+            ErrorCode::FaultCommVoltage,
+        ]
+        .iter()
+        .fold(0, |acc, error_code| acc + error_code.bit_value());
+
+        assert_eq!(
+            error_handler.summary_faults_status,
+            expected_faults_status_without_encoder_fault
+        );
+
+        // Should have the encoder errors included in the faults status
+        for idx in 0..error_handler.config_data_acquisition.ilc_stale_data_limit {
+            error_handler.check_condition_control_loop(&telemetry, true);
+
+            assert_eq!(
+                error_handler._count_abnormal_reading_encoder["axial"],
+                idx + 2
+            );
+            assert_eq!(
+                error_handler._count_abnormal_reading_encoder["tangent"],
+                idx + 2
+            );
+        }
+
+        let expected_faults_status_with_encoder_fault = [
             ErrorCode::FaultActuatorIlcRead,
             ErrorCode::FaultActuatorLimitCL,
             ErrorCode::FaultExcessiveForce,
@@ -1076,7 +1196,10 @@ mod tests {
         .iter()
         .fold(0, |acc, error_code| acc + error_code.bit_value());
 
-        assert_eq!(error_handler.summary_faults_status, expected_faults_status);
+        assert_eq!(
+            error_handler.summary_faults_status,
+            expected_faults_status_with_encoder_fault
+        );
     }
 
     #[test]
