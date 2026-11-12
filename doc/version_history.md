@@ -1,5 +1,9 @@
 # Version History
 
+0.5.11
+
+- Report the event of force balance system in the welcome message.
+
 0.5.10
 
 - Update the `ErrorHandler.check_condition_control_loop()` to avoid the failure of system immediately after reading the abnormal encoder values.

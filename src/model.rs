@@ -1186,6 +1186,9 @@ impl Model {
             Event::get_message_digital_output(status.digital_output),
             Event::get_message_config(config, &controller.error_handler.config_power),
             Event::get_message_closed_loop_control_mode(status.mode_control_loop),
+            Event::get_message_force_balance_system_status(
+                status.mode_control_loop == ClosedLoopControlMode::ClosedLoop,
+            ),
             Event::get_message_enabled_faults_mask(config.enabled_faults_mask),
             Event::get_message_summary_faults_status(status.summary_faults_status),
             Event::get_message_configuration_files(&config.filename),
@@ -2092,7 +2095,7 @@ mod tests {
 
         let messages = Model::get_welcome_messages(&model._controller);
 
-        assert_eq!(messages.len(), 102);
+        assert_eq!(messages.len(), 103);
     }
 
     #[test]
@@ -2112,7 +2115,7 @@ mod tests {
             wait_for_connection(&mut model);
 
             let messages = consume_welcome_messages(&model, &mut client_command);
-            assert_eq!(messages.len(), 102);
+            assert_eq!(messages.len(), 103);
 
             // Check the summary faults status message
             let message = get_specific_message(&messages, "summaryFaultsStatus");
